@@ -4,6 +4,7 @@ import { CollaborativeEditor, createImporter, type EditorUser } from "@selfnote/
 import { api, ensureWorkspace, isAuthed, type Document, type ResolvedShare, type AiStatus } from "./api";
 import { AssistPanel, type AiEditor } from "./AssistPanel";
 import { importObsidianVault, type ImportProgress } from "./obsidian";
+import { ConnectionsModal } from "./Connections";
 import { syncUrl, needsOnboarding, saveServer, deriveFromBase } from "./server";
 
 // Derived from the page origin in the browser; absolute when a server is configured.
@@ -103,7 +104,11 @@ function AppRoot() {
       const wsId = await ensureWorkspace();
       setWorkspaceId(wsId);
       const list = await reload(wsId);
-      setActiveId((cur) => cur ?? list[0]?.id ?? null);
+      // Honor a #doc-<id> deep link (e.g. the location a saved conversation
+      // reports), otherwise fall back to the current or first page.
+      const deepLink = window.location.hash.match(/#doc-([\w-]+)/)?.[1];
+      const target = deepLink && list.some((d) => d.id === deepLink) ? deepLink : null;
+      setActiveId((cur) => target ?? cur ?? list[0]?.id ?? null);
       setAuthed(true);
     } catch (e) {
       if ((e as { status?: number }).status === 401) setAuthed(false);
@@ -360,6 +365,7 @@ function Sidebar({
   onLogout: () => void;
   onImport: () => void;
 }) {
+  const [showConnections, setShowConnections] = useState(false);
   const childrenOf = useMemo(() => {
     const map = new Map<string | null, Document[]>();
     for (const d of docs) {
@@ -411,10 +417,14 @@ function Sidebar({
         <button className="foot-btn" onClick={onImport}>
           ⬇ Import Obsidian vault
         </button>
+        <button className="foot-btn" onClick={() => setShowConnections(true)}>
+          ⚙ Connections
+        </button>
         <button className="foot-btn" onClick={onLogout}>
           Log out
         </button>
       </div>
+      {showConnections && <ConnectionsModal onClose={() => setShowConnections(false)} />}
     </aside>
   );
 }

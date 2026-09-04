@@ -33,6 +33,9 @@ jobs:
           - image: selfnote-operator
             dockerfile: operator/Dockerfile
             context: operator
+          - image: selfnote-mcp
+            dockerfile: tools/mcp-server/Dockerfile
+            context: tools/mcp-server
     steps:
       - uses: actions/checkout@v4
 

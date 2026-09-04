@@ -15,9 +15,12 @@ cleanly across devices and offline sessions, and a block editor
 - **Offline-first** — keep editing with no connection; changes reconcile on reconnect.
 - **One design, three clients** — a shared "Ink & Paper" design system with light/dark
   mode across web, desktop (Tauri), and mobile (Expo/React Native).
-- **AI Assist** — an in-editor panel (Continue / Summarize / Ideas / Improve / Ask) that
-  only appears when *your* server has an AI backend configured. Suggestions insert into
-  the doc and sync like any other edit.
+- **AI Assist** — a Claude-style chat in the editor sidebar that streams replies, is
+  grounded in the current note, and drops any answer straight into the doc. Appears only
+  when *your* server has an AI backend configured.
+- **Save from any Claude (MCP)** — an MCP server + skill so Claude in the CLI, Desktop, or
+  claude.ai can file a summary of an unrelated conversation into your notes and hand back
+  the link. See [`docs/mcp.md`](docs/mcp.md).
 - **Page tree** — nested pages, rename, archive, search.
 - **Sharing** — public read/write share links via short-lived room tokens.
 - **Self-hostable everywhere** — nothing is hardcoded: native apps ask which instance to
@@ -161,7 +164,17 @@ origin serves the whole app).
 On Kubernetes the chart has an `ai:` block that wires this for you (pick a provider,
 point at a secret) — no manual `kubectl set env`. See
 [`docs/ai-setup.md`](docs/ai-setup.md) for env and Helm details.
-`/ai/complete` enforces workspace membership for the referenced document.
+The chat (`/ai/chat/stream`) and `/ai/complete` enforce workspace membership for the
+referenced document.
+
+## Connecting Claude elsewhere (MCP)
+
+Beyond the in-app assistant, an [MCP server](tools/mcp-server) lets Claude running in the
+**CLI, Desktop, or claude.ai** write into this instance — most usefully, summarizing the
+current conversation into a note and returning its link. You mint a personal access token
+in the app's **Connections** settings, point the server at your instance, and (optionally)
+install the `save-to-selfnote` skill. Full setup, local and remote, is in
+[`docs/mcp.md`](docs/mcp.md).
 
 ## Testing
 

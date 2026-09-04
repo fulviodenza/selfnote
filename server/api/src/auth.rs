@@ -3,13 +3,15 @@
 use argon2::password_hash::rand_core::OsRng;
 use argon2::password_hash::{PasswordHash, PasswordHasher, PasswordVerifier, SaltString};
 use argon2::Argon2;
-use axum::extract::{FromRef, FromRequestParts, State};
+use axum::extract::{FromRef, FromRequestParts, Path, State};
 use axum::http::request::Parts;
+use axum::http::StatusCode;
 use axum::Json;
-use chrono::Utc;
+use chrono::{DateTime, Utc};
 use selfnote_common::AccessClaims;
 use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
+use sqlx::FromRow;
 use uuid::Uuid;
 
 use crate::error::{ApiResult, AppError};
@@ -55,6 +57,24 @@ where
             .and_then(|v| v.to_str().ok())
             .ok_or(AppError::Unauthorized)?;
         let token = header.strip_prefix("Bearer ").ok_or(AppError::Unauthorized)?;
+
+        // Personal access tokens ("snp_…") authenticate headless integrations
+        // (the MCP server, scripts). Look them up by hash and stamp last-used so
+        // users can see which tokens are live.
+        if token.starts_with("snp_") {
+            let hash = sha256_hex(token);
+            let row: Option<(Uuid, String)> = sqlx::query_as(
+                "update api_tokens set last_used_at = now() from users \
+                 where api_tokens.token_hash = $1 and users.id = api_tokens.user_id \
+                 returning api_tokens.user_id, users.email",
+            )
+            .bind(&hash)
+            .fetch_optional(&app.pool)
+            .await?;
+            let (id, email) = row.ok_or(AppError::Unauthorized)?;
+            return Ok(AuthUser { id, email });
+        }
+
         let claims: AccessClaims =
             selfnote_common::verify(token, &app.jwt_secret).map_err(|_| AppError::Unauthorized)?;
         let id = Uuid::parse_str(&claims.sub).map_err(|_| AppError::Unauthorized)?;
@@ -220,4 +240,88 @@ pub async fn refresh(
         user_id,
         email: email.0,
     }))
+}
+
+/* --------------------------------------------- personal access tokens --- */
+
+#[derive(Debug, Deserialize)]
+pub struct CreateTokenReq {
+    pub name: String,
+}
+
+#[derive(Debug, Serialize)]
+pub struct CreatedToken {
+    pub id: Uuid,
+    pub name: String,
+    /// The plaintext token — shown exactly once, never stored.
+    pub token: String,
+    pub created_at: DateTime<Utc>,
+}
+
+/// Mint a personal access token for the caller (used to connect the MCP server
+/// or scripts). The plaintext is returned once here and only its hash is kept.
+pub async fn create_token(
+    State(state): State<AppState>,
+    user: AuthUser,
+    Json(body): Json<CreateTokenReq>,
+) -> ApiResult<Json<CreatedToken>> {
+    let name = body.name.trim();
+    if name.is_empty() {
+        return Err(AppError::BadRequest("token name is required".into()));
+    }
+    let token = format!("snp_{}", random_token());
+    let hash = sha256_hex(&token);
+    let row: (Uuid, DateTime<Utc>) = sqlx::query_as(
+        "insert into api_tokens (user_id, name, token_hash) values ($1, $2, $3) \
+         returning id, created_at",
+    )
+    .bind(user.id)
+    .bind(name)
+    .bind(&hash)
+    .fetch_one(&state.pool)
+    .await?;
+    Ok(Json(CreatedToken {
+        id: row.0,
+        name: name.to_string(),
+        token,
+        created_at: row.1,
+    }))
+}
+
+#[derive(Debug, Serialize, FromRow)]
+pub struct TokenInfo {
+    pub id: Uuid,
+    pub name: String,
+    pub created_at: DateTime<Utc>,
+    pub last_used_at: Option<DateTime<Utc>>,
+}
+
+pub async fn list_tokens(
+    State(state): State<AppState>,
+    user: AuthUser,
+) -> ApiResult<Json<Vec<TokenInfo>>> {
+    let rows: Vec<TokenInfo> = sqlx::query_as(
+        "select id, name, created_at, last_used_at from api_tokens \
+         where user_id = $1 order by created_at desc",
+    )
+    .bind(user.id)
+    .fetch_all(&state.pool)
+    .await?;
+    Ok(Json(rows))
+}
+
+pub async fn delete_token(
+    State(state): State<AppState>,
+    user: AuthUser,
+    Path(id): Path<Uuid>,
+) -> ApiResult<StatusCode> {
+    let res = sqlx::query("delete from api_tokens where id = $1 and user_id = $2")
+        .bind(id)
+        .bind(user.id)
+        .execute(&state.pool)
+        .await?;
+    if res.rows_affected() == 0 {
+        return Err(AppError::NotFound);
+    }
+    Ok(StatusCode::NO_CONTENT)
 }

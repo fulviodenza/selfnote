@@ -180,7 +180,129 @@ export const api = {
     selection?: string;
     context?: string;
   }) => req<AiComplete>("/ai/complete", { method: "POST", body: JSON.stringify(body) }),
+
+  /** Multi-turn chat, non-streaming (fallback). */
+  aiChat: (body: ChatRequest) =>
+    req<AiComplete>("/ai/chat", { method: "POST", body: JSON.stringify(body) }),
 };
+
+export interface ChatMessage {
+  role: "user" | "assistant";
+  content: string;
+}
+export interface ChatRequest {
+  doc_id?: string;
+  messages: ChatMessage[];
+  context?: string;
+  selection?: string;
+}
+export interface ChatStreamHandlers {
+  onDelta: (text: string) => void;
+  onDone?: () => void;
+  onError?: (message: string) => void;
+}
+export interface ChatStreamHandle {
+  abort: () => void;
+}
+
+/**
+ * Stream POST /ai/chat/stream via XMLHttpRequest — React Native's fetch can't
+ * expose an incremental response body, but XHR's growing `responseText` can be
+ * parsed as SSE frames arrive. Refreshes the access token once on a 401.
+ */
+export function aiChatStream(body: ChatRequest, handlers: ChatStreamHandlers): ChatStreamHandle {
+  let xhr: XMLHttpRequest | null = null;
+  let aborted = false;
+  let done = false;
+  const finish = () => {
+    if (!done) {
+      done = true;
+      handlers.onDone?.();
+    }
+  };
+
+  const start = (allowRefresh: boolean) => {
+    const x = new XMLHttpRequest();
+    xhr = x;
+    x.open("POST", `${getSettings().apiUrl}/ai/chat/stream`);
+    x.setRequestHeader("content-type", "application/json");
+    if (accessToken) x.setRequestHeader("authorization", `Bearer ${accessToken}`);
+
+    let offset = 0;
+    let buf = "";
+    let refreshing = false;
+
+    const parse = () => {
+      const text = x.responseText;
+      if (text.length <= offset) return;
+      buf += text.slice(offset);
+      offset = text.length;
+      let sep: number;
+      while ((sep = buf.indexOf("\n\n")) !== -1) {
+        const frame = buf.slice(0, sep);
+        buf = buf.slice(sep + 2);
+        let event = "message";
+        const dataLines: string[] = [];
+        for (const line of frame.split("\n")) {
+          if (line.startsWith("event:")) event = line.slice(6).trim();
+          else if (line.startsWith("data:")) dataLines.push(line.slice(5).replace(/^ /, ""));
+        }
+        const data = dataLines.join("\n");
+        if (event === "error") {
+          try {
+            handlers.onError?.(JSON.parse(data).error ?? "Assist failed.");
+          } catch {
+            handlers.onError?.("Assist failed.");
+          }
+        } else if (event !== "done") {
+          try {
+            const j = JSON.parse(data) as { delta?: string };
+            if (typeof j.delta === "string") handlers.onDelta(j.delta);
+          } catch {
+            /* keep-alive or partial frame */
+          }
+        }
+      }
+    };
+
+    x.onreadystatechange = () => {
+      if (x.readyState === 2 && x.status === 401 && allowRefresh) {
+        refreshing = true;
+        x.abort();
+        void tryRefresh().then((ok) => {
+          if (aborted) return;
+          if (ok) start(false);
+          else handlers.onError?.("Session expired. Please sign in again.");
+        });
+      }
+    };
+    x.onprogress = () => {
+      if (!refreshing) parse();
+    };
+    x.onload = () => {
+      if (!refreshing) {
+        parse();
+        finish();
+      }
+    };
+    x.onerror = () => {
+      if (!refreshing && !aborted) {
+        handlers.onError?.("Network error.");
+        finish();
+      }
+    };
+    x.send(JSON.stringify(body));
+  };
+
+  start(true);
+  return {
+    abort: () => {
+      aborted = true;
+      done = true;
+      xhr?.abort();
+    },
+  };
+}
 
 export interface AiStatus {
   available: boolean;

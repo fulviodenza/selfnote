@@ -15,7 +15,7 @@ mod workspaces;
 
 use std::net::SocketAddr;
 
-use axum::routing::{get, post};
+use axum::routing::{delete, get, post};
 use axum::Router;
 use sqlx::postgres::PgPoolOptions;
 use tower_http::cors::CorsLayer;
@@ -55,9 +55,13 @@ async fn main() -> anyhow::Result<()> {
         .route("/healthz", get(|| async { "ok" }))
         .route("/ai/status", get(ai::status))
         .route("/ai/complete", post(ai::complete))
+        .route("/ai/chat", post(ai::chat))
+        .route("/ai/chat/stream", post(ai::chat_stream))
         .route("/auth/register", post(auth::register))
         .route("/auth/login", post(auth::login))
         .route("/auth/refresh", post(auth::refresh))
+        .route("/auth/tokens", get(auth::list_tokens).post(auth::create_token))
+        .route("/auth/tokens/:id", delete(auth::delete_token))
         .route("/workspaces", get(workspaces::list).post(workspaces::create))
         .route("/workspaces/:id/members", post(workspaces::add_member))
         .route("/documents", get(documents::list).post(documents::create))

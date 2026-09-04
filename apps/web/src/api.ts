@@ -198,7 +198,116 @@ export const api = {
     selection?: string;
     context?: string;
   }) => req<AiComplete>("/ai/complete", { method: "POST", body: JSON.stringify(body) }),
+
+  /** Multi-turn chat, non-streaming (fallback). */
+  aiChat: (body: ChatRequest) =>
+    req<AiComplete>("/ai/chat", { method: "POST", body: JSON.stringify(body) }),
+
+  /** Multi-turn chat, streamed token-by-token over SSE. */
+  aiChatStream: (body: ChatRequest, handlers: ChatStreamHandlers) => openChatStream(body, handlers),
+
+  // Personal access tokens (for connecting the MCP server / scripts).
+  listTokens: () => req<TokenInfo[]>("/auth/tokens"),
+  createToken: (name: string) =>
+    req<CreatedToken>("/auth/tokens", { method: "POST", body: JSON.stringify({ name }) }),
+  deleteToken: (id: string) => req<void>(`/auth/tokens/${id}`, { method: "DELETE" }),
 };
+
+export interface ChatMessage {
+  role: "user" | "assistant";
+  content: string;
+}
+export interface ChatRequest {
+  doc_id?: string;
+  messages: ChatMessage[];
+  context?: string;
+  selection?: string;
+}
+export interface ChatStreamHandlers {
+  onDelta: (text: string) => void;
+  onDone?: () => void;
+  onError?: (message: string) => void;
+  signal?: AbortSignal;
+}
+export interface TokenInfo {
+  id: string;
+  name: string;
+  created_at: string;
+  last_used_at: string | null;
+}
+export interface CreatedToken {
+  id: string;
+  name: string;
+  token: string;
+  created_at: string;
+}
+
+/**
+ * POST /ai/chat/stream and parse the Server-Sent Events, calling onDelta for each
+ * text chunk. Refreshes the access token once on a 401. Uses fetch (not
+ * EventSource) so we can send the Authorization header and a POST body.
+ */
+async function openChatStream(
+  body: ChatRequest,
+  handlers: ChatStreamHandlers,
+  retry = true,
+): Promise<void> {
+  const res = await fetch(`${API_BASE}/ai/chat/stream`, {
+    method: "POST",
+    headers: {
+      "content-type": "application/json",
+      ...(accessToken ? { authorization: `Bearer ${accessToken}` } : {}),
+    },
+    body: JSON.stringify(body),
+    signal: handlers.signal,
+  });
+  if (res.status === 401 && retry && (await tryRefresh())) {
+    return openChatStream(body, handlers, false);
+  }
+  if (!res.ok || !res.body) {
+    const t = await res.text().catch(() => "");
+    throw new Error(t || `chat failed (${res.status})`);
+  }
+
+  const reader = res.body.getReader();
+  const decoder = new TextDecoder();
+  let buf = "";
+  for (;;) {
+    const { done, value } = await reader.read();
+    if (done) break;
+    buf += decoder.decode(value, { stream: true });
+    let sep: number;
+    // SSE frames are separated by a blank line.
+    while ((sep = buf.indexOf("\n\n")) !== -1) {
+      const frame = buf.slice(0, sep);
+      buf = buf.slice(sep + 2);
+      let event = "message";
+      const dataLines: string[] = [];
+      for (const line of frame.split("\n")) {
+        if (line.startsWith("event:")) event = line.slice(6).trim();
+        else if (line.startsWith("data:")) dataLines.push(line.slice(5).replace(/^ /, ""));
+      }
+      const data = dataLines.join("\n");
+      if (event === "error") {
+        let msg = "Assist failed.";
+        try {
+          msg = JSON.parse(data).error ?? msg;
+        } catch {
+          /* keep default */
+        }
+        handlers.onError?.(msg);
+      } else if (event !== "done") {
+        try {
+          const parsed = JSON.parse(data) as { delta?: string };
+          if (typeof parsed.delta === "string") handlers.onDelta(parsed.delta);
+        } catch {
+          /* keep-alive comment or partial frame */
+        }
+      }
+    }
+  }
+  handlers.onDone?.();
+}
 
 export interface AiStatus {
   available: boolean;

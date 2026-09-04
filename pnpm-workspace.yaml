@@ -1,9 +1,12 @@
 packages:
   # apps/mobile is a standalone Expo project (own package manager) — excluded here
   # so React Native's dependency tree doesn't destabilize the shared workspace.
+  # tools/mcp-server is likewise standalone: it pulls the full BlockNote/prosemirror
+  # tree (to build valid Yjs updates headlessly) and ships to npm on its own.
   - "apps/web"
   - "packages/*"
   - "tools/*"
+  - "!tools/mcp-server"
 allowBuilds:
   esbuild: true
   leveldown: false
