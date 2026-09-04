@@ -1,0 +1,23 @@
+{
+  "expo": {
+    "name": "Selfnote",
+    "slug": "selfnote",
+    "scheme": "selfnote",
+    "version": "0.1.0",
+    "orientation": "portrait",
+    "userInterfaceStyle": "automatic",
+    "newArchEnabled": true,
+    "ios": {
+      "supportsTablet": true,
+      "bundleIdentifier": "app.selfnote.mobile"
+    },
+    "android": {
+      "package": "app.selfnote.mobile"
+    },
+    "plugins": [
+      "expo-sqlite",
+      "expo-asset",
+      "expo-font"
+    ]
+  }
+}

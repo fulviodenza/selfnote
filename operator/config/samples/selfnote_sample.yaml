@@ -1,0 +1,24 @@
+apiVersion: selfnote.app/v1alpha1
+kind: Selfnote
+metadata:
+  name: selfnote
+spec:
+  version: "0.1.0"
+  host: selfnote.example.com
+  imageRegistry: ghcr.io/fulviodenza
+  appSecret: selfnote-app
+  sync:
+    replicas: 2
+  api:
+    replicas: 2
+  web:
+    replicas: 2
+  postgres:
+    instances: 3
+    storageSize: 10Gi
+    backup:
+      enabled: true
+      schedule: "0 0 2 * * *"
+      destinationPath: s3://selfnote-backups/pg
+      endpointURL: http://selfnote-minio:9000
+      credentialsSecret: selfnote-minio

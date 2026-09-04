@@ -1,0 +1,14 @@
+{
+  "name": "@selfnote/smoketest",
+  "version": "0.0.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "test": "node ./smoketest.mjs"
+  },
+  "dependencies": {
+    "yjs": "^13.6.18",
+    "y-websocket": "^2.0.4",
+    "ws": "^8.18.0"
+  }
+}

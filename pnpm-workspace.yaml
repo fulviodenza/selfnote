@@ -1,0 +1,9 @@
+packages:
+  # apps/mobile is a standalone Expo project (own package manager) — excluded here
+  # so React Native's dependency tree doesn't destabilize the shared workspace.
+  - "apps/web"
+  - "packages/*"
+  - "tools/*"
+allowBuilds:
+  esbuild: true
+  leveldown: false

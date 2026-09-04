@@ -1,0 +1,34 @@
+{{- if .Values.postgres.enabled }}
+{{- $pgSecret := printf "%s-app" (include "selfnote.pgClusterName" .) -}}
+{{- $appSecret := printf "%s-app" (include "selfnote.fullname" .) -}}
+# Runs DB migrations before app rollout. Gated as a pre-upgrade hook so a failed
+# migration blocks the new version from going live.
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: {{ include "selfnote.fullname" . }}-migrate
+  labels:
+    {{- include "selfnote.labels" . | nindent 4 }}
+  annotations:
+    "helm.sh/hook": pre-install,pre-upgrade
+    "helm.sh/hook-weight": "5"
+    "helm.sh/hook-delete-policy": before-hook-creation,hook-succeeded
+spec:
+  backoffLimit: 3
+  template:
+    spec:
+      restartPolicy: Never
+      containers:
+        - name: migrate
+          image: {{ include "selfnote.image" (dict "Values" .Values "Chart" .Chart "component" .Values.api.image) }}
+          imagePullPolicy: {{ .Values.image.pullPolicy }}
+          env:
+            - name: MIGRATE_ONLY
+              value: "1"
+            - name: DATABASE_URL
+              valueFrom: { secretKeyRef: { name: {{ $pgSecret }}, key: uri } }
+            - name: JWT_SECRET
+              valueFrom: { secretKeyRef: { name: {{ $appSecret }}, key: JWT_SECRET } }
+            - name: ROOM_SECRET
+              valueFrom: { secretKeyRef: { name: {{ $appSecret }}, key: ROOM_SECRET } }
+{{- end }}

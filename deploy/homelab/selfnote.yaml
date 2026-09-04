@@ -1,0 +1,200 @@
+# Trial deployment of Selfnote on the homelab k3s cluster.
+# Namespace-scoped, plain Postgres (no CloudNativePG operator), images from Harbor.
+# Sync requires room-token auth: pages are private; sharing is via link.
+# Expose selfnote.example.com -> the web Service (nginx proxies /ws and /api).
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: selfnote
+---
+apiVersion: v1
+kind: Secret
+metadata:
+  name: selfnote-app
+  namespace: selfnote
+type: Opaque
+stringData:
+  JWT_SECRET: "homelab-jwt-change-me"
+  ROOM_SECRET: "homelab-room-change-me"
+  POSTGRES_PASSWORD: "selfnote-homelab"
+  DATABASE_URL: "postgres://selfnote:selfnote-homelab@selfnote-postgres:5432/selfnote"
+---
+# ---------------- Postgres (plain) ----------------
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: selfnote-postgres
+  namespace: selfnote
+spec:
+  accessModes: ["ReadWriteOnce"]
+  storageClassName: local-path
+  resources:
+    requests:
+      storage: 5Gi
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: selfnote-postgres
+  namespace: selfnote
+spec:
+  replicas: 1
+  strategy: { type: Recreate }
+  selector:
+    matchLabels: { app: selfnote-postgres }
+  template:
+    metadata:
+      labels: { app: selfnote-postgres }
+    spec:
+      containers:
+        - name: postgres
+          image: postgres:16
+          env:
+            - { name: POSTGRES_DB, value: selfnote }
+            - { name: POSTGRES_USER, value: selfnote }
+            - name: POSTGRES_PASSWORD
+              valueFrom: { secretKeyRef: { name: selfnote-app, key: POSTGRES_PASSWORD } }
+            - { name: PGDATA, value: /var/lib/postgresql/data/pgdata }
+          ports: [{ containerPort: 5432 }]
+          readinessProbe:
+            exec: { command: ["pg_isready", "-U", "selfnote"] }
+            initialDelaySeconds: 5
+            periodSeconds: 5
+          volumeMounts:
+            - { name: data, mountPath: /var/lib/postgresql/data }
+      volumes:
+        - name: data
+          persistentVolumeClaim: { claimName: selfnote-postgres }
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: selfnote-postgres
+  namespace: selfnote
+spec:
+  selector: { app: selfnote-postgres }
+  ports: [{ port: 5432, targetPort: 5432 }]
+---
+# ---------------- API ----------------
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: selfnote-api
+  namespace: selfnote
+spec:
+  replicas: 1
+  selector:
+    matchLabels: { app: selfnote-api }
+  template:
+    metadata:
+      labels: { app: selfnote-api }
+    spec:
+      imagePullSecrets: [{ name: harbor }]
+      initContainers:
+        - name: wait-postgres
+          image: busybox:1.36
+          command: ["sh", "-c", "until nc -z selfnote-postgres 5432; do echo waiting-postgres; sleep 2; done"]
+      containers:
+        - name: api
+          image: ghcr.io/fulviodenza/selfnote-api:0.1.2
+          env:
+            - { name: API_ADDR, value: "0.0.0.0:4445" }
+            - { name: ROOM_TTL, value: "28800" } # 8h — outlasts editing sessions
+            - name: DATABASE_URL
+              valueFrom: { secretKeyRef: { name: selfnote-app, key: DATABASE_URL } }
+            - name: JWT_SECRET
+              valueFrom: { secretKeyRef: { name: selfnote-app, key: JWT_SECRET } }
+            - name: ROOM_SECRET
+              valueFrom: { secretKeyRef: { name: selfnote-app, key: ROOM_SECRET } }
+          ports: [{ containerPort: 4445 }]
+          readinessProbe:
+            httpGet: { path: /healthz, port: 4445 }
+            initialDelaySeconds: 5
+            periodSeconds: 10
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: selfnote-api
+  namespace: selfnote
+spec:
+  selector: { app: selfnote-api }
+  ports: [{ port: 4445, targetPort: 4445 }]
+---
+# ---------------- Sync (auth required: pages are private) ----------------
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: selfnote-sync
+  namespace: selfnote
+spec:
+  replicas: 1
+  selector:
+    matchLabels: { app: selfnote-sync }
+  template:
+    metadata:
+      labels: { app: selfnote-sync }
+    spec:
+      imagePullSecrets: [{ name: harbor }]
+      containers:
+        - name: sync
+          image: ghcr.io/fulviodenza/selfnote-sync:0.1.0
+          env:
+            - { name: SYNC_ADDR, value: "0.0.0.0:4444" }
+            - { name: SYNC_REQUIRE_AUTH, value: "1" }
+            - name: ROOM_SECRET
+              valueFrom: { secretKeyRef: { name: selfnote-app, key: ROOM_SECRET } }
+            - name: DATABASE_URL
+              valueFrom: { secretKeyRef: { name: selfnote-app, key: DATABASE_URL } }
+          ports: [{ containerPort: 4444 }]
+          readinessProbe:
+            httpGet: { path: /healthz, port: 4444 }
+            initialDelaySeconds: 5
+            periodSeconds: 10
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: selfnote-sync
+  namespace: selfnote
+spec:
+  selector: { app: selfnote-sync }
+  ports: [{ port: 4444, targetPort: 4444 }]
+---
+# ---------------- Web ----------------
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: selfnote-web
+  namespace: selfnote
+spec:
+  replicas: 1
+  selector:
+    matchLabels: { app: selfnote-web }
+  template:
+    metadata:
+      labels: { app: selfnote-web }
+    spec:
+      imagePullSecrets: [{ name: harbor }]
+      containers:
+        - name: web
+          image: ghcr.io/fulviodenza/selfnote-web:0.1.6
+          ports: [{ containerPort: 80 }]
+          readinessProbe:
+            httpGet: { path: /, port: 80 }
+            initialDelaySeconds: 3
+            periodSeconds: 10
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: selfnote-web
+  namespace: selfnote
+spec:
+  selector: { app: selfnote-web }
+  ports: [{ port: 80, targetPort: 80 }]
+# ---------------- Exposure ----------------
+# No Ingress: this homelab publishes via Cloudflare Tunnel straight to a Service.
+# The web container's nginx reverse-proxies /ws -> selfnote-sync and /api -> selfnote-api,
+# so a single Service fronts everything. Point the tunnel at:
+#   http://selfnote-web.selfnote.svc.cluster.local:80  (host: selfnote.example.com)

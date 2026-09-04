@@ -1,0 +1,55 @@
+# Operator deployment. Apply after the CRD (config/crd) and RBAC role (config/rbac):
+#   kubectl apply -f config/crd/
+#   kubectl apply -f config/rbac/
+#   kubectl apply -f config/manager.yaml
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: selfnote-system
+---
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: selfnote-controller-manager
+  namespace: selfnote-system
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRoleBinding
+metadata:
+  name: selfnote-manager-rolebinding
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: ClusterRole
+  name: selfnote-manager-role
+subjects:
+  - kind: ServiceAccount
+    name: selfnote-controller-manager
+    namespace: selfnote-system
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: selfnote-controller-manager
+  namespace: selfnote-system
+  labels:
+    app.kubernetes.io/name: selfnote-operator
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: selfnote-operator
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: selfnote-operator
+    spec:
+      serviceAccountName: selfnote-controller-manager
+      securityContext:
+        runAsNonRoot: true
+      containers:
+        - name: manager
+          image: ghcr.io/fulviodenza/selfnote-operator:latest
+          args: []
+          resources:
+            requests: { cpu: 50m, memory: 64Mi }
+            limits: { cpu: 500m, memory: 256Mi }

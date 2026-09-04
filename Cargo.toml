@@ -1,0 +1,11 @@
+[workspace]
+resolver = "2"
+members = ["server/sync", "server/common", "server/api"]
+
+[workspace.package]
+edition = "2021"
+version = "0.1.0"
+license = "AGPL-3.0-or-later"
+
+[profile.release]
+lto = "thin"

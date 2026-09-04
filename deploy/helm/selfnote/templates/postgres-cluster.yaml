@@ -1,0 +1,50 @@
+{{- if .Values.postgres.enabled }}
+# CloudNativePG-managed Postgres cluster with continuous backup to object storage.
+apiVersion: postgresql.cnpg.io/v1
+kind: Cluster
+metadata:
+  name: {{ include "selfnote.pgClusterName" . }}
+  labels:
+    {{- include "selfnote.labels" . | nindent 4 }}
+spec:
+  instances: {{ .Values.postgres.instances }}
+  storage:
+    size: {{ .Values.postgres.storageSize }}
+  bootstrap:
+    initdb:
+      database: selfnote
+      owner: selfnote
+  {{- if .Values.postgres.backup.enabled }}
+  backup:
+    retentionPolicy: {{ .Values.postgres.backup.retentionPolicy | quote }}
+    barmanObjectStore:
+      destinationPath: {{ .Values.postgres.backup.destinationPath | quote }}
+      endpointURL: {{ .Values.postgres.backup.endpointURL | quote }}
+      s3Credentials:
+        accessKeyId:
+          name: {{ include "selfnote.minioName" . }}
+          key: ACCESS_KEY_ID
+        secretAccessKey:
+          name: {{ include "selfnote.minioName" . }}
+          key: ACCESS_SECRET_KEY
+      wal:
+        compression: gzip
+      data:
+        compression: gzip
+  {{- end }}
+{{- if .Values.postgres.backup.enabled }}
+---
+# Scheduled base backups; combined with WAL archiving this gives PITR.
+apiVersion: postgresql.cnpg.io/v1
+kind: ScheduledBackup
+metadata:
+  name: {{ include "selfnote.pgClusterName" . }}-daily
+  labels:
+    {{- include "selfnote.labels" . | nindent 4 }}
+spec:
+  schedule: {{ .Values.postgres.backup.schedule | quote }}
+  backupOwnerReference: self
+  cluster:
+    name: {{ include "selfnote.pgClusterName" . }}
+{{- end }}
+{{- end }}

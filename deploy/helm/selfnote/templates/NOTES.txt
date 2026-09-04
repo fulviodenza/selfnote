@@ -1,0 +1,25 @@
+Selfnote {{ .Chart.AppVersion }} installed as release "{{ .Release.Name }}".
+
+Prerequisites (install these operators first if you haven't):
+  * CloudNativePG   → manages Postgres + continuous backups (PITR)
+  * cert-manager    → TLS on the Ingress (if ingress.tls.enabled)
+
+Endpoints:
+{{- if .Values.ingress.enabled }}
+  Web:  https://{{ .Values.ingress.host }}/
+  API:  https://{{ .Values.ingress.host }}/api
+  Sync: wss://{{ .Values.ingress.host }}/ws
+{{- else }}
+  Ingress disabled — port-forward the services to reach them.
+{{- end }}
+
+Backups:
+{{- if and .Values.postgres.enabled .Values.postgres.backup.enabled }}
+  Continuous WAL archiving + daily base backups to {{ .Values.postgres.backup.destinationPath }}.
+  Run the restore drill before you rely on them:  deploy/restore-drill.sh
+{{- else }}
+  Postgres backups are DISABLED. Enable postgres.backup for production.
+{{- end }}
+
+IMPORTANT: change the placeholder secrets (secrets.jwtSecret, secrets.roomSecret,
+minio.rootPassword) before exposing this to the internet.

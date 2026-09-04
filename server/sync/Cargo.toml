@@ -1,0 +1,19 @@
+[package]
+name = "selfnote-sync"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+
+[dependencies]
+selfnote-common = { path = "../common" }
+axum = { version = "0.7", features = ["ws"] }
+tokio = { version = "1", features = ["rt-multi-thread", "macros", "net", "signal", "sync"] }
+futures = "0.3"
+dashmap = "6"
+yrs = "0.21"
+anyhow = "1"
+async-trait = "0.1"
+uuid = { version = "1", features = ["v4"] }
+sqlx = { version = "0.8", features = ["runtime-tokio", "tls-rustls", "postgres", "uuid"] }
+tracing = "0.1"
+tracing-subscriber = { version = "0.3", features = ["env-filter"] }

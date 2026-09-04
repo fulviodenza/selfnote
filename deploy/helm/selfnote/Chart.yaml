@@ -1,0 +1,12 @@
+apiVersion: v2
+name: selfnote
+description: Self-hosted, real-time collaborative Notion-like workspace
+type: application
+version: 0.1.0
+appVersion: "0.1.0"
+keywords:
+  - notion
+  - collaboration
+  - crdt
+  - self-hosted
+home: https://github.com/fulviodenza/selfnote

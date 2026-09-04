@@ -1,0 +1,12 @@
+# Keep build context small and host-arch artifacts out of images.
+**/node_modules
+**/target
+**/dist
+**/.turbo
+.git
+apps/mobile
+apps/desktop
+operator
+deploy
+*.log
+*.tsbuildinfo

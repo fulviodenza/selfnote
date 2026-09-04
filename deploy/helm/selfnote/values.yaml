@@ -1,0 +1,85 @@
+# Default values for the Selfnote chart.
+# This chart composes upstream operators — install these first:
+#   * CloudNativePG   (github.com/cloudnative-pg/cloudnative-pg)   → Postgres + backups
+#   * MinIO           (or set an external S3 endpoint)             → blobs + backup target
+#   * cert-manager    (optional, for TLS on the Ingress)
+
+nameOverride: ""
+fullnameOverride: ""
+
+image:
+  registry: ghcr.io/fulviodenza
+  pullPolicy: IfNotPresent
+  tag: "" # defaults to .Chart.appVersion
+
+# Shared secrets. In production, set these via --set or a pre-created Secret and
+# rotate them; the defaults are placeholders for local/dev only.
+secrets:
+  jwtSecret: "change-me-jwt"
+  roomSecret: "change-me-room"
+  # database credentials are managed by the CloudNativePG cluster secret
+
+sync:
+  replicas: 2
+  image: selfnote-sync
+  port: 4444
+  requireAuth: true
+  resources:
+    requests: { cpu: 100m, memory: 128Mi }
+    limits: { cpu: "1", memory: 512Mi }
+
+api:
+  replicas: 2
+  image: selfnote-api
+  port: 4445
+  resources:
+    requests: { cpu: 100m, memory: 128Mi }
+    limits: { cpu: "1", memory: 512Mi }
+
+web:
+  replicas: 2
+  image: selfnote-web
+  port: 80
+  # Baked into the SPA at container start via env substitution.
+  syncUrl: "" # e.g. wss://selfnote.example.com/ws
+  apiUrl: "" # e.g. https://selfnote.example.com/api
+
+# CloudNativePG-managed Postgres with continuous backup to object storage.
+postgres:
+  enabled: true
+  instances: 3
+  storageSize: 10Gi
+  # Continuous WAL archiving + scheduled base backups → PITR.
+  backup:
+    enabled: true
+    schedule: "0 0 2 * * *" # daily 02:00 (CNPG uses 6-field cron)
+    retentionPolicy: "30d"
+    destinationPath: "s3://selfnote-backups/pg"
+    endpointURL: "http://selfnote-minio:9000"
+
+# In-cluster MinIO (disable to use an external S3-compatible endpoint).
+minio:
+  enabled: true
+  storageSize: 20Gi
+  rootUser: selfnote
+  rootPassword: "change-me-minio"
+  buckets:
+    - selfnote-files
+    - selfnote-backups
+  # Optional off-site replication of buckets to an external S3 target.
+  offsite:
+    enabled: false
+    endpoint: ""
+    accessKey: ""
+    secretKey: ""
+    schedule: "0 3 * * *"
+
+ingress:
+  enabled: true
+  className: "nginx"
+  host: selfnote.example.com
+  tls:
+    enabled: true
+    # cert-manager ClusterIssuer name; leave empty to bring your own TLS secret.
+    clusterIssuer: "letsencrypt-prod"
+    secretName: selfnote-tls

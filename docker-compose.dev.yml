@@ -1,0 +1,40 @@
+# Local development dependencies for Selfnote (Phase 2+).
+# Brings up Postgres (metadata + Yjs update log) and MinIO (blobs + snapshots).
+#   docker compose -f docker-compose.dev.yml up -d
+services:
+  postgres:
+    image: postgres:16
+    environment:
+      POSTGRES_USER: selfnote
+      POSTGRES_PASSWORD: selfnote
+      POSTGRES_DB: selfnote
+    ports:
+      - "5432:5432"
+    volumes:
+      - selfnote_pg:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U selfnote"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+
+  minio:
+    image: minio/minio
+    command: server /data --console-address ":9001"
+    environment:
+      MINIO_ROOT_USER: selfnote
+      MINIO_ROOT_PASSWORD: selfnote123
+    ports:
+      - "9000:9000"
+      - "9001:9001"
+    volumes:
+      - selfnote_minio:/data
+    healthcheck:
+      test: ["CMD-SHELL", "mc ready local || exit 0"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+
+volumes:
+  selfnote_pg:
+  selfnote_minio:
