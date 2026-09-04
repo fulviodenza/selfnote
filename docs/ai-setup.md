@@ -85,9 +85,47 @@ every client automatically — no client update needed.
 
 ## Helm
 
-If you deploy with the chart, set the same variables as env on the `api` workload
-(reference a `selfnote-ai` secret you create, or add them to your values). The
-`kubectl set env` commands above also work post-install.
+The chart has a first-class `ai:` block — set it in your values instead of running
+the `kubectl` commands above. Pick a provider and give it a credential.
+
+**Recommended — reference a secret you created out-of-band** (so the token never
+lives in `values.yaml` / git):
+
+```bash
+kubectl create secret generic selfnote-ai -n selfnote \
+  --from-literal=CLAUDE_CODE_OAUTH_TOKEN="$(claude setup-token)"
+```
+
+```yaml
+# values.yaml
+ai:
+  enabled: true
+  provider: claude-cli        # claude-cli | anthropic | ollama
+  existingSecret: selfnote-ai # keys: CLAUDE_CODE_OAUTH_TOKEN or ANTHROPIC_API_KEY
+```
+
+**Simple — let the chart manage the secret** (fine for dev; the token lands in
+your values, so keep them out of git or pass with `--set`):
+
+```yaml
+ai:
+  enabled: true
+  provider: claude-cli
+  claudeCodeOauthToken: sk-ant-oat-…   # or: provider: anthropic + anthropicApiKey
+```
+
+**Ollama** needs no secret — just a reachable host:
+
+```yaml
+ai:
+  enabled: true
+  provider: ollama
+  ollamaHost: http://ollama.ollama.svc:11434
+  model: llama3
+```
+
+Optional: `ai.model` (→ `SELFNOTE_AI_MODEL`), `ai.cmd`, `ai.args`. After `helm
+upgrade`, the api picks up the new env on its next rollout.
 
 ## Notes & security
 

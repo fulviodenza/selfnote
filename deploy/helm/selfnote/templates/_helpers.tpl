@@ -29,3 +29,23 @@ helm.sh/chart: {{ printf "%s-%s" .Chart.Name .Chart.Version }}
 {{- define "selfnote.minioName" -}}
 {{- printf "%s-minio" .Release.Name -}}
 {{- end -}}
+
+{{- /* Name of the Secret holding AI credentials — either one you pre-created
+       (ai.existingSecret) or the chart-managed one. */ -}}
+{{- define "selfnote.aiSecretName" -}}
+{{- if .Values.ai.existingSecret -}}
+{{- .Values.ai.existingSecret -}}
+{{- else -}}
+{{- printf "%s-ai" (include "selfnote.fullname" .) -}}
+{{- end -}}
+{{- end -}}
+
+{{- /* True when the chart should render its own AI secret (inline credential
+       given and no existingSecret referenced). */ -}}
+{{- define "selfnote.aiManagesSecret" -}}
+{{- if and .Values.ai.enabled (not .Values.ai.existingSecret) -}}
+{{- if or (eq .Values.ai.provider "claude-cli") (eq .Values.ai.provider "anthropic") -}}
+true
+{{- end -}}
+{{- end -}}
+{{- end -}}

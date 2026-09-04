@@ -89,6 +89,32 @@ spec:
               valueFrom: { secretKeyRef: { name: {{ $appSecret }}, key: ROOM_SECRET } }
             - name: DATABASE_URL
               valueFrom: { secretKeyRef: { name: {{ $pgSecret }}, key: uri } }
+            {{- if .Values.ai.enabled }}
+            {{- $ai := .Values.ai }}
+            {{- $aiSecret := include "selfnote.aiSecretName" . }}
+            {{- if $ai.model }}
+            - name: SELFNOTE_AI_MODEL
+              value: {{ $ai.model | quote }}
+            {{- end }}
+            {{- if $ai.cmd }}
+            - name: SELFNOTE_AI_CMD
+              value: {{ $ai.cmd | quote }}
+            {{- end }}
+            {{- if $ai.args }}
+            - name: SELFNOTE_AI_ARGS
+              value: {{ $ai.args | quote }}
+            {{- end }}
+            {{- if eq $ai.provider "claude-cli" }}
+            - name: CLAUDE_CODE_OAUTH_TOKEN
+              valueFrom: { secretKeyRef: { name: {{ $aiSecret }}, key: CLAUDE_CODE_OAUTH_TOKEN } }
+            {{- else if eq $ai.provider "anthropic" }}
+            - name: ANTHROPIC_API_KEY
+              valueFrom: { secretKeyRef: { name: {{ $aiSecret }}, key: ANTHROPIC_API_KEY } }
+            {{- else if eq $ai.provider "ollama" }}
+            - name: OLLAMA_HOST
+              value: {{ required "ai.ollamaHost is required for provider ollama" $ai.ollamaHost | quote }}
+            {{- end }}
+            {{- end }}
           readinessProbe:
             httpGet: { path: /healthz, port: {{ .Values.api.port }} }
           resources: {{- toYaml .Values.api.resources | nindent 12 }}

@@ -158,7 +158,9 @@ origin serves the whole app).
 | **Anthropic API** | `ANTHROPIC_API_KEY` (+ optional `SELFNOTE_AI_MODEL`) |
 | **Ollama** | `OLLAMA_HOST` |
 
-See [`docs/ai-setup.md`](docs/ai-setup.md) for details.
+On Kubernetes the chart has an `ai:` block that wires this for you (pick a provider,
+point at a secret) — no manual `kubectl set env`. See
+[`docs/ai-setup.md`](docs/ai-setup.md) for env and Helm details.
 `/ai/complete` enforces workspace membership for the referenced document.
 
 ## Testing

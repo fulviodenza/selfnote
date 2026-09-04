@@ -36,6 +36,34 @@ api:
     requests: { cpu: 100m, memory: 128Mi }
     limits: { cpu: "1", memory: 512Mi }
 
+# AI Assist (optional). Off by default — clients only show the ✦ Assist panel
+# when the API reports a provider. Pick ONE provider and give it a credential.
+# See docs/ai-setup.md for the background.
+ai:
+  enabled: false
+  # claude-cli | anthropic | ollama
+  #   claude-cli — the api image bundles the Claude Code CLI; uses your Claude
+  #                subscription, document text stays on the server.
+  #   anthropic  — pay-per-use Anthropic API.
+  #   ollama     — a local open-weights model you host.
+  provider: claude-cli
+  model: "" # optional → SELFNOTE_AI_MODEL (e.g. claude-sonnet-4-5, llama3)
+
+  # Credentials. Prefer `existingSecret` so tokens never live in values.yaml/git:
+  # create it once (see docs/ai-setup.md) with the key your provider needs —
+  # CLAUDE_CODE_OAUTH_TOKEN or ANTHROPIC_API_KEY — and name it here.
+  existingSecret: ""
+  # ...or set the credential inline and let the chart manage the secret (dev/simple):
+  claudeCodeOauthToken: "" # from `claude setup-token`
+  anthropicApiKey: ""
+
+  # Ollama only — a URL the cluster can reach.
+  ollamaHost: "" # e.g. http://ollama.ollama.svc:11434
+
+  # Advanced overrides (rarely needed).
+  cmd: "" # → SELFNOTE_AI_CMD (custom CLI binary/path)
+  args: "" # → SELFNOTE_AI_ARGS (default "-p")
+
 web:
   replicas: 2
   image: selfnote-web
