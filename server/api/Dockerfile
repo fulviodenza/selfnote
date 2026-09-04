@@ -18,13 +18,12 @@ COPY tools/mcp-server/tsconfig.json ./
 COPY tools/mcp-server/src ./src
 RUN npm run build && npm prune --omit=dev
 
-FROM debian:bookworm-slim
-# ca-certificates for outbound TLS; nodejs + the Claude Code CLI so the AI
-# provider can run `claude -p` against a Claude subscription (auth via the
-# CLAUDE_CODE_OAUTH_TOKEN env). Pushed directly to Harbor (not through the
-# Cloudflare tunnel), so image size is not constrained.
-RUN apt-get update && apt-get install -y --no-install-recommends \
-      ca-certificates nodejs npm \
+# node:22-slim is Debian bookworm (glibc 2.36, matching the rust:1-slim-bookworm
+# build) with Node 22 — needed because the BlockNote/jsdom deps in the diff helper
+# don't resolve under Debian's older Node 18. Provides `node` for both the diff
+# helper and the Claude Code CLI. Image pushed straight to Harbor, so size is fine.
+FROM node:22-slim
+RUN apt-get update && apt-get install -y --no-install-recommends ca-certificates \
     && npm install -g @anthropic-ai/claude-code \
     && npm cache clean --force \
     && rm -rf /var/lib/apt/lists/*
