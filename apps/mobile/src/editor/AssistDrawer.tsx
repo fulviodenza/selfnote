@@ -8,6 +8,7 @@
  */
 import { useEffect, useMemo, useRef, useState } from "react";
 import { Pressable, ScrollView, StyleSheet, Text, TextInput, View } from "react-native";
+import Markdown from "react-native-markdown-display";
 import {
   aiChatStream,
   type AiStatus,
@@ -48,6 +49,7 @@ export function AssistDrawer({
 }) {
   const { colors, type } = useTheme();
   const styles = useMemo(() => makeStyles(colors, type), [colors, type]);
+  const mdStyles = useMemo(() => makeMarkdownStyles(colors), [colors]);
   const [messages, setMessages] = useState<Msg[]>([]);
   const [input, setInput] = useState("");
   const [busy, setBusy] = useState(false);
@@ -188,17 +190,23 @@ export function AssistDrawer({
                     m.error && styles.bubbleError,
                   ]}
                 >
-                  <Text
-                    style={
-                      m.error
-                        ? [type.body, { color: colors.danger }]
-                        : m.role === "user"
-                          ? [type.body, { color: colors.onAccent }]
-                          : type.body
-                    }
-                  >
-                    {m.content || (m.streaming ? "…" : "")}
-                  </Text>
+                  {m.role === "assistant" && !m.error ? (
+                    m.content ? (
+                      <Markdown style={mdStyles}>{m.content}</Markdown>
+                    ) : m.streaming ? (
+                      <Text style={type.body}>…</Text>
+                    ) : null
+                  ) : (
+                    <Text
+                      style={
+                        m.error
+                          ? [type.body, { color: colors.danger }]
+                          : [type.body, { color: colors.onAccent }]
+                      }
+                    >
+                      {m.content}
+                    </Text>
+                  )}
                 </View>
                 {m.role === "assistant" && !m.streaming && !m.error && m.content ? (
                   <View style={styles.msgActions}>
@@ -369,3 +377,56 @@ const makeStyles = (colors: Palette, type: TypeRoles) =>
     stopBtn: { backgroundColor: colors.ink },
     stopGlyph: { color: colors.surface, fontSize: 14 },
   });
+
+/** Map Markdown elements to the app's palette for the assistant bubbles. */
+const makeMarkdownStyles = (colors: Palette) => ({
+  body: { color: colors.ink, fontSize: 16, lineHeight: 24 },
+  paragraph: { marginTop: 0, marginBottom: 8 },
+  heading1: { fontSize: 20, fontWeight: "600" as const, color: colors.ink, marginTop: 4, marginBottom: 6 },
+  heading2: { fontSize: 18, fontWeight: "600" as const, color: colors.ink, marginTop: 4, marginBottom: 6 },
+  heading3: { fontSize: 16, fontWeight: "600" as const, color: colors.ink, marginTop: 4, marginBottom: 4 },
+  strong: { fontWeight: "700" as const },
+  em: { fontStyle: "italic" as const },
+  bullet_list: { marginBottom: 4 },
+  ordered_list: { marginBottom: 4 },
+  list_item: { marginVertical: 2 },
+  link: { color: colors.accent, textDecorationLine: "underline" as const },
+  blockquote: {
+    backgroundColor: colors.accentWash,
+    borderLeftColor: colors.accent,
+    borderLeftWidth: 3,
+    paddingHorizontal: 10,
+    paddingVertical: 4,
+    marginBottom: 8,
+  },
+  code_inline: {
+    backgroundColor: colors.accentWash,
+    color: colors.ink,
+    borderRadius: 4,
+    paddingHorizontal: 4,
+    fontFamily: "monospace",
+    fontSize: 14,
+  },
+  code_block: {
+    backgroundColor: colors.ink,
+    color: colors.surface,
+    borderRadius: 8,
+    padding: 10,
+    fontFamily: "monospace",
+    fontSize: 13,
+    marginBottom: 8,
+  },
+  fence: {
+    backgroundColor: colors.ink,
+    color: colors.surface,
+    borderRadius: 8,
+    padding: 10,
+    fontFamily: "monospace",
+    fontSize: 13,
+    marginBottom: 8,
+  },
+  hr: { backgroundColor: colors.hairline, height: 1, marginVertical: 8 },
+  table: { borderColor: colors.hairline, borderWidth: 1, borderRadius: 6, marginBottom: 8 },
+  th: { padding: 6 },
+  td: { padding: 6, borderColor: colors.hairline },
+});

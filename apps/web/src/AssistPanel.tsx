@@ -5,6 +5,8 @@
  * /ai/status reports a provider.
  */
 import { useEffect, useRef, useState } from "react";
+import ReactMarkdown from "react-markdown";
+import remarkGfm from "remark-gfm";
 import { api, type AiStatus, type ChatMessage } from "./api";
 
 /** Minimal structural view of the BlockNote editor we need. */
@@ -173,7 +175,13 @@ export function AssistPanel({
           messages.map((m, i) => (
             <div key={i} className={`assist-msg ${m.role}${m.error ? " error" : ""}`}>
               <div className="assist-bubble">
-                {m.content}
+                {m.role === "assistant" && !m.error ? (
+                  <div className="assist-md">
+                    <ReactMarkdown remarkPlugins={[remarkGfm]}>{m.content}</ReactMarkdown>
+                  </div>
+                ) : (
+                  m.content
+                )}
                 {m.streaming ? <span className="assist-caret" /> : null}
               </div>
               {m.role === "assistant" && !m.streaming && !m.error && m.content ? (
