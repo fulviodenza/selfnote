@@ -16,6 +16,31 @@ export const FRAGMENT_NAME = "document-store";
 export type ConnectionStatus = "connecting" | "connected" | "disconnected" | "offline";
 
 /**
+ * Build a throwaway `Y.Doc` from an ordered list of base64 v1 Yjs updates (the
+ * shape returned by `GET /documents/:id/content` and by a version-history
+ * checkpoint's `updates`). Used to render a past state read-only without a live
+ * sync connection — the caller owns the returned doc and must `destroy()` it.
+ */
+export function docFromUpdatesBase64(updates: string[]): Y.Doc {
+  const doc = new Y.Doc();
+  for (const u of updates) applyUpdateBase64(doc, u);
+  return doc;
+}
+
+/**
+ * Decode a standard-alphabet base64 v1 Yjs update (the API's convention) and
+ * apply it to a doc. Used to converge the live editor immediately after a
+ * version-history restore, without waiting for the update to round-trip the
+ * sync socket.
+ */
+export function applyUpdateBase64(doc: Y.Doc, update: string): void {
+  const bin = atob(update);
+  const bytes = new Uint8Array(bin.length);
+  for (let i = 0; i < bin.length; i++) bytes[i] = bin.charCodeAt(i);
+  Y.applyUpdate(doc, bytes);
+}
+
+/**
  * Local persistence for a document. Web uses IndexedDB; React Native provides a
  * SQLite-backed implementation. Both just need to hydrate the doc on start and
  * persist subsequent changes.

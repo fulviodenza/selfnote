@@ -71,7 +71,9 @@ function replaceWikiLinks(md: string, noteId: Map<string, string>): string {
     const target = targetRaw.split("#")[0].trim();
     const alias = (aliasRaw ?? target).trim();
     const id = noteId.get(noteKey(target));
-    return id ? `[${alias}](#doc-${id})` : alias;
+    // Internal note references use the `selfnote:<id>` scheme so link extraction
+    // reports them to `PUT /documents/:id/links` and clicks route in-app.
+    return id ? `[${alias}](selfnote:${id})` : alias;
   });
 }
 

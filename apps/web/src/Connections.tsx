@@ -5,16 +5,27 @@
  */
 import { useEffect, useState } from "react";
 import { api, type TokenInfo } from "./api";
+import { CalendarFeedCard } from "./CalendarFeed";
+import { VoiceSettingsCard } from "./VoiceSettings";
 
 /** The instance's public origin — what the MCP server should point SELFNOTE_URL at. */
 const INSTANCE_URL = window.location.origin;
 
-export function ConnectionsModal({ onClose }: { onClose: () => void }) {
+export function ConnectionsModal({
+  onClose,
+  workspaceId,
+}: {
+  onClose: () => void;
+  /** Current workspace — enables the calendar-feed card when present. */
+  workspaceId?: string | null;
+}) {
   const [tokens, setTokens] = useState<TokenInfo[] | null>(null);
   const [name, setName] = useState("");
   const [creating, setCreating] = useState(false);
   const [fresh, setFresh] = useState<{ name: string; token: string } | null>(null);
   const [error, setError] = useState<string | null>(null);
+  // Gate the "My writing voice" card on the server having an AI provider.
+  const [aiAvailable, setAiAvailable] = useState(false);
 
   const load = () =>
     api
@@ -24,6 +35,10 @@ export function ConnectionsModal({ onClose }: { onClose: () => void }) {
 
   useEffect(() => {
     void load();
+    void api
+      .aiStatus()
+      .then((s) => setAiAvailable(s.available))
+      .catch(() => setAiAvailable(false));
   }, []);
 
   const create = async () => {
@@ -130,6 +145,10 @@ export function ConnectionsModal({ onClose }: { onClose: () => void }) {
             ))
           )}
         </div>
+
+        {workspaceId ? <CalendarFeedCard workspaceId={workspaceId} /> : null}
+
+        {aiAvailable ? <VoiceSettingsCard /> : null}
       </div>
     </div>
   );

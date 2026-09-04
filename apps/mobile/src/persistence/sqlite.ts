@@ -11,6 +11,25 @@ import * as Y from "yjs";
 import { fromBase64, toBase64 } from "lib0/buffer";
 import type { DocPersistence, PersistenceFactory } from "@selfnote/core";
 
+/**
+ * Read a doc's last-saved full Yjs state (base64) from the local cache, or null
+ * if it was never opened on this device. Used to resolve *other* notes' bodies
+ * to Markdown for the AI's extra-context, without opening each one.
+ */
+export async function loadCachedState(docId: string): Promise<string | null> {
+  try {
+    const db = await SQLite.openDatabaseAsync("selfnote.db");
+    await db.execAsync("CREATE TABLE IF NOT EXISTS ydoc (id TEXT PRIMARY KEY, state TEXT)");
+    const row = await db.getFirstAsync<{ state: string }>(
+      "SELECT state FROM ydoc WHERE id = ?",
+      docId,
+    );
+    return row?.state ?? null;
+  } catch {
+    return null;
+  }
+}
+
 export const sqlitePersistence: PersistenceFactory = (docId, doc): DocPersistence => {
   let db: SQLite.SQLiteDatabase | null = null;
   let saveTimer: ReturnType<typeof setTimeout> | null = null;

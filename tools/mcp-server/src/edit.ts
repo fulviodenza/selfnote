@@ -42,6 +42,12 @@ function diffToBlocks(doc: Y.Doc, newBlocks: any): string {
   return Buffer.from(diff).toString("base64");
 }
 
+/** The doc's current state vector, base64 — used to detect drift on accept. */
+export function stateVectorBase64(updatesBase64: string[]): string {
+  const doc = loadDoc(updatesBase64);
+  return Buffer.from(Y.encodeStateVector(doc)).toString("base64");
+}
+
 /** Current note body as Markdown. */
 export async function docToMarkdown(updatesBase64: string[]): Promise<string> {
   const doc = loadDoc(updatesBase64);
@@ -68,6 +74,72 @@ export async function replaceMarkdownDiff(
   const doc = loadDoc(updatesBase64);
   const blocks = await editor().tryParseMarkdownToBlocks(markdown);
   return diffToBlocks(doc, blocks);
+}
+
+/** The staged fields for one AI edit, all derived from the same y-prosemirror path. */
+export interface ComputedProposal {
+  /** Note body before the edit (Markdown). */
+  before_md: string;
+  /** Note body after the edit (Markdown). */
+  after_md: string;
+  /** Incremental Yjs update to apply on accept (base64). */
+  diff_base64: string;
+  /** State vector the diff was computed against (base64). */
+  base_sv: string;
+}
+
+/**
+ * Compute a full AI-edit proposal from a note's current updates plus the intended
+ * change. Shared by proposal creation and the accept-time drift re-derivation:
+ * both need the before/after Markdown, the incremental diff, and the base state
+ * vector, all off the same reconstructed doc so they stay consistent.
+ */
+export async function computeProposal(
+  updatesBase64: string[],
+  op: "append" | "replace",
+  markdown: string,
+): Promise<ComputedProposal> {
+  const ed = editor();
+  const doc = loadDoc(updatesBase64);
+  const base_sv = Buffer.from(Y.encodeStateVector(doc)).toString("base64");
+
+  const existing = ed.yDocToBlocks(doc, FRAGMENT_NAME);
+  const before_md: string = await ed.blocksToMarkdownLossy(existing);
+
+  const added = await ed.tryParseMarkdownToBlocks(markdown);
+  const newBlocks = op === "append" ? [...existing, ...added] : added;
+
+  // diffToBlocks mutates `doc` in place, so compute after_md from the same doc
+  // once the fragment reflects the new blocks.
+  const diff_base64 = diffToBlocks(doc, newBlocks);
+  const after_md: string = await ed.blocksToMarkdownLossy(ed.yDocToBlocks(doc, FRAGMENT_NAME));
+
+  return { before_md, after_md, diff_base64, base_sv };
+}
+
+/**
+ * Merge a note's ordered update log into a single v1 Yjs update (base64) — the
+ * full current state as one blob. Used to capture a version-history checkpoint:
+ * the merged snapshot is stored and later replayed to reconstruct the past state.
+ */
+export function mergeUpdatesBase64(updatesBase64: string[]): string {
+  const doc = loadDoc(updatesBase64);
+  return Buffer.from(Y.encodeStateAsUpdate(doc)).toString("base64");
+}
+
+/**
+ * Forward update (base64) that transforms the note's *current* state into the
+ * *target* checkpoint state. Build a doc at current content, apply the target
+ * snapshot, then diff against the current state vector — an additive CRDT update
+ * that, once appended to the log, makes every client converge on the target's
+ * visible content without deleting history. `target` is a base64 v1 Yjs update.
+ */
+export function restoreUpdateBase64(updatesBase64: string[], target: string): string {
+  const doc = loadDoc(updatesBase64);
+  const currentSV = Y.encodeStateVector(doc);
+  Y.applyUpdate(doc, Buffer.from(target, "base64"));
+  const diff = Y.encodeStateAsUpdate(doc, currentSV);
+  return Buffer.from(diff).toString("base64");
 }
 
 /** Fresh-doc seed update for a brand-new (empty) note. */

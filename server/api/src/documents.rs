@@ -122,20 +122,12 @@ pub async fn set_content(
     Path(doc_id): Path<Uuid>,
     Json(body): Json<DocContent>,
 ) -> ApiResult<axum::http::StatusCode> {
-    use base64::Engine;
     let doc = load_document(&state, doc_id).await?;
     match member_role(&state, doc.workspace_id, user.id).await? {
         Some(r) if r != "viewer" => {}
         _ => return Err(AppError::Forbidden),
     }
-    let bytes = base64::engine::general_purpose::STANDARD
-        .decode(body.update.as_bytes())
-        .map_err(|_| AppError::BadRequest("invalid base64 update".into()))?;
-    sqlx::query("insert into doc_updates (doc_id, update) values ($1, $2)")
-        .bind(doc_id)
-        .bind(&bytes)
-        .execute(&state.pool)
-        .await?;
+    append_update(&state, doc_id, &body.update).await?;
     Ok(axum::http::StatusCode::NO_CONTENT)
 }
 
@@ -152,11 +144,19 @@ pub async fn get_content(
     user: AuthUser,
     Path(doc_id): Path<Uuid>,
 ) -> ApiResult<Json<DocContentOut>> {
-    use base64::Engine;
     let doc = load_document(&state, doc_id).await?;
     if member_role(&state, doc.workspace_id, user.id).await?.is_none() {
         return Err(AppError::Forbidden);
     }
+    let updates = load_content_updates(&state, doc_id).await?;
+    Ok(Json(DocContentOut { updates }))
+}
+
+/// A document's current CRDT state as an ordered list of base64 Yjs updates
+/// (snapshot first if present, then the update log). Reused by `get_content` and
+/// by the AI-proposal path, which reconstructs the doc to compute a diff.
+pub async fn load_content_updates(state: &AppState, doc_id: Uuid) -> ApiResult<Vec<String>> {
+    use base64::Engine;
     let b64 = base64::engine::general_purpose::STANDARD;
     let mut updates = Vec::new();
 
@@ -184,7 +184,27 @@ pub async fn get_content(
     for (u,) in rows {
         updates.push(b64.encode(&u));
     }
-    Ok(Json(DocContentOut { updates }))
+    Ok(updates)
+}
+
+/// Append a base64 Yjs update to a document's content log (the same mutation as
+/// `set_content`). Used when an AI edit proposal is accepted.
+pub async fn append_update(state: &AppState, doc_id: Uuid, update_base64: &str) -> ApiResult<()> {
+    use base64::Engine;
+    let bytes = base64::engine::general_purpose::STANDARD
+        .decode(update_base64.as_bytes())
+        .map_err(|_| AppError::BadRequest("invalid base64 update".into()))?;
+    sqlx::query("insert into doc_updates (doc_id, update) values ($1, $2)")
+        .bind(doc_id)
+        .bind(&bytes)
+        .execute(&state.pool)
+        .await?;
+    Ok(())
+}
+
+/// Load a document by id, `404` if missing. Exposed for the AI-proposal module.
+pub async fn get_document(state: &AppState, doc_id: Uuid) -> ApiResult<Document> {
+    load_document(state, doc_id).await
 }
 
 async fn load_document(state: &AppState, doc_id: Uuid) -> ApiResult<Document> {
@@ -249,3 +269,100 @@ pub async fn update(
     .await?;
     Ok(Json(updated))
 }
+
+/* ----------------------------------------------- multi-note context ------- */
+
+/// How many recently-viewed rows to keep per user; older ones are trimmed on write.
+const RECENT_KEEP: i64 = 50;
+
+/// Load a doc and assert the caller is a member (any role) of its workspace.
+/// `404` if the doc is missing, `403` if the caller can't access it.
+async fn authorize_member(state: &AppState, user_id: Uuid, doc_id: Uuid) -> ApiResult<Document> {
+    let doc = load_document(state, doc_id).await?;
+    if member_role(state, doc.workspace_id, user_id).await?.is_none() {
+        return Err(AppError::Forbidden);
+    }
+    Ok(doc)
+}
+
+/// `POST /documents/:id/viewed` — record a view. Idempotent upsert into
+/// `recent_documents`, bumping `viewed_at` to now and trimming the caller's log
+/// to the most recent `RECENT_KEEP` rows.
+pub async fn mark_viewed(
+    State(state): State<AppState>,
+    user: AuthUser,
+    Path(doc_id): Path<Uuid>,
+) -> ApiResult<Json<serde_json::Value>> {
+    authorize_member(&state, user.id, doc_id).await?;
+
+    let mut tx = state.pool.begin().await?;
+    sqlx::query(
+        "insert into recent_documents (user_id, doc_id, viewed_at) values ($1, $2, now()) \
+         on conflict (user_id, doc_id) do update set viewed_at = now()",
+    )
+    .bind(user.id)
+    .bind(doc_id)
+    .execute(&mut *tx)
+    .await?;
+
+    // Keep only the most recent `RECENT_KEEP` rows for this user.
+    sqlx::query(
+        "delete from recent_documents where user_id = $1 and doc_id not in ( \
+             select doc_id from recent_documents where user_id = $1 \
+             order by viewed_at desc limit $2 \
+         )",
+    )
+    .bind(user.id)
+    .bind(RECENT_KEEP)
+    .execute(&mut *tx)
+    .await?;
+    tx.commit().await?;
+
+    Ok(Json(serde_json::json!({ "ok": true })))
+}
+
+#[derive(Debug, Deserialize)]
+pub struct RecentQuery {
+    pub limit: Option<i64>,
+}
+
+#[derive(Debug, Serialize, FromRow)]
+pub struct RecentDocument {
+    pub id: Uuid,
+    pub workspace_id: Uuid,
+    pub title: String,
+    pub icon: Option<String>,
+    pub viewed_at: DateTime<Utc>,
+}
+
+#[derive(Debug, Serialize)]
+pub struct RecentDocuments {
+    pub documents: Vec<RecentDocument>,
+}
+
+/// `GET /documents/recent?limit=N` — the caller's recently-viewed, non-archived
+/// documents, newest first. `limit` defaults to 10, clamped to `1..=50`. Rows
+/// whose workspace the caller can no longer access are silently filtered.
+pub async fn recent(
+    State(state): State<AppState>,
+    user: AuthUser,
+    Query(q): Query<RecentQuery>,
+) -> ApiResult<Json<RecentDocuments>> {
+    let limit = q.limit.unwrap_or(10).clamp(1, 50);
+    let documents: Vec<RecentDocument> = sqlx::query_as(
+        "select d.id, d.workspace_id, d.title, d.icon, r.viewed_at \
+         from recent_documents r \
+         join documents d on d.id = r.doc_id \
+         join workspace_members m on m.workspace_id = d.workspace_id and m.user_id = $1 \
+         where r.user_id = $1 and not d.archived \
+         order by r.viewed_at desc \
+         limit $2",
+    )
+    .bind(user.id)
+    .bind(limit)
+    .fetch_all(&state.pool)
+    .await?;
+    Ok(Json(RecentDocuments { documents }))
+}
+
+// Note-to-note links (backlinks & graph view) live in `crate::links`.
