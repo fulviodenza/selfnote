@@ -36,6 +36,26 @@ interface Msg {
   error?: boolean;
 }
 
+/**
+ * The assistant wraps note-ready content between `<!--insert-->` / `<!--/insert-->`
+ * so "Insert into note" grabs just the deliverable, not the surrounding chat.
+ */
+function extractInsertable(md: string): string {
+  const re = /<!--\s*insert\s*-->([\s\S]*?)<!--\s*\/\s*insert\s*-->/gi;
+  const parts: string[] = [];
+  let m: RegExpExecArray | null;
+  while ((m = re.exec(md))) parts.push(m[1].trim());
+  return parts.length ? parts.join("\n\n") : md.trim();
+}
+
+/** Hide the insert markers when rendering the reply in the chat. */
+function stripInsertMarkers(md: string): string {
+  return md
+    .replace(/<!--\s*\/?\s*insert\s*-->/gi, "")
+    .replace(/\n{3,}/g, "\n\n")
+    .trim();
+}
+
 const SUGGESTIONS: { label: string; prompt: string; send?: boolean }[] = [
   { label: "Continue writing", prompt: "Continue writing this note from where it leaves off.", send: true },
   { label: "Summarize this page", prompt: "Summarize this note as a few concise bullet points.", send: true },
@@ -275,7 +295,7 @@ export function AssistDrawer({
                 >
                   {m.role === "assistant" && !m.error ? (
                     m.content ? (
-                      <Markdown style={mdStyles}>{m.content}</Markdown>
+                      <Markdown style={mdStyles}>{stripInsertMarkers(m.content)}</Markdown>
                     ) : m.streaming ? (
                       <Text style={type.body}>…</Text>
                     ) : null
@@ -294,7 +314,7 @@ export function AssistDrawer({
                 {m.role === "assistant" && !m.streaming && !m.error && m.content ? (
                   <View style={styles.msgActions}>
                     <Pressable
-                      onPress={() => onInsert(m.content)}
+                      onPress={() => onInsert(extractInsertable(m.content))}
                       accessibilityRole="button"
                       accessibilityLabel="Insert into note"
                       style={({ pressed }) => [styles.actionBtn, styles.actionPrimary, pressed && styles.chipPressed]}

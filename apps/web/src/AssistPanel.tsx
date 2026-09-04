@@ -14,6 +14,26 @@ import { ContextPicker, type SelectedNote } from "./ContextPicker";
 /** Per-note context budget, mirroring the server's MAX_CONTEXT_CHARS. */
 const MAX_CONTEXT_CHARS = 24_000;
 
+/**
+ * The assistant wraps note-ready content between `<!--insert-->` / `<!--/insert-->`
+ * so "Insert into note" grabs just the deliverable, not the surrounding chat.
+ */
+function extractInsertable(md: string): string {
+  const re = /<!--\s*insert\s*-->([\s\S]*?)<!--\s*\/\s*insert\s*-->/gi;
+  const parts: string[] = [];
+  let m: RegExpExecArray | null;
+  while ((m = re.exec(md))) parts.push(m[1].trim());
+  return parts.length ? parts.join("\n\n") : md.trim();
+}
+
+/** Hide the insert markers when rendering the reply in the chat. */
+function stripInsertMarkers(md: string): string {
+  return md
+    .replace(/<!--\s*\/?\s*insert\s*-->/gi, "")
+    .replace(/\n{3,}/g, "\n\n")
+    .trim();
+}
+
 /** Minimal structural view of the BlockNote editor we need. */
 export interface AiEditor {
   document: unknown[];
@@ -239,7 +259,9 @@ export function AssistPanel({
               <div className="assist-bubble">
                 {m.role === "assistant" && !m.error ? (
                   <div className="assist-md">
-                    <ReactMarkdown remarkPlugins={[remarkGfm]}>{m.content}</ReactMarkdown>
+                    <ReactMarkdown remarkPlugins={[remarkGfm]}>
+                      {stripInsertMarkers(m.content)}
+                    </ReactMarkdown>
                   </div>
                 ) : (
                   m.content
@@ -248,10 +270,15 @@ export function AssistPanel({
               </div>
               {m.role === "assistant" && !m.streaming && !m.error && m.content ? (
                 <div className="assist-msg-actions">
-                  <button onClick={() => insertIntoNote(m.content, i)} disabled={staging != null}>
+                  <button
+                    onClick={() => insertIntoNote(extractInsertable(m.content), i)}
+                    disabled={staging != null}
+                  >
                     {staging === i ? "Staging…" : "Insert into note"}
                   </button>
-                  <button onClick={() => navigator.clipboard?.writeText(m.content)}>Copy</button>
+                  <button onClick={() => navigator.clipboard?.writeText(extractInsertable(m.content))}>
+                    Copy
+                  </button>
                 </div>
               ) : null}
             </div>

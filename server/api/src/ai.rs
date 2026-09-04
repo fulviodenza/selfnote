@@ -359,7 +359,14 @@ fn chat_system(context: Option<&str>, selection: Option<&str>, extra_docs: &[Ext
          collaborative note editor. Help the user think through, draft, and refine the note \
          they're working on. Be warm but concise, and get to the point. When asked to write, \
          continue, or improve text, reply with polished prose the user can drop straight into \
-         the note. Format with Markdown.",
+         the note. Format with Markdown.\n\n\
+         When your reply contains a concrete piece of content the user is likely to insert \
+         into their note (a draft, a list, a rewrite, a summary, an outline, a table, etc.), \
+         wrap exactly that content — and nothing else — between a line containing only \
+         `<!--insert-->` and a line containing only `<!--/insert-->`. Keep any lead-in, \
+         commentary, or follow-up question OUTSIDE those markers. If your whole reply is that \
+         content, wrap all of it. If you are just answering a question or discussing (there is \
+         no artifact to insert), do not use the markers at all.",
     );
     if let Some(ctx) = context.filter(|c| !c.trim().is_empty()) {
         s.push_str("\n\nThe note the user is currently editing:\n\n");
