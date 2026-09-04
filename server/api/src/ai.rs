@@ -43,8 +43,14 @@ fn provider() -> &'static Provider {
 fn detect() -> Provider {
     let model = std::env::var("SELFNOTE_AI_MODEL").ok();
 
-    let cmd = std::env::var("SELFNOTE_AI_CMD").unwrap_or_else(|_| "claude".to_string());
-    if binary_on_path(&cmd) {
+    // The `claude` CLI is bundled in the image, so having it on PATH is not enough
+    // to choose it — that would shadow the API-key / Ollama paths. Pick the CLI only
+    // when it's actually usable: a subscription token is provided, or the operator
+    // explicitly opted in by setting SELFNOTE_AI_CMD.
+    let explicit_cmd = std::env::var("SELFNOTE_AI_CMD").ok();
+    let has_cli_token = std::env::var("CLAUDE_CODE_OAUTH_TOKEN").is_ok();
+    let cmd = explicit_cmd.clone().unwrap_or_else(|| "claude".to_string());
+    if (has_cli_token || explicit_cmd.is_some()) && binary_on_path(&cmd) {
         return Provider::ClaudeCli {
             cmd,
             model: model.unwrap_or_else(|| "claude".to_string()),

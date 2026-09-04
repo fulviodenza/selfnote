@@ -158,7 +158,7 @@ origin serves the whole app).
 | **Anthropic API** | `ANTHROPIC_API_KEY` (+ optional `SELFNOTE_AI_MODEL`) |
 | **Ollama** | `OLLAMA_HOST` |
 
-See [`apps/mobile/docs/AI_DEPLOY.md`](apps/mobile/docs/AI_DEPLOY.md) for details.
+See [`docs/ai-setup.md`](docs/ai-setup.md) for details.
 `/ai/complete` enforces workspace membership for the referenced document.
 
 ## Testing
