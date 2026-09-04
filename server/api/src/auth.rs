@@ -33,12 +33,25 @@ pub struct AuthResponse {
     pub email: String,
 }
 
+/// How the caller authenticated. Some routes (e.g. accepting an AI edit
+/// proposal — a human review gate) require an interactive JWT session and reject
+/// long-lived personal access tokens.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum AuthKind {
+    /// An interactive session (JWT access token).
+    Jwt,
+    /// A personal access token ("snp_…") — a headless integration.
+    Pat,
+}
+
 /// Authenticated user, extracted from a `Authorization: Bearer <jwt>` header.
 pub struct AuthUser {
     pub id: Uuid,
     /// Kept for handlers/logging that key off the caller's email.
     #[allow(dead_code)]
     pub email: String,
+    /// Whether the caller presented a JWT or a personal access token.
+    pub kind: AuthKind,
 }
 
 #[axum::async_trait]
@@ -72,7 +85,7 @@ where
             .fetch_optional(&app.pool)
             .await?;
             let (id, email) = row.ok_or(AppError::Unauthorized)?;
-            return Ok(AuthUser { id, email });
+            return Ok(AuthUser { id, email, kind: AuthKind::Pat });
         }
 
         let claims: AccessClaims =
@@ -81,6 +94,7 @@ where
         Ok(AuthUser {
             id,
             email: claims.email,
+            kind: AuthKind::Jwt,
         })
     }
 }

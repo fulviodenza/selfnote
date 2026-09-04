@@ -8,9 +8,13 @@ mod auth;
 mod documents;
 mod error;
 mod files;
+mod history;
+mod links;
+mod proposals;
 mod rooms;
 mod shares;
 mod state;
+mod tasks;
 mod workspaces;
 
 use std::net::SocketAddr;
@@ -57,6 +61,13 @@ async fn main() -> anyhow::Result<()> {
         .route("/ai/complete", post(ai::complete))
         .route("/ai/chat", post(ai::chat))
         .route("/ai/chat/stream", post(ai::chat_stream))
+        .route("/ai/action", post(ai::action))
+        .route("/ai/action/stream", post(ai::action_stream))
+        .route("/ai/voice", get(ai::get_voice).put(ai::set_voice))
+        .route("/ai/proposals", get(proposals::list).post(proposals::create))
+        .route("/ai/proposals/:id", get(proposals::get))
+        .route("/ai/proposals/:id/accept", post(proposals::accept))
+        .route("/ai/proposals/:id/reject", post(proposals::reject))
         .route("/auth/register", post(auth::register))
         .route("/auth/login", post(auth::login))
         .route("/auth/refresh", post(auth::refresh))
@@ -66,14 +77,51 @@ async fn main() -> anyhow::Result<()> {
         .route("/workspaces/:id/members", post(workspaces::add_member))
         .route("/documents", get(documents::list).post(documents::create))
         .route("/documents/search", get(documents::search))
+        .route("/documents/recent", get(documents::recent))
+        .route("/documents/link-search", get(links::link_search))
         .route("/documents/:id", get(documents::get).patch(documents::update))
+        .route("/documents/:id/viewed", post(documents::mark_viewed))
+        .route(
+            "/documents/:id/links",
+            get(links::links).put(links::set_links),
+        )
+        .route("/documents/:id/backlinks", get(links::backlinks))
+        .route("/workspaces/:id/graph", get(links::graph))
         .route(
             "/documents/:id/content",
             get(documents::get_content).post(documents::set_content),
         )
+        .route(
+            "/documents/:id/history",
+            get(history::list).post(history::create),
+        )
+        .route(
+            "/documents/:id/history/:checkpoint_id",
+            get(history::get).delete(history::delete),
+        )
+        .route(
+            "/documents/:id/history/:checkpoint_id/restore",
+            post(history::restore),
+        )
+        .route(
+            "/documents/:id/task",
+            get(tasks::get_task)
+                .post(tasks::set_task)
+                .patch(tasks::update_task)
+                .delete(tasks::delete_task),
+        )
+        .route("/tasks", get(tasks::list_tasks))
+        .route(
+            "/workspaces/:id/calendar-feed",
+            get(tasks::get_feed)
+                .post(tasks::issue_feed)
+                .delete(tasks::revoke_feed),
+        )
+        .route("/calendar/:workspace_id/:token", get(tasks::ics_feed))
         .route("/documents/:id/room-token", post(rooms::issue))
-        .route("/documents/:id/shares", post(shares::create))
+        .route("/documents/:id/shares", get(shares::list).post(shares::create))
         .route("/shares/:id", get(shares::resolve))
+        .route("/shares/:id/analytics", get(shares::analytics))
         .route(
             "/files",
             post(files::upload).layer(axum::extract::DefaultBodyLimit::max(32 * 1024 * 1024)),

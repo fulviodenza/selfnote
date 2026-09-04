@@ -287,6 +287,22 @@ pub struct ChatMessage {
     pub content: String,
 }
 
+/// An additional note folded into the chat as grounding context. Bodies are sent
+/// by the client (rendered from Yjs) exactly like `context`; the server only uses
+/// `doc_id` to authorize access, never to fetch content.
+#[derive(Debug, Clone, Deserialize)]
+pub struct ExtraDoc {
+    pub doc_id: uuid::Uuid,
+    pub title: Option<String>,
+    pub text: String,
+    /// Advisory: "linked" | "recent" | "manual" — used only for prompt labeling.
+    #[allow(dead_code)]
+    pub source: Option<String>,
+}
+
+/// At most this many `extra_docs` are honored; excess is ignored (earliest kept).
+const MAX_EXTRA_DOCS: usize = 6;
+
 #[derive(Debug, Deserialize)]
 pub struct ChatReq {
     pub doc_id: Option<uuid::Uuid>,
@@ -296,6 +312,9 @@ pub struct ChatReq {
     pub context: Option<String>,
     /// A passage the user has selected in the editor.
     pub selection: Option<String>,
+    /// Additional notes to fold in as related grounding context.
+    #[serde(default)]
+    pub extra_docs: Vec<ExtraDoc>,
 }
 
 /// If the request references a document, the caller must belong to its workspace
@@ -319,8 +338,22 @@ async fn authorize_doc(
     Ok(())
 }
 
-/// The assistant's persona + the note it's grounded in.
-fn chat_system(context: Option<&str>, selection: Option<&str>) -> String {
+/// Authorize every `extra_docs[].doc_id` the same way as `doc_id`. A single
+/// inaccessible id fails the whole request (`403`/`404`) — no partial leak.
+async fn authorize_extra_docs(
+    state: &AppState,
+    user: &AuthUser,
+    extra_docs: &[ExtraDoc],
+) -> ApiResult<()> {
+    for d in extra_docs.iter().take(MAX_EXTRA_DOCS) {
+        authorize_doc(state, user, Some(d.doc_id)).await?;
+    }
+    Ok(())
+}
+
+/// The assistant's persona + the note it's grounded in, plus any related notes
+/// the user pulled in as extra context.
+fn chat_system(context: Option<&str>, selection: Option<&str>, extra_docs: &[ExtraDoc]) -> String {
     let mut s = String::from(
         "You are Selfnote's built-in writing assistant, embedded in the sidebar of a \
          collaborative note editor. Help the user think through, draft, and refine the note \
@@ -336,6 +369,28 @@ fn chat_system(context: Option<&str>, selection: Option<&str>) -> String {
         s.push_str("\n\nThe user has selected this passage:\n\n");
         s.push_str(truncate(sel));
     }
+    // Fold in related notes under a clearly delimited section, in order, labeled by
+    // title. At most `MAX_EXTRA_DOCS` are honored and each body is capped by budget.
+    let related: Vec<&ExtraDoc> = extra_docs
+        .iter()
+        .take(MAX_EXTRA_DOCS)
+        .filter(|d| !d.text.trim().is_empty())
+        .collect();
+    if !related.is_empty() {
+        s.push_str(
+            "\n\n--- Related notes ---\n\nThe user has also pulled in these related notes as \
+             additional context:",
+        );
+        for d in related {
+            let label = d.title.as_deref().map(str::trim).filter(|t| !t.is_empty());
+            match label {
+                Some(title) => s.push_str(&format!("\n\n## {title}\n\n")),
+                None => s.push_str("\n\n## Untitled note\n\n"),
+            }
+            s.push_str(truncate(&d.text));
+        }
+        s.push_str("\n\n--- End related notes ---");
+    }
     s
 }
 
@@ -347,7 +402,8 @@ pub async fn chat(
     Json(req): Json<ChatReq>,
 ) -> ApiResult<Json<CompleteResp>> {
     authorize_doc(&state, &user, req.doc_id).await?;
-    let system = chat_system(req.context.as_deref(), req.selection.as_deref());
+    authorize_extra_docs(&state, &user, &req.extra_docs).await?;
+    let system = chat_system(req.context.as_deref(), req.selection.as_deref(), &req.extra_docs);
     let text = match provider() {
         Provider::ClaudeCli { cmd, .. } => run_cli(cmd, &flatten_chat(&system, &req.messages)).await?,
         Provider::AnthropicApi { model } => anthropic_chat(model, &system, &req.messages, None).await?,
@@ -369,8 +425,9 @@ pub async fn chat_stream(
     Json(req): Json<ChatReq>,
 ) -> ApiResult<Sse<ReceiverStream<Result<Event, Infallible>>>> {
     authorize_doc(&state, &user, req.doc_id).await?;
+    authorize_extra_docs(&state, &user, &req.extra_docs).await?;
     let provider = provider().clone();
-    let system = chat_system(req.context.as_deref(), req.selection.as_deref());
+    let system = chat_system(req.context.as_deref(), req.selection.as_deref(), &req.extra_docs);
     let messages = req.messages.clone();
 
     let (sse_tx, sse_rx) = mpsc::channel::<Result<Event, Infallible>>(64);
@@ -596,4 +653,339 @@ async fn ollama_chat(
         }
     }
     Ok(acc)
+}
+
+/* --------------------------------------------------------------- actions --- */
+//
+// Note-level AI actions: Summarize, Rewrite in my voice, Extract action items.
+// The action is stateless — the client sends the note's plain text (and an
+// optional selection); the server maps the action to a fixed system prompt and
+// runs it through the same providers as chat. "Rewrite in my voice" injects the
+// caller's persisted voice sample as a style exemplar. Both the streaming and
+// non-streaming paths record one best-effort `ai_action_events` row on success.
+
+/// A voice sample longer than this is silently truncated on write.
+const MAX_VOICE_CHARS: usize = 8_000;
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum Action {
+    Summarize,
+    Rewrite,
+    ActionItems,
+}
+
+impl Action {
+    fn parse(s: &str) -> Option<Self> {
+        match s {
+            "summarize" => Some(Self::Summarize),
+            "rewrite" => Some(Self::Rewrite),
+            "action_items" => Some(Self::ActionItems),
+            _ => None,
+        }
+    }
+
+    /// Canonical string, as stored in `ai_action_events.action`.
+    fn as_str(self) -> &'static str {
+        match self {
+            Self::Summarize => "summarize",
+            Self::Rewrite => "rewrite",
+            Self::ActionItems => "action_items",
+        }
+    }
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum Scope {
+    Note,
+    Selection,
+}
+
+impl Scope {
+    /// Defaults to `note` when unset; anything invalid is rejected upstream.
+    fn parse(s: Option<&str>) -> Option<Self> {
+        match s {
+            None | Some("note") => Some(Self::Note),
+            Some("selection") => Some(Self::Selection),
+            _ => None,
+        }
+    }
+
+    fn as_str(self) -> &'static str {
+        match self {
+            Self::Note => "note",
+            Self::Selection => "selection",
+        }
+    }
+}
+
+#[derive(Debug, Deserialize)]
+pub struct ActionReq {
+    pub action: String,
+    pub scope: Option<String>,
+    pub doc_id: Option<uuid::Uuid>,
+    /// The note's full plain text — ground truth for the action.
+    pub text: Option<String>,
+    /// When `scope == "selection"`, the passage to operate on.
+    pub selection: Option<String>,
+}
+
+/// A validated action request: parsed action/scope and the resolved input text.
+struct ResolvedAction {
+    action: Action,
+    scope: Scope,
+    /// The text the action operates on (selection when scoped, else the note).
+    input: String,
+}
+
+impl ActionReq {
+    /// Parse + validate the request. Rejects unknown action/scope and empty input.
+    fn resolve(&self) -> ApiResult<ResolvedAction> {
+        let action = Action::parse(&self.action)
+            .ok_or_else(|| AppError::BadRequest(format!("invalid action: {}", self.action)))?;
+        let scope = Scope::parse(self.scope.as_deref())
+            .ok_or_else(|| AppError::BadRequest("invalid scope".to_string()))?;
+
+        // Operate on the selection when scoped to one and present; else the note.
+        let selection = self.selection.as_deref().filter(|s| !s.trim().is_empty());
+        let text = self.text.as_deref().filter(|s| !s.trim().is_empty());
+        let input = match scope {
+            Scope::Selection => selection.or(text),
+            Scope::Note => text,
+        }
+        .ok_or_else(|| AppError::BadRequest("empty input".to_string()))?;
+
+        Ok(ResolvedAction { action, scope, input: input.to_string() })
+    }
+}
+
+/// The fixed system prompt for each action. `rewrite` folds in the caller's voice
+/// sample as a style exemplar when one is set, otherwise rewrites for clarity.
+fn action_system(action: Action, voice_sample: Option<&str>) -> String {
+    match action {
+        Action::Summarize => "Summarize the note below into a tight TL;DR followed by 3-6 \
+             bullet key points. Markdown."
+            .to_string(),
+        Action::Rewrite => {
+            let mut s = String::from(
+                "Rewrite the text below preserving meaning and structure, matching the user's \
+                 voice.",
+            );
+            match voice_sample.map(str::trim).filter(|v| !v.is_empty()) {
+                Some(sample) => {
+                    s.push_str(
+                        "\n\nHere is a sample of the user's own writing; match its tone, rhythm, \
+                         and word choice:\n\n",
+                    );
+                    s.push_str(truncate(sample));
+                }
+                None => s.push_str(" No voice sample is set, so rewrite for clarity and concision."),
+            }
+            s
+        }
+        Action::ActionItems => "Extract every actionable to-do from the note as a Markdown \
+             checklist (`- [ ] ...`), owners/dates inline where stated. If none, reply exactly \
+             `_No action items found._`"
+            .to_string(),
+    }
+}
+
+/// Fetch the caller's voice sample, if any (empty/missing → `None`).
+async fn voice_sample_for(state: &AppState, user_id: uuid::Uuid) -> ApiResult<Option<String>> {
+    let row: Option<(String,)> =
+        sqlx::query_as("select sample from ai_voice_profiles where user_id = $1")
+            .bind(user_id)
+            .fetch_optional(&state.pool)
+            .await?;
+    Ok(row.map(|(s,)| s).filter(|s| !s.trim().is_empty()))
+}
+
+/// Record one usage event. Best-effort: telemetry must never block the response,
+/// so errors are logged and swallowed.
+async fn record_action_event(
+    state: &AppState,
+    user_id: uuid::Uuid,
+    doc_id: Option<uuid::Uuid>,
+    action: Action,
+    scope: Scope,
+) {
+    let res = sqlx::query(
+        "insert into ai_action_events (user_id, doc_id, action, scope) values ($1, $2, $3, $4)",
+    )
+    .bind(user_id)
+    .bind(doc_id)
+    .bind(action.as_str())
+    .bind(scope.as_str())
+    .execute(&state.pool)
+    .await;
+    if let Err(e) = res {
+        tracing::warn!("ai_action_events insert failed: {e}");
+    }
+}
+
+/// Build the single-turn conversation an action runs as: the action's system
+/// prompt plus one user message carrying the input text.
+fn action_messages(input: &str) -> Vec<ChatMessage> {
+    vec![ChatMessage { role: "user".to_string(), content: truncate(input).to_string() }]
+}
+
+/// `POST /ai/action` — run an action, non-streaming (fallback). Returns the full
+/// generated Markdown as `{ "text": ... }`.
+pub async fn action(
+    State(state): State<AppState>,
+    user: AuthUser,
+    Json(req): Json<ActionReq>,
+) -> ApiResult<Json<CompleteResp>> {
+    let resolved = req.resolve()?;
+    authorize_doc(&state, &user, req.doc_id).await?;
+
+    let voice = if resolved.action == Action::Rewrite {
+        voice_sample_for(&state, user.id).await?
+    } else {
+        None
+    };
+    let system = action_system(resolved.action, voice.as_deref());
+    let messages = action_messages(&resolved.input);
+
+    let text = match provider() {
+        Provider::ClaudeCli { cmd, .. } => run_cli(cmd, &flatten_chat(&system, &messages)).await?,
+        Provider::AnthropicApi { model } => anthropic_chat(model, &system, &messages, None).await?,
+        Provider::Ollama { host, model } => {
+            ollama_chat(host, model, &system, &messages, None).await?
+        }
+        Provider::None => {
+            return Err(AppError::Conflict("no AI provider configured".to_string()))
+        }
+    };
+
+    record_action_event(&state, user.id, req.doc_id, resolved.action, resolved.scope).await;
+    Ok(Json(CompleteResp { text: text.trim().to_string() }))
+}
+
+/// `POST /ai/action/stream` — run an action, streamed (primary path). SSE wire
+/// format is byte-compatible with `/ai/chat/stream`: `data: {"delta":…}` events,
+/// a terminal `event: done`, or `event: error` on failure.
+pub async fn action_stream(
+    State(state): State<AppState>,
+    user: AuthUser,
+    Json(req): Json<ActionReq>,
+) -> ApiResult<Sse<ReceiverStream<Result<Event, Infallible>>>> {
+    let resolved = req.resolve()?;
+    authorize_doc(&state, &user, req.doc_id).await?;
+
+    // Pre-stream provider check, so a missing provider is a plain 409 (not an SSE
+    // error event) — identical to `/ai/chat/stream`.
+    let provider = provider().clone();
+    if matches!(provider, Provider::None) {
+        return Err(AppError::Conflict("no AI provider configured".to_string()));
+    }
+
+    let voice = if resolved.action == Action::Rewrite {
+        voice_sample_for(&state, user.id).await?
+    } else {
+        None
+    };
+    let system = action_system(resolved.action, voice.as_deref());
+    let messages = action_messages(&resolved.input);
+    let doc_id = req.doc_id;
+    let (action_kind, scope) = (resolved.action, resolved.scope);
+    let state2 = state.clone();
+    let user_id = user.id;
+
+    let (sse_tx, sse_rx) = mpsc::channel::<Result<Event, Infallible>>(64);
+    tokio::spawn(async move {
+        let (dtx, mut drx) = mpsc::channel::<String>(64);
+        let sse_fwd = sse_tx.clone();
+        let fwd = tokio::spawn(async move {
+            while let Some(chunk) = drx.recv().await {
+                let ev = Event::default()
+                    .json_data(serde_json::json!({ "delta": chunk }))
+                    .unwrap_or_else(|_| Event::default());
+                if sse_fwd.send(Ok(ev)).await.is_err() {
+                    break;
+                }
+            }
+        });
+
+        let res = run_provider_stream(&provider, &system, &messages, &dtx).await;
+        drop(dtx);
+        let _ = fwd.await;
+
+        let ev = match res {
+            Ok(()) => {
+                // Best-effort telemetry, only on a successful run.
+                record_action_event(&state2, user_id, doc_id, action_kind, scope).await;
+                Event::default().event("done").data("{}")
+            }
+            Err(e) => Event::default()
+                .event("error")
+                .json_data(serde_json::json!({ "error": e.to_string() }))
+                .unwrap_or_else(|_| Event::default().event("error").data("{}")),
+        };
+        let _ = sse_tx.send(Ok(ev)).await;
+    });
+
+    Ok(Sse::new(ReceiverStream::new(sse_rx)).keep_alive(KeepAlive::default()))
+}
+
+/* ----------------------------------------------------------------- voice --- */
+
+#[derive(Debug, Serialize)]
+pub struct VoiceResp {
+    pub sample: String,
+    pub updated_at: Option<chrono::DateTime<chrono::Utc>>,
+}
+
+#[derive(Debug, Deserialize)]
+pub struct VoiceReq {
+    #[serde(default)]
+    pub sample: String,
+}
+
+/// `GET /ai/voice` — read the caller's voice profile. Returns
+/// `{ sample: "", updated_at: null }` when no row exists (200, not 404).
+pub async fn get_voice(
+    State(state): State<AppState>,
+    user: AuthUser,
+) -> ApiResult<Json<VoiceResp>> {
+    let row: Option<(String, chrono::DateTime<chrono::Utc>)> =
+        sqlx::query_as("select sample, updated_at from ai_voice_profiles where user_id = $1")
+            .bind(user.id)
+            .fetch_optional(&state.pool)
+            .await?;
+    Ok(Json(match row {
+        Some((sample, updated_at)) => VoiceResp { sample, updated_at: Some(updated_at) },
+        None => VoiceResp { sample: String::new(), updated_at: None },
+    }))
+}
+
+/// `PUT /ai/voice` — set/update the caller's voice profile. The sample is capped
+/// at `MAX_VOICE_CHARS` (silently truncated). An empty sample clears the profile
+/// (rewrite falls back to generic).
+pub async fn set_voice(
+    State(state): State<AppState>,
+    user: AuthUser,
+    Json(req): Json<VoiceReq>,
+) -> ApiResult<Json<VoiceResp>> {
+    let mut sample = req.sample;
+    if sample.len() > MAX_VOICE_CHARS {
+        // Snap to a char boundary at or below the cap.
+        let end = (0..=MAX_VOICE_CHARS)
+            .rev()
+            .find(|&i| sample.is_char_boundary(i))
+            .unwrap_or(0);
+        sample.truncate(end);
+    }
+
+    let (sample, updated_at): (String, chrono::DateTime<chrono::Utc>) = sqlx::query_as(
+        "insert into ai_voice_profiles (user_id, sample, updated_at) \
+         values ($1, $2, now()) \
+         on conflict (user_id) do update set sample = excluded.sample, updated_at = now() \
+         returning sample, updated_at",
+    )
+    .bind(user.id)
+    .bind(sample)
+    .fetch_one(&state.pool)
+    .await?;
+
+    Ok(Json(VoiceResp { sample, updated_at: Some(updated_at) }))
 }

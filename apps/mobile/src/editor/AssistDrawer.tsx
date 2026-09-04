@@ -11,14 +11,23 @@ import { Pressable, ScrollView, StyleSheet, Text, TextInput, View } from "react-
 import Markdown from "react-native-markdown-display";
 import {
   aiChatStream,
+  api,
   type AiStatus,
   type ChatMessage,
   type ChatStreamHandle,
+  type ExtraDoc,
 } from "../api";
 import { useTheme } from "../theme-context";
 import { hitSlop, radius, shadow, sizing, spacing } from "../theme";
 import type { Palette, TypeRoles } from "../theme";
 import { IconButton } from "../ui";
+import { ContextPickerSheet } from "./ContextPickerSheet";
+import {
+  MAX_EXTRA_DOCS,
+  sourceLabel,
+  truncateBody,
+  type ContextNote,
+} from "./contextNotes";
 
 interface Msg {
   role: "user" | "assistant";
@@ -37,14 +46,22 @@ const SUGGESTIONS: { label: string; prompt: string; send?: boolean }[] = [
 export function AssistDrawer({
   status,
   docId,
+  workspaceId,
   getText,
+  resolveMarkdown,
   onInsert,
+  onReply,
   onClose,
 }: {
   status: AiStatus;
   docId: string;
+  workspaceId: string;
   getText: () => Promise<string>;
+  /** Render another note's body to Markdown for extra-context (from cache). */
+  resolveMarkdown: (docId: string) => Promise<string>;
   onInsert: (text: string) => void;
+  /** Fired after an assistant reply settles, so the caller can refresh proposals. */
+  onReply?: () => void;
   onClose: () => void;
 }) {
   const { colors, type } = useTheme();
@@ -53,8 +70,42 @@ export function AssistDrawer({
   const [messages, setMessages] = useState<Msg[]>([]);
   const [input, setInput] = useState("");
   const [busy, setBusy] = useState(false);
+  // Notes folded into each turn as extra context (opt-in, session-scoped per doc).
+  const [contextNotes, setContextNotes] = useState<ContextNote[]>([]);
+  const [pickerOpen, setPickerOpen] = useState(false);
   const streamRef = useRef<ChatStreamHandle | null>(null);
   const scrollRef = useRef<ScrollView>(null);
+
+  const addNote = (note: ContextNote) => {
+    setContextNotes((prev) =>
+      prev.some((n) => n.id === note.id) || prev.length >= MAX_EXTRA_DOCS
+        ? prev
+        : [...prev, note],
+    );
+    setPickerOpen(false);
+  };
+  const removeNote = (id: string) =>
+    setContextNotes((prev) => prev.filter((n) => n.id !== id));
+
+  // "Pull in linked notes": pre-fill chips from the current note's links.
+  const pullLinked = async () => {
+    try {
+      const links = await api.getDocLinks(docId);
+      setContextNotes((prev) => {
+        const seen = new Set(prev.map((n) => n.id));
+        const next = [...prev];
+        for (const l of links) {
+          if (next.length >= MAX_EXTRA_DOCS) break;
+          if (l.target.id === docId || seen.has(l.target.id)) continue;
+          seen.add(l.target.id);
+          next.push({ id: l.target.id, title: l.target.title, icon: l.target.icon, source: "linked" });
+        }
+        return next;
+      });
+    } catch {
+      /* no links / offline — leave chips as-is */
+    }
+  };
 
   useEffect(() => {
     scrollRef.current?.scrollToEnd({ animated: true });
@@ -91,6 +142,27 @@ export function AssistDrawer({
     } catch {
       /* editor not ready — send without context */
     }
+
+    // Resolve each chip's body to Markdown (from the local cache via the WebView
+    // bridge). Notes with no resolvable body are dropped; the server also caps
+    // the per-note length and honors at most MAX_EXTRA_DOCS.
+    const extra_docs: ExtraDoc[] = [];
+    for (const n of contextNotes.slice(0, MAX_EXTRA_DOCS)) {
+      let text = "";
+      try {
+        text = await resolveMarkdown(n.id);
+      } catch {
+        /* unresolvable note — skip */
+      }
+      if (!text.trim()) continue;
+      extra_docs.push({
+        doc_id: n.id,
+        title: n.title || "Untitled",
+        text: truncateBody(text),
+        source: n.source,
+      });
+    }
+
     const wire: ChatMessage[] = next
       .slice(0, asstIndex)
       .map((m) => ({ role: m.role, content: m.content }));
@@ -99,10 +171,17 @@ export function AssistDrawer({
       patchAsst((m) => ({ ...m, streaming: false }));
       setBusy(false);
       streamRef.current = null;
+      // A reply may have staged a proposal (e.g. via a tool call) — refresh.
+      onReply?.();
     };
 
     streamRef.current = aiChatStream(
-      { doc_id: docId, messages: wire, context },
+      {
+        doc_id: docId,
+        messages: wire,
+        context,
+        ...(extra_docs.length ? { extra_docs } : {}),
+      },
       {
         onDelta: (d) => patchAsst((m) => ({ ...m, content: m.content + d })),
         onError: (msg) => {
@@ -140,7 +219,11 @@ export function AssistDrawer({
           <View style={styles.headerRight}>
             {messages.length > 0 ? (
               <Pressable
-                onPress={() => !busy && setMessages([])}
+                onPress={() => {
+                  if (busy) return;
+                  setMessages([]);
+                  setContextNotes([]);
+                }}
                 accessibilityRole="button"
                 accessibilityLabel="New chat"
                 style={({ pressed }) => [styles.clearBtn, pressed && styles.chipPressed]}
@@ -225,6 +308,60 @@ export function AssistDrawer({
           )}
         </ScrollView>
 
+        <View style={styles.context}>
+          {contextNotes.length > 0 ? (
+            <ScrollView
+              horizontal
+              showsHorizontalScrollIndicator={false}
+              contentContainerStyle={styles.chipsRow}
+              keyboardShouldPersistTaps="handled"
+            >
+              {contextNotes.map((n) => (
+                <View key={n.id} style={styles.chip}>
+                  <Text style={styles.chipIcon}>{n.icon || "📄"}</Text>
+                  <Text style={styles.chipTitle} numberOfLines={1}>
+                    {n.title || "Untitled"}
+                  </Text>
+                  <Text style={styles.chipTag}>{sourceLabel(n.source)}</Text>
+                  <Pressable
+                    onPress={() => removeNote(n.id)}
+                    hitSlop={hitSlop(16)}
+                    accessibilityRole="button"
+                    accessibilityLabel={`Remove ${n.title || "Untitled"}`}
+                  >
+                    <Text style={styles.chipRemove}>✕</Text>
+                  </Pressable>
+                </View>
+              ))}
+            </ScrollView>
+          ) : null}
+          <View style={styles.contextActions}>
+            <Pressable
+              onPress={() => setPickerOpen(true)}
+              disabled={contextNotes.length >= MAX_EXTRA_DOCS}
+              accessibilityRole="button"
+              accessibilityLabel="Add note context"
+              style={({ pressed }) => [
+                styles.addBtn,
+                pressed && styles.chipPressed,
+                contextNotes.length >= MAX_EXTRA_DOCS && styles.addDisabled,
+              ]}
+            >
+              <Text style={styles.addText}>＋ Add note</Text>
+            </Pressable>
+            {contextNotes.length === 0 ? (
+              <Pressable
+                onPress={pullLinked}
+                accessibilityRole="button"
+                accessibilityLabel="Pull in linked notes"
+                style={({ pressed }) => [styles.addBtn, pressed && styles.chipPressed]}
+              >
+                <Text style={styles.addText}>Pull in linked notes</Text>
+              </Pressable>
+            ) : null}
+          </View>
+        </View>
+
         <View style={styles.composer}>
           <TextInput
             style={styles.composerInput}
@@ -259,6 +396,15 @@ export function AssistDrawer({
           )}
         </View>
       </View>
+      {pickerOpen ? (
+        <ContextPickerSheet
+          docId={docId}
+          workspaceId={workspaceId}
+          selectedIds={new Set([docId, ...contextNotes.map((n) => n.id)])}
+          onAdd={addNote}
+          onClose={() => setPickerOpen(false)}
+        />
+      ) : null}
     </View>
   );
 }
@@ -340,6 +486,50 @@ const makeStyles = (colors: Palette, type: TypeRoles) =>
     },
     actionPrimary: { borderColor: colors.accent },
     actionText: { ...type.meta, fontWeight: "600" },
+
+    context: {
+      paddingHorizontal: spacing.xl,
+      paddingTop: spacing.sm,
+      gap: spacing.sm,
+    },
+    chipsRow: { gap: spacing.sm, paddingRight: spacing.xl },
+    chip: {
+      flexDirection: "row",
+      alignItems: "center",
+      gap: spacing.xs,
+      maxWidth: 220,
+      paddingLeft: spacing.sm,
+      paddingRight: spacing.sm,
+      paddingVertical: 6,
+      borderRadius: radius.full,
+      borderWidth: 1,
+      borderColor: colors.hairline,
+      backgroundColor: colors.surfaceSunken,
+    },
+    chipIcon: { fontSize: 13 },
+    chipTitle: { ...type.meta, color: colors.ink, flexShrink: 1 },
+    chipTag: {
+      ...type.meta,
+      fontSize: 11,
+      color: colors.accent,
+      backgroundColor: colors.accentWash,
+      borderRadius: radius.full,
+      paddingHorizontal: 6,
+      paddingVertical: 1,
+      overflow: "hidden",
+    },
+    chipRemove: { ...type.meta, color: colors.inkSoft, fontSize: 12, paddingLeft: 2 },
+    contextActions: { flexDirection: "row", gap: spacing.sm },
+    addBtn: {
+      minHeight: 34,
+      paddingHorizontal: spacing.md,
+      justifyContent: "center",
+      borderRadius: radius.full,
+      borderWidth: 1,
+      borderColor: colors.hairline,
+    },
+    addDisabled: { opacity: 0.4 },
+    addText: { ...type.meta, color: colors.accent, fontWeight: "600" },
 
     composer: {
       flexDirection: "row",

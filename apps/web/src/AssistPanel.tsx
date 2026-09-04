@@ -4,10 +4,15 @@
  * and lets the user drop any reply straight into the document. Shown only when
  * /ai/status reports a provider.
  */
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import ReactMarkdown from "react-markdown";
 import remarkGfm from "remark-gfm";
-import { api, type AiStatus, type ChatMessage } from "./api";
+import { createRenderer } from "@selfnote/editor";
+import { api, type AiProposal, type AiStatus, type ChatMessage, type ExtraDoc } from "./api";
+import { ContextPicker, type SelectedNote } from "./ContextPicker";
+
+/** Per-note context budget, mirroring the server's MAX_CONTEXT_CHARS. */
+const MAX_CONTEXT_CHARS = 24_000;
 
 /** Minimal structural view of the BlockNote editor we need. */
 export interface AiEditor {
@@ -38,19 +43,33 @@ export function AssistPanel({
   editor,
   status,
   docId,
+  workspaceId,
   onClose,
+  onStaged,
 }: {
   editor: AiEditor | null;
   status: AiStatus;
   docId: string;
+  workspaceId: string;
   onClose: () => void;
+  /** Called with a freshly-staged proposal so the parent can open the diff gate. */
+  onStaged: (proposal: AiProposal) => void;
 }) {
   const [messages, setMessages] = useState<Msg[]>([]);
   const [input, setInput] = useState("");
   const [busy, setBusy] = useState(false);
+  const [context, setContext] = useState<SelectedNote[]>([]);
   const abortRef = useRef<AbortController | null>(null);
   const threadRef = useRef<HTMLDivElement>(null);
   const inputRef = useRef<HTMLTextAreaElement>(null);
+  // One headless Yjs→Markdown renderer, reused across sends.
+  const renderer = useMemo(() => createRenderer(), []);
+
+  // Chips are scoped per doc for the session: reset when the note changes.
+  useEffect(() => {
+    setContext([]);
+    setMessages([]);
+  }, [docId]);
 
   // Keep the newest message in view as it streams.
   useEffect(() => {
@@ -76,12 +95,27 @@ export function AssistPanel({
     const controller = new AbortController();
     abortRef.current = controller;
 
-    let context = "";
+    let noteContext = "";
     try {
-      context = editor ? await editor.blocksToMarkdownLossy(editor.document) : "";
+      noteContext = editor ? await editor.blocksToMarkdownLossy(editor.document) : "";
     } catch {
       /* editor not ready — send without context */
     }
+
+    // Resolve each selected note's body to Markdown (headless Yjs render) and
+    // fold in as extra_docs. Cap at 6 notes and truncate each to the budget;
+    // notes that fail to load are skipped rather than failing the whole turn.
+    const extra_docs: ExtraDoc[] = [];
+    for (const note of context.slice(0, 6)) {
+      try {
+        const { updates } = await api.getContent(note.id);
+        const text = (await renderer.fromUpdatesBase64(updates)).slice(0, MAX_CONTEXT_CHARS);
+        extra_docs.push({ doc_id: note.id, title: note.title, text, source: note.source });
+      } catch {
+        /* skip a note we couldn't render */
+      }
+    }
+
     const wire: ChatMessage[] = next
       .slice(0, asstIndex)
       .map((m) => ({ role: m.role, content: m.content }));
@@ -96,7 +130,12 @@ export function AssistPanel({
 
     try {
       await api.aiChatStream(
-        { doc_id: docId, messages: wire, context },
+        {
+          doc_id: docId,
+          messages: wire,
+          context: noteContext,
+          ...(extra_docs.length ? { extra_docs } : {}),
+        },
         {
           signal: controller.signal,
           onDelta: (d) => patchAsst((m) => ({ ...m, content: m.content + d })),
@@ -120,11 +159,27 @@ export function AssistPanel({
 
   const stop = () => abortRef.current?.abort();
 
-  const insertIntoNote = async (content: string) => {
-    if (!editor) return;
-    const blocks = await editor.tryParseMarkdownToBlocks(content);
-    const doc = editor.document;
-    editor.insertBlocks(blocks, doc[doc.length - 1], "after");
+  // Staging an in-app insertion goes through the same proposal → accept/reject
+  // gate as a remote MCP write: create a `pending` proposal and hand it to the
+  // parent, which opens the diff preview.
+  const [staging, setStaging] = useState<number | null>(null);
+  const insertIntoNote = async (content: string, index: number) => {
+    if (staging != null) return;
+    setStaging(index);
+    try {
+      const proposal = await api.createAiProposal({
+        document_id: docId,
+        op: "append",
+        markdown: content,
+        origin: "app",
+        summary: "Insert assistant reply",
+      });
+      onStaged(proposal);
+    } catch {
+      /* leave the reply in place; the user can retry */
+    } finally {
+      setStaging(null);
+    }
   };
 
   const onSuggest = (s: (typeof SUGGESTIONS)[number]) => {
@@ -147,7 +202,14 @@ export function AssistPanel({
         </div>
         <div className="assist-head-right">
           {messages.length > 0 && (
-            <button className="assist-clear" onClick={() => setMessages([])} disabled={busy}>
+            <button
+              className="assist-clear"
+              onClick={() => {
+                setMessages([]);
+                setContext([]);
+              }}
+              disabled={busy}
+            >
               New chat
             </button>
           )}
@@ -186,7 +248,9 @@ export function AssistPanel({
               </div>
               {m.role === "assistant" && !m.streaming && !m.error && m.content ? (
                 <div className="assist-msg-actions">
-                  <button onClick={() => insertIntoNote(m.content)}>Insert into note</button>
+                  <button onClick={() => insertIntoNote(m.content, i)} disabled={staging != null}>
+                    {staging === i ? "Staging…" : "Insert into note"}
+                  </button>
                   <button onClick={() => navigator.clipboard?.writeText(m.content)}>Copy</button>
                 </div>
               ) : null}
@@ -194,6 +258,13 @@ export function AssistPanel({
           ))
         )}
       </div>
+
+      <ContextPicker
+        docId={docId}
+        workspaceId={workspaceId}
+        selected={context}
+        onChange={setContext}
+      />
 
       <div className="assist-composer">
         <textarea

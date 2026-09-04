@@ -18,8 +18,10 @@ export const colors = {
   accentPressed: "#22369E",
   accentWash: "#EAEDFB",
   live: "#1F9E6A",
+  liveWash: "#E4F4EC",
   warn: "#C1841E",
   danger: "#C4392B",
+  dangerWash: "#F8E7E4",
   onAccent: "#FFFFFF",
 } as const;
 
@@ -41,8 +43,10 @@ export const darkColors: Palette = {
   accentPressed: "#6675E8",
   accentWash: "#23263A",
   live: "#3FBF8A",
+  liveWash: "#1B2A24",
   warn: "#D79A3A",
   danger: "#E06456",
+  dangerWash: "#2E2020",
   onAccent: "#12131A",
 };
 

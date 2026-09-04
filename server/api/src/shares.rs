@@ -31,6 +31,10 @@ pub struct ShareInfo {
     pub doc_id: Uuid,
     pub mode: String,
     pub url: String,
+    // Always present so the analytics fields don't have to be optional on the
+    // clients — a freshly created share is simply 0 / never-viewed.
+    pub view_count: i64,
+    pub last_viewed_at: Option<DateTime<Utc>>,
 }
 
 pub async fn create(
@@ -69,6 +73,8 @@ pub async fn create(
         doc_id,
         mode: mode.to_string(),
         url: format!("/shared/{}", row.0),
+        view_count: 0,
+        last_viewed_at: None,
     }))
 }
 
@@ -98,6 +104,18 @@ pub async fn resolve(
         }
     }
 
+    // Record exactly one view for this successful resolve.
+    let mut tx = state.pool.begin().await?;
+    sqlx::query("insert into share_views (share_id) values ($1)")
+        .bind(id)
+        .execute(&mut *tx)
+        .await?;
+    sqlx::query("update shares set view_count = view_count + 1, last_viewed_at = now() where id = $1")
+        .bind(id)
+        .execute(&mut *tx)
+        .await?;
+    tx.commit().await?;
+
     let room_mode = if mode == "rw" {
         RoomMode::ReadWrite
     } else {
@@ -119,4 +137,102 @@ pub async fn resolve(
         token,
         expires_in: state.room_ttl,
     }))
+}
+
+#[derive(Debug, Serialize)]
+pub struct ShareAnalytics {
+    pub id: Uuid,
+    pub doc_id: Uuid,
+    pub mode: String,
+    pub url: String,
+    pub view_count: i64,
+    pub last_viewed_at: Option<DateTime<Utc>>,
+    pub expires_at: Option<DateTime<Utc>>,
+    pub created_at: DateTime<Utc>,
+}
+
+type ShareRow = (
+    Uuid,
+    Uuid,
+    String,
+    i64,
+    Option<DateTime<Utc>>,
+    Option<DateTime<Utc>>,
+    DateTime<Utc>,
+);
+
+fn share_analytics(row: ShareRow) -> ShareAnalytics {
+    let (id, doc_id, mode, view_count, last_viewed_at, expires_at, created_at) = row;
+    ShareAnalytics {
+        id,
+        doc_id,
+        mode,
+        url: format!("/shared/{id}"),
+        view_count,
+        last_viewed_at,
+        expires_at,
+        created_at,
+    }
+}
+
+#[derive(Debug, Serialize)]
+pub struct ShareListResponse {
+    pub shares: Vec<ShareAnalytics>,
+}
+
+/// List every share link for a document with its analytics. Owner/editor only.
+pub async fn list(
+    State(state): State<AppState>,
+    user: AuthUser,
+    Path(doc_id): Path<Uuid>,
+) -> ApiResult<Json<ShareListResponse>> {
+    let ws: Option<(Uuid,)> = sqlx::query_as("select workspace_id from documents where id = $1")
+        .bind(doc_id)
+        .fetch_optional(&state.pool)
+        .await?;
+    let workspace_id = ws.ok_or(AppError::NotFound)?.0;
+    match member_role(&state, workspace_id, user.id).await? {
+        Some(r) if r != "viewer" => {}
+        _ => return Err(AppError::Forbidden),
+    }
+
+    let rows: Vec<ShareRow> = sqlx::query_as(
+        "select id, doc_id, mode, view_count, last_viewed_at, expires_at, created_at \
+         from shares where doc_id = $1 order by created_at desc",
+    )
+    .bind(doc_id)
+    .fetch_all(&state.pool)
+    .await?;
+
+    Ok(Json(ShareListResponse {
+        shares: rows.into_iter().map(share_analytics).collect(),
+    }))
+}
+
+/// Analytics for a single share. Owner/editor of the share's workspace only.
+pub async fn analytics(
+    State(state): State<AppState>,
+    user: AuthUser,
+    Path(id): Path<Uuid>,
+) -> ApiResult<Json<ShareAnalytics>> {
+    let row: Option<ShareRow> = sqlx::query_as(
+        "select id, doc_id, mode, view_count, last_viewed_at, expires_at, created_at \
+         from shares where id = $1",
+    )
+    .bind(id)
+    .fetch_optional(&state.pool)
+    .await?;
+    let row = row.ok_or(AppError::NotFound)?;
+
+    let ws: Option<(Uuid,)> = sqlx::query_as("select workspace_id from documents where id = $1")
+        .bind(row.1)
+        .fetch_optional(&state.pool)
+        .await?;
+    let workspace_id = ws.ok_or(AppError::NotFound)?.0;
+    match member_role(&state, workspace_id, user.id).await? {
+        Some(r) if r != "viewer" => {}
+        _ => return Err(AppError::Forbidden),
+    }
+
+    Ok(Json(share_analytics(row)))
 }

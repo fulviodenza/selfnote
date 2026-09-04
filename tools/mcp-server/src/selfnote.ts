@@ -17,6 +17,20 @@ export interface Document {
   archived: boolean;
 }
 
+export interface AiProposal {
+  id: string;
+  document_id: string;
+  workspace_id: string;
+  op: string;
+  origin: string;
+  summary: string;
+  status: string;
+  before_md: string;
+  after_md: string;
+  created_by: string;
+  created_at: string;
+}
+
 export class SelfnoteClient {
   private readonly origin: string;
   private readonly apiBase: string;
@@ -92,6 +106,29 @@ export class SelfnoteClient {
     await this.request<void>(`/documents/${docId}/content`, {
       method: "POST",
       body: JSON.stringify({ update: updateBase64 }),
+    });
+  }
+
+  /**
+   * Stage an AI edit as a pending proposal instead of writing it to the note. The
+   * server computes the diff and before/after Markdown; a human accepts or rejects
+   * it in the app. Returns the created proposal.
+   */
+  async createProposal(
+    docId: string,
+    op: "append" | "replace",
+    markdown: string,
+    summary?: string,
+  ): Promise<AiProposal> {
+    return this.request<AiProposal>("/ai/proposals", {
+      method: "POST",
+      body: JSON.stringify({
+        document_id: docId,
+        op,
+        markdown,
+        origin: "mcp",
+        ...(summary ? { summary } : {}),
+      }),
     });
   }
 

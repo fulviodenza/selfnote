@@ -7,12 +7,7 @@
 import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { z } from "zod";
 import { SelfnoteClient } from "./selfnote.js";
-import {
-  appendMarkdownDiff,
-  docToMarkdown,
-  markdownToUpdateBase64,
-  replaceMarkdownDiff,
-} from "./edit.js";
+import { docToMarkdown, markdownToUpdateBase64 } from "./edit.js";
 
 function isoDate(): string {
   // The MCP process is a normal Node runtime; a real clock is available here.
@@ -125,34 +120,46 @@ export function buildServer(client: SelfnoteClient): McpServer {
 
   server.tool(
     "append_to_note",
-    "Append Markdown to the end of an existing note's body (in place — the note keeps its existing content). Returns the note's location.",
+    "Propose appending Markdown to the end of an existing note's body. The edit is NOT applied immediately: it is staged as a pending proposal that the note's owner reviews (with a before/after diff) and accepts or rejects in the app. Returns the proposal id and the note's location.",
     {
       note_id: z.string().describe("The id of the note to append to."),
       markdown: z.string().describe("Markdown to add to the end of the note."),
     },
     async ({ note_id, markdown }) => {
-      const updates = await client.getContent(note_id);
-      const diff = await appendMarkdownDiff(updates, markdown);
-      await client.setContent(note_id, diff);
+      const proposal = await client.createProposal(note_id, "append", markdown, "Append to note");
       return {
-        content: [{ type: "text", text: `Appended to the note.\nLocation: ${client.deepLink(note_id)}` }],
+        content: [
+          {
+            type: "text",
+            text:
+              `Staged an append as a pending edit for review — the note is unchanged until a human accepts it.\n` +
+              `Proposal: ${proposal.id}\n` +
+              `Location: ${client.deepLink(note_id)}`,
+          },
+        ],
       };
     },
   );
 
   server.tool(
     "update_note",
-    "Replace a note's entire body with new Markdown (in place). Use read_note first, edit the content, then pass the full new body here. Returns the note's location.",
+    "Propose replacing a note's entire body with new Markdown. Use read_note first, edit the content, then pass the full new body here. The edit is NOT applied immediately: it is staged as a pending proposal that the note's owner reviews (with a before/after diff) and accepts or rejects in the app. Returns the proposal id and the note's location.",
     {
       note_id: z.string().describe("The id of the note to rewrite."),
       markdown: z.string().describe("The complete new Markdown body for the note."),
     },
     async ({ note_id, markdown }) => {
-      const updates = await client.getContent(note_id);
-      const diff = await replaceMarkdownDiff(updates, markdown);
-      await client.setContent(note_id, diff);
+      const proposal = await client.createProposal(note_id, "replace", markdown, "Replace note body");
       return {
-        content: [{ type: "text", text: `Updated the note.\nLocation: ${client.deepLink(note_id)}` }],
+        content: [
+          {
+            type: "text",
+            text:
+              `Staged a full rewrite as a pending edit for review — the note is unchanged until a human accepts it.\n` +
+              `Proposal: ${proposal.id}\n` +
+              `Location: ${client.deepLink(note_id)}`,
+          },
+        ],
       };
     },
   );

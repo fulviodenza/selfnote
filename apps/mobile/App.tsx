@@ -6,7 +6,6 @@ import {
   Platform,
   Pressable,
   ScrollView,
-  Share,
   StyleSheet,
   Text,
   View,
@@ -14,10 +13,26 @@ import {
 import { StatusBar } from "expo-status-bar";
 import AsyncStorage from "@react-native-async-storage/async-storage";
 import { createDocConnection, type ConnectionStatus } from "@selfnote/core";
-import { sqlitePersistence } from "./src/persistence/sqlite";
+import { sqlitePersistence, loadCachedState } from "./src/persistence/sqlite";
 import { WebViewEditor, type EditorUser, type EditorHandle } from "./src/editor/WebViewEditor";
+import { BacklinksPanel } from "./src/editor/BacklinksPanel";
+import { GraphView } from "./src/editor/GraphView";
 import { AssistDrawer } from "./src/editor/AssistDrawer";
-import { api, ensureWorkspace, isAuthed, loadSession, type Document, type AiStatus } from "./src/api";
+import { NoteAiActions } from "./src/editor/NoteAiActions";
+import { AiDiffScreen } from "./src/editor/AiDiffScreen";
+import { ShareAnalyticsSheet } from "./src/editor/ShareAnalyticsSheet";
+import { HistoryScreen } from "./src/components/history/HistoryScreen";
+import { HistoryPreviewScreen } from "./src/components/history/HistoryPreviewScreen";
+import {
+  api,
+  ensureWorkspace,
+  isAuthed,
+  loadSession,
+  type AiProposal,
+  type Checkpoint,
+  type Document,
+  type AiStatus,
+} from "./src/api";
 import {
   getSettings,
   loadSettings,
@@ -42,6 +57,10 @@ import {
   ErrorBoundary,
 } from "./src/ui";
 import { ThemeProvider, useTheme, type ThemeMode } from "./src/theme-context";
+import { TaskControls } from "./src/screens/TaskControls";
+import { TasksScreen } from "./src/screens/TasksScreen";
+import { CalendarFeedSection } from "./src/screens/CalendarFeedSection";
+import { VoiceSection } from "./src/screens/VoiceSection";
 
 const COLLAPSED_KEY = "selfnote.collapsed";
 
@@ -67,9 +86,37 @@ export function App() {
 function AppInner() {
   const { colors, type } = useTheme();
   const styles = useMemo(() => makeStyles(colors, type), [colors, type]);
+  const toast = useToast();
   const [phase, setPhase] = useState<Phase>("booting");
   const [showSettings, setShowSettings] = useState(false);
   const [openDoc, setOpenDoc] = useState<Document | null>(null);
+  // The signed-in workspace (single-workspace model), lifted so the Tasks screen
+  // and the calendar-feed settings section can share it.
+  const [workspaceId, setWorkspaceId] = useState<string | null>(null);
+  const [showTasks, setShowTasks] = useState(false);
+  const [showGraph, setShowGraph] = useState(false);
+
+  // Open a note from the Tasks screen (which only knows the doc id): fetch the
+  // workspace's documents and open the matching one.
+  const openDocById = useCallback(
+    async (docId: string) => {
+      try {
+        const ws = workspaceId ?? (await ensureWorkspace());
+        const docs = await api.listDocuments(ws);
+        const doc = docs.find((d) => d.id === docId);
+        if (doc) {
+          setShowTasks(false);
+          setShowGraph(false);
+          setOpenDoc(doc);
+        } else {
+          toast("That note is no longer available.");
+        }
+      } catch {
+        toast("Couldn't open the note.");
+      }
+    },
+    [workspaceId, toast],
+  );
 
   const goPostConfig = useCallback(async () => {
     await loadSession();
@@ -106,10 +153,29 @@ function AppInner() {
 
         {phase === "app" &&
           (openDoc ? (
-            <EditorScreen doc={openDoc} onBack={() => setOpenDoc(null)} />
+            <EditorScreen
+              doc={openDoc}
+              onBack={() => setOpenDoc(null)}
+              onNavigateToDoc={openDocById}
+            />
+          ) : showGraph && workspaceId ? (
+            <GraphView
+              workspaceId={workspaceId}
+              onBack={() => setShowGraph(false)}
+              onOpenDoc={openDocById}
+            />
+          ) : showTasks && workspaceId ? (
+            <TasksScreen
+              workspaceId={workspaceId}
+              onBack={() => setShowTasks(false)}
+              onOpenTask={openDocById}
+            />
           ) : (
             <DocListScreen
               onOpen={setOpenDoc}
+              onWorkspace={setWorkspaceId}
+              onTasks={() => setShowTasks(true)}
+              onGraph={() => setShowGraph(true)}
               onSettings={() => setShowSettings(true)}
               onLogout={async () => {
                 await api.logout();
@@ -118,7 +184,12 @@ function AppInner() {
             />
           ))}
 
-      {showSettings && <SettingsScreen onClose={() => setShowSettings(false)} />}
+      {showSettings && (
+        <SettingsScreen
+          workspaceId={phase === "app" ? workspaceId : null}
+          onClose={() => setShowSettings(false)}
+        />
+      )}
     </Screen>
   );
 }
@@ -281,10 +352,16 @@ function flattenTree(docs: Document[], collapsed: Set<string>): TreeRow[] {
 
 function DocListScreen({
   onOpen,
+  onWorkspace,
+  onTasks,
+  onGraph,
   onSettings,
   onLogout,
 }: {
   onOpen: (doc: Document) => void;
+  onWorkspace: (id: string) => void;
+  onTasks: () => void;
+  onGraph: () => void;
   onSettings: () => void;
   onLogout: () => void;
 }) {
@@ -318,13 +395,14 @@ function DocListScreen({
     try {
       const ws = workspaceId ?? (await ensureWorkspace());
       setWorkspaceId(ws);
+      onWorkspace(ws);
       const list = await api.listDocuments(ws);
       setDocs(list.filter((d) => !d.archived));
     } catch (e) {
       setError(friendly(e));
       setDocs([]);
     }
-  }, [workspaceId]);
+  }, [workspaceId, onWorkspace]);
 
   useEffect(() => {
     refresh();
@@ -395,6 +473,8 @@ function DocListScreen({
     <View style={styles.flex}>
       <View style={styles.topbar}>
         <Text style={[type.docTitle, styles.flex]}>Documents</Text>
+        <IconButton glyph="✔" label="Tasks" onPress={onTasks} />
+        <IconButton glyph="◍" label="Graph" onPress={onGraph} />
         <IconButton glyph="⚙" label="Settings" onPress={onSettings} />
         <Button variant="ghost" label="Log out" onPress={onLogout} style={styles.logout} />
       </View>
@@ -514,10 +594,20 @@ function RenameSheet({
 
 /* ---------------------------------------------------------------- Editor --- */
 
-function EditorScreen({ doc, onBack }: { doc: Document; onBack: () => void }) {
+function EditorScreen({
+  doc,
+  onBack,
+  onNavigateToDoc,
+}: {
+  doc: Document;
+  onBack: () => void;
+  onNavigateToDoc: (id: string) => void;
+}) {
   const { colors, type } = useTheme();
   const styles = useMemo(() => makeStyles(colors, type), [colors, type]);
   const [token, setToken] = useState<string | null>(null);
+  // Room mode gates history write actions client-side (server also enforces).
+  const [mode, setMode] = useState<"rw" | "ro">("rw");
   const [error, setError] = useState<string | null>(null);
 
   useEffect(() => {
@@ -525,7 +615,10 @@ function EditorScreen({ doc, onBack }: { doc: Document; onBack: () => void }) {
     (async () => {
       try {
         const rt = await api.roomToken(doc.id);
-        if (!cancelled) setToken(rt.token);
+        if (!cancelled) {
+          setToken(rt.token);
+          setMode(rt.mode);
+        }
       } catch (e) {
         if (!cancelled) setError(friendly(e));
       }
@@ -533,6 +626,11 @@ function EditorScreen({ doc, onBack }: { doc: Document; onBack: () => void }) {
     return () => {
       cancelled = true;
     };
+  }, [doc.id]);
+
+  // Record the view so it can be suggested as AI context (fire-and-forget).
+  useEffect(() => {
+    api.markViewed(doc.id).catch(() => undefined);
   }, [doc.id]);
 
   if (error) {
@@ -557,10 +655,30 @@ function EditorScreen({ doc, onBack }: { doc: Document; onBack: () => void }) {
     );
   }
 
-  return <ConnectedEditor doc={doc} token={token} onBack={onBack} />;
+  return (
+    <ConnectedEditor
+      doc={doc}
+      token={token}
+      canWrite={mode === "rw"}
+      onBack={onBack}
+      onNavigateToDoc={onNavigateToDoc}
+    />
+  );
 }
 
-function ConnectedEditor({ doc, token, onBack }: { doc: Document; token: string; onBack: () => void }) {
+function ConnectedEditor({
+  doc,
+  token,
+  canWrite,
+  onBack,
+  onNavigateToDoc,
+}: {
+  doc: Document;
+  token: string;
+  canWrite: boolean;
+  onBack: () => void;
+  onNavigateToDoc: (id: string) => void;
+}) {
   const connection = useMemo(
     () =>
       createDocConnection(doc.id, {
@@ -575,17 +693,62 @@ function ConnectedEditor({ doc, token, onBack }: { doc: Document; token: string;
   const [status, setStatus] = useState<ConnectionStatus>(connection.status());
   const [ai, setAi] = useState<AiStatus | null>(null);
   const [showAssist, setShowAssist] = useState(false);
+  const [showActions, setShowActions] = useState(false);
+  // Version history (docs/features/version-history.md §5): the timeline modal and
+  // the checkpoint currently open in the read-only preview overlay.
+  const [showHistory, setShowHistory] = useState(false);
+  const [previewCheckpoint, setPreviewCheckpoint] = useState<Checkpoint | null>(null);
+  // Share link analytics (docs/features/share-analytics.md §5): the Share action
+  // opens a sheet listing this doc's links with view counts + last-viewed times.
+  const [showShares, setShowShares] = useState(false);
+  // Staged AI edits awaiting review (banner) + the one currently open in the diff.
+  const [proposals, setProposals] = useState<AiProposal[]>([]);
+  const [reviewing, setReviewing] = useState<AiProposal | null>(null);
+  // Bumped after the editor re-scans + stores its outgoing links, so the
+  // backlinks/outgoing panel re-fetches (docs/features/backlinks-graph.md §5).
+  const [linksVersion, setLinksVersion] = useState(0);
   const editorRef = useRef<EditorHandle>(null);
   const toast = useToast();
 
-  const share = async () => {
+  // Poll pending proposals for this doc — on open and after each assistant reply.
+  const refreshProposals = useCallback(async () => {
     try {
-      const s = await api.createShare(doc.id, "rw");
-      const origin = getSettings().apiUrl.replace(/\/api\/?$/, "");
-      await Share.share({ message: `${origin}/shared/${s.id}` });
-    } catch (e) {
-      toast(friendly(e));
+      setProposals(await api.listAiProposals(doc.id, "pending"));
+    } catch {
+      /* offline / older server without proposals — leave the banner empty */
     }
+  }, [doc.id]);
+
+  useEffect(() => {
+    refreshProposals();
+  }, [refreshProposals]);
+
+  // Stage an in-app "insert into note" as a proposal (origin: "app") and open the
+  // same accept/reject gate as remote MCP edits, instead of writing Yjs directly.
+  const insertViaProposal = async (text: string) => {
+    try {
+      const p = await api.createAiProposal({
+        document_id: doc.id,
+        op: "append",
+        markdown: text,
+        origin: "app",
+        summary: "Insert from Assist",
+      });
+      setProposals((prev) => [p, ...prev.filter((x) => x.id !== p.id)]);
+      setShowAssist(false);
+      setReviewing(p);
+    } catch {
+      toast("Couldn't stage the edit. Try again.");
+    }
+  };
+
+  const onProposalResolved = (
+    resolvedStatus: "applied" | "rejected",
+    p: AiProposal,
+  ) => {
+    setProposals((prev) => prev.filter((x) => x.id !== p.id));
+    setReviewing(null);
+    toast(resolvedStatus === "applied" ? "Edit applied." : "Edit discarded.");
   };
 
   const notedOffline = useRef(false);
@@ -622,7 +785,9 @@ function ConnectedEditor({ doc, token, onBack }: { doc: Document; token: string;
         title={doc.title}
         onBack={onBack}
         status={status}
-        onShare={share}
+        onShare={() => setShowShares(true)}
+        onHistory={() => setShowHistory(true)}
+        onActions={ai?.available ? () => setShowActions(true) : undefined}
         onAssist={ai?.available ? () => setShowAssist(true) : undefined}
       />
       {offline ? (
@@ -631,14 +796,126 @@ function ConnectedEditor({ doc, token, onBack }: { doc: Document; token: string;
           <Text style={styles.offlineAction}>Reconnect</Text>
         </Pressable>
       ) : null}
-      <WebViewEditor ref={editorRef} connection={connection} user={USER} />
+      {proposals.length > 0 ? (
+        <Pressable
+          style={styles.proposalBanner}
+          onPress={() => setReviewing(proposals[0])}
+          accessibilityRole="button"
+          accessibilityLabel={`Review ${proposals.length} pending AI edit${proposals.length > 1 ? "s" : ""}`}
+        >
+          <Text style={styles.proposalText}>
+            {proposals.length} pending AI edit{proposals.length > 1 ? "s" : ""}
+          </Text>
+          <Text style={styles.proposalAction}>Review</Text>
+        </Pressable>
+      ) : null}
+      <View style={styles.taskControls}>
+        <TaskControls docId={doc.id} onError={(m) => m && toast(m)} />
+      </View>
+      <WebViewEditor
+        ref={editorRef}
+        connection={connection}
+        user={USER}
+        docId={doc.id}
+        workspaceId={doc.workspace_id}
+        aiAvailable={ai?.available ?? false}
+        aiFeatures={ai?.features ?? []}
+        onNavigateToDoc={onNavigateToDoc}
+        onLinksChanged={() => setLinksVersion((v) => v + 1)}
+        onError={(m) => toast(m)}
+      />
+      <BacklinksPanel
+        docId={doc.id}
+        offline={offline}
+        refreshKey={linksVersion}
+        onNavigateToDoc={onNavigateToDoc}
+      />
       {showAssist && ai ? (
         <AssistDrawer
           status={ai}
           docId={doc.id}
+          workspaceId={doc.workspace_id}
           getText={() => editorRef.current?.getText() ?? Promise.resolve("")}
-          onInsert={(text) => editorRef.current?.insert(text)}
+          resolveMarkdown={async (id) => {
+            // The current note is already mounted — read it live; others come
+            // from the local SQLite cache, rendered headlessly in the WebView.
+            if (id === doc.id) return (await editorRef.current?.getText()) ?? "";
+            const state = await loadCachedState(id);
+            if (!state) return "";
+            return (await editorRef.current?.renderMarkdown(state)) ?? "";
+          }}
+          onInsert={(text) => void insertViaProposal(text)}
+          onReply={refreshProposals}
           onClose={() => setShowAssist(false)}
+        />
+      ) : null}
+      {showActions && ai ? (
+        <NoteAiActions
+          status={ai}
+          docId={doc.id}
+          getSelection={() =>
+            editorRef.current?.getSelection() ?? Promise.resolve({ text: "", selection: "" })
+          }
+          onInsert={(text) => void insertViaProposal(text)}
+          onReplace={(text) => {
+            // Selection or whole-note replace flows through Yjs to the server.
+            editorRef.current?.replace(text);
+            toast("Note replaced.");
+          }}
+          onClose={() => setShowActions(false)}
+        />
+      ) : null}
+      {showShares ? (
+        <ShareAnalyticsSheet docId={doc.id} onClose={() => setShowShares(false)} />
+      ) : null}
+      {reviewing ? (
+        <AiDiffScreen
+          proposal={reviewing}
+          onResolved={onProposalResolved}
+          onClose={() => {
+            setReviewing(null);
+            refreshProposals();
+          }}
+        />
+      ) : null}
+      {/*
+        Version history (docs/features/version-history.md §5). The timeline is a
+        full-screen modal; opening a preview hides it (setShowHistory(false)) so the
+        WebView's read-only past state — driven by editorRef.preview() — is visible
+        behind the transparent HistoryPreviewScreen overlay. "Back" reopens the list.
+      */}
+      {showHistory && !previewCheckpoint ? (
+        <HistoryScreen
+          docId={doc.id}
+          canWrite={canWrite}
+          offline={offline}
+          onClose={() => setShowHistory(false)}
+          onPreview={(cp) => {
+            setShowHistory(false);
+            setPreviewCheckpoint(cp);
+          }}
+        />
+      ) : null}
+      {previewCheckpoint ? (
+        <HistoryPreviewScreen
+          docId={doc.id}
+          checkpoint={previewCheckpoint}
+          editorRef={editorRef}
+          canWrite={canWrite}
+          onBack={() => {
+            editorRef.current?.clearPreview();
+            setPreviewCheckpoint(null);
+            setShowHistory(true);
+          }}
+          onRestored={() => {
+            setPreviewCheckpoint(null);
+            setShowHistory(false);
+          }}
+          onDeleted={() => {
+            editorRef.current?.clearPreview();
+            setPreviewCheckpoint(null);
+            setShowHistory(true);
+          }}
         />
       ) : null}
     </View>
@@ -649,12 +926,16 @@ function EditorTopbar({
   title,
   onBack,
   status,
+  onHistory,
+  onActions,
   onAssist,
   onShare,
 }: {
   title: string;
   onBack: () => void;
   status?: ConnectionStatus;
+  onHistory?: () => void;
+  onActions?: () => void;
   onAssist?: () => void;
   onShare?: () => void;
 }) {
@@ -666,7 +947,9 @@ function EditorTopbar({
       <Text style={[type.docTitle, styles.flex]} numberOfLines={1}>
         {title || "Untitled"}
       </Text>
+      {onHistory ? <IconButton glyph="🕘" label="Version history" onPress={onHistory} /> : null}
       {onShare ? <IconButton glyph="↗" label="Share" onPress={onShare} /> : null}
+      {onActions ? <IconButton glyph="✨" label="AI actions" onPress={onActions} /> : null}
       {onAssist ? <IconButton glyph="✦" label="AI Assist" onPress={onAssist} active /> : null}
       {status ? <StatusDot state={status} /> : null}
     </View>
@@ -675,13 +958,30 @@ function EditorTopbar({
 
 /* -------------------------------------------------------------- Settings --- */
 
-function SettingsScreen({ onClose }: { onClose: () => void }) {
+function SettingsScreen({
+  workspaceId,
+  onClose,
+}: {
+  workspaceId: string | null;
+  onClose: () => void;
+}) {
   const current = getSettings();
   const { mode, setMode, colors, type } = useTheme();
   const styles = useMemo(() => makeStyles(colors, type), [colors, type]);
   const [syncUrl, setSyncUrl] = useState(current.syncUrl);
   const [apiUrl, setApiUrl] = useState(current.apiUrl);
   const [saved, setSaved] = useState(false);
+  // Voice settings only make sense when the server has an AI provider.
+  const [aiAvailable, setAiAvailable] = useState(false);
+
+  useEffect(() => {
+    if (workspaceId == null) return; // only signed-in (app phase) can call /ai
+    let alive = true;
+    api.aiStatus().then((s) => alive && setAiAvailable(s.available));
+    return () => {
+      alive = false;
+    };
+  }, [workspaceId]);
 
   const save = async () => {
     await saveSettings({ syncUrl, apiUrl } as ServerSettings);
@@ -727,6 +1027,10 @@ function SettingsScreen({ onClose }: { onClose: () => void }) {
       <Text style={type.meta}>
         Defaults: {defaults.apiUrl} · {defaults.syncUrl}
       </Text>
+
+      {aiAvailable ? <VoiceSection /> : null}
+
+      {workspaceId ? <CalendarFeedSection workspaceId={workspaceId} /> : null}
     </Sheet>
   );
 }
@@ -784,5 +1088,25 @@ const makeStyles = (colors: Palette, type: TypeRoles) =>
   },
   offlineText: { ...type.meta, color: colors.ink, flexShrink: 1 },
   offlineAction: { ...type.button, color: colors.accent },
+  proposalBanner: {
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "space-between",
+    gap: spacing.md,
+    paddingVertical: spacing.md,
+    paddingHorizontal: spacing.gutter,
+    backgroundColor: colors.accentWash,
+    borderBottomWidth: 1,
+    borderBottomColor: colors.hairline,
+  },
+  proposalText: { ...type.meta, color: colors.ink, flexShrink: 1, fontWeight: "600" },
+  proposalAction: { ...type.button, color: colors.accent },
   fab: { position: "absolute", left: spacing.gutter, right: spacing.gutter, bottom: spacing.xxl, ...shadow.floating, borderRadius: radius.md },
+  taskControls: {
+    paddingHorizontal: spacing.gutter,
+    paddingTop: spacing.md,
+    backgroundColor: colors.surface,
+    borderBottomWidth: 1,
+    borderBottomColor: colors.hairline,
+  },
 });
