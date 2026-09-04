@@ -95,6 +95,12 @@ export class SelfnoteClient {
     });
   }
 
+  /** The note's current CRDT state as ordered base64 Yjs updates. */
+  async getContent(docId: string): Promise<string[]> {
+    const r = await this.request<{ updates: string[] }>(`/documents/${docId}/content`);
+    return r.updates;
+  }
+
   /** Find a top-level note with this exact title, or create one. */
   async findOrCreateNote(workspaceId: string, title: string): Promise<Document> {
     const docs = await this.listDocuments(workspaceId);

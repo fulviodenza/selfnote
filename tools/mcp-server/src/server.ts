@@ -7,7 +7,12 @@
 import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { z } from "zod";
 import { SelfnoteClient } from "./selfnote.js";
-import { markdownToUpdateBase64 } from "./yjs.js";
+import {
+  appendMarkdownDiff,
+  docToMarkdown,
+  markdownToUpdateBase64,
+  replaceMarkdownDiff,
+} from "./edit.js";
 
 function isoDate(): string {
   // The MCP process is a normal Node runtime; a real clock is available here.
@@ -103,6 +108,51 @@ export function buildServer(client: SelfnoteClient): McpServer {
               `Location: ${client.deepLink(doc.id)}`,
           },
         ],
+      };
+    },
+  );
+
+  server.tool(
+    "read_note",
+    "Read the current Markdown content of a note by id. Use this before updating a note so you can edit its existing content.",
+    { note_id: z.string().describe("The id of the note to read.") },
+    async ({ note_id }) => {
+      const updates = await client.getContent(note_id);
+      const markdown = await docToMarkdown(updates);
+      return { content: [{ type: "text", text: markdown || "(this note is empty)" }] };
+    },
+  );
+
+  server.tool(
+    "append_to_note",
+    "Append Markdown to the end of an existing note's body (in place — the note keeps its existing content). Returns the note's location.",
+    {
+      note_id: z.string().describe("The id of the note to append to."),
+      markdown: z.string().describe("Markdown to add to the end of the note."),
+    },
+    async ({ note_id, markdown }) => {
+      const updates = await client.getContent(note_id);
+      const diff = await appendMarkdownDiff(updates, markdown);
+      await client.setContent(note_id, diff);
+      return {
+        content: [{ type: "text", text: `Appended to the note.\nLocation: ${client.deepLink(note_id)}` }],
+      };
+    },
+  );
+
+  server.tool(
+    "update_note",
+    "Replace a note's entire body with new Markdown (in place). Use read_note first, edit the content, then pass the full new body here. Returns the note's location.",
+    {
+      note_id: z.string().describe("The id of the note to rewrite."),
+      markdown: z.string().describe("The complete new Markdown body for the note."),
+    },
+    async ({ note_id, markdown }) => {
+      const updates = await client.getContent(note_id);
+      const diff = await replaceMarkdownDiff(updates, markdown);
+      await client.setContent(note_id, diff);
+      return {
+        content: [{ type: "text", text: `Updated the note.\nLocation: ${client.deepLink(note_id)}` }],
       };
     },
   );

@@ -13,8 +13,9 @@ or "put a summary in my <name> note".
 ## Requirements
 
 This skill needs the `selfnote` MCP server connected (tools: `save_conversation`,
-`create_note`, `list_notes`). If those tools aren't available, tell the user to set up
-the Selfnote MCP server (see the project's `docs/mcp.md`) and stop.
+`create_note`, `list_notes`, `read_note`, `append_to_note`, `update_note`). If those
+tools aren't available, tell the user to set up the Selfnote MCP server (see the
+project's `docs/mcp.md`) and stop.
 
 ## How to save
 
@@ -38,9 +39,23 @@ the Selfnote MCP server (see the project's `docs/mcp.md`) and stop.
    link so they can open it. For example: *"Saved to your Conversations as 'Trip
    planning — 2026-09-04': <link>."*
 
+## Updating an existing note (living documents)
+
+If the user wants to add to or maintain an existing note rather than file a new
+summary — e.g. "add this to my Feature Summary note" or "keep my running notes
+updated":
+
+1. Find the note with `list_notes`.
+2. Use `read_note` to see its current content when you need to edit or reorganize it.
+3. `append_to_note` to add to the end, or `update_note` to rewrite the whole body
+   (read first, edit, write the full new body back).
+
+These edit the note **in place** — its existing content is preserved and the change
+syncs live, so a note can genuinely be kept up to date over time.
+
 ## Notes
 
-- Only save when the user asks. Don't file conversations automatically.
+- Only save/update when the user asks. Don't file or edit notes automatically.
 - If the user wants a brand-new standalone note rather than a conversation summary,
   use `create_note` instead.
 - One save per request unless the user asks for more.

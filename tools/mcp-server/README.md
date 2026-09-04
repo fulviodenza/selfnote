@@ -13,10 +13,15 @@ back the link.
 | `save_conversation` | Write a Markdown summary into Selfnote (a sub-page under a "Conversations" note by default, or under a note you name) and return its location. |
 | `create_note` | Create a note, optionally nested, with an optional Markdown body. |
 | `list_notes` | Search or list notes (id, title, link). |
+| `read_note` | Return a note's current body as Markdown. |
+| `append_to_note` | Add Markdown to the end of an existing note, in place. |
+| `update_note` | Replace an existing note's whole body, in place. |
 
-Writes go through the same path as the app's importer: Markdown → BlockNote blocks →
-a Yjs update on the `document-store` fragment → `POST /documents/:id/content`. So a
-saved note opens and syncs exactly like one you wrote by hand.
+New notes are seeded with a Yjs update on the `document-store` fragment via
+`POST /documents/:id/content` (same path as the app's importer). Edits to existing
+notes read the current state (`GET …/content`), mutate the Yjs doc, and send back an
+**incremental diff** — so a note opens, edits, and syncs exactly like one you wrote by
+hand, with no duplicated content.
 
 ## Configuration
 

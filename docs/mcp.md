@@ -100,12 +100,27 @@ Open the link and the note is there, live and synced.
 To target a specific note: *"Add a summary of this to my 'Japan trip' note."* Claude
 finds it with `list_notes` and files the summary as a sub-page under it.
 
-## How writes work (and a limitation)
+## Editing existing notes
 
-The server converts your summary Markdown to a BlockNote Yjs update on the
-`document-store` fragment and appends it via `POST /documents/:id/content` — the same
-path the Obsidian importer uses. To keep merges unambiguous it always writes into a
-**freshly created note** (a sub-page), rather than splicing into the middle of an
-existing note's body. That's why summaries land as their own clearly-titled page under
-the note you choose. Reading and in-place editing of existing note bodies is a future
-enhancement.
+Beyond creating notes, Claude can read and edit an existing note in place:
+
+- `read_note` — return a note's current body as Markdown.
+- `append_to_note` — add Markdown to the end of a note, keeping its existing content.
+- `update_note` — replace a note's whole body (read it first, edit, write it back).
+
+These are true in-place edits: the server returns the note's current CRDT state
+(`GET /documents/:id/content`), the MCP reconstructs the Yjs doc, mutates the
+`document-store` fragment with `y-prosemirror`'s `updateYFragment`, and sends the
+resulting **incremental diff** back via `POST /documents/:id/content`. So an edit
+merges cleanly and syncs live to open editors, exactly like a human's keystrokes —
+no duplicated content.
+
+This makes a "living document" workflow work: keep a note, and say *"add X to my
+Feature Summary note"* — Claude finds it (`list_notes`), reads it, appends, and it
+updates in place.
+
+## How writes work
+
+New notes are seeded via `POST /documents/:id/content` with a full BlockNote Yjs
+update (the same path the Obsidian importer uses); edits to existing notes go through
+the read-modify-write diff described above.

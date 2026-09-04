@@ -139,6 +139,54 @@ pub async fn set_content(
     Ok(axum::http::StatusCode::NO_CONTENT)
 }
 
+#[derive(Debug, Serialize)]
+pub struct DocContentOut {
+    /// The document's current CRDT state as an ordered list of base64 Yjs updates
+    /// (snapshot first if present, then the update log). Apply them in order to
+    /// reconstruct the doc — used by the MCP server to read-modify-write a note.
+    pub updates: Vec<String>,
+}
+
+pub async fn get_content(
+    State(state): State<AppState>,
+    user: AuthUser,
+    Path(doc_id): Path<Uuid>,
+) -> ApiResult<Json<DocContentOut>> {
+    use base64::Engine;
+    let doc = load_document(&state, doc_id).await?;
+    if member_role(&state, doc.workspace_id, user.id).await?.is_none() {
+        return Err(AppError::Forbidden);
+    }
+    let b64 = base64::engine::general_purpose::STANDARD;
+    let mut updates = Vec::new();
+
+    // A compacted snapshot (if any) covers the log up to last_update_id; only the
+    // rows after it are still in doc_updates.
+    let snap: Option<(Vec<u8>, i64)> =
+        sqlx::query_as("select snapshot, last_update_id from doc_snapshots where doc_id = $1")
+            .bind(doc_id)
+            .fetch_optional(&state.pool)
+            .await?;
+    let since = match snap {
+        Some((snapshot, last_id)) => {
+            updates.push(b64.encode(&snapshot));
+            last_id
+        }
+        None => 0,
+    };
+
+    let rows: Vec<(Vec<u8>,)> =
+        sqlx::query_as("select update from doc_updates where doc_id = $1 and id > $2 order by id")
+            .bind(doc_id)
+            .bind(since)
+            .fetch_all(&state.pool)
+            .await?;
+    for (u,) in rows {
+        updates.push(b64.encode(&u));
+    }
+    Ok(Json(DocContentOut { updates }))
+}
+
 async fn load_document(state: &AppState, doc_id: Uuid) -> ApiResult<Document> {
     let doc: Option<Document> = sqlx::query_as(
         "select id, workspace_id, parent_id, title, icon, archived, created_at, updated_at \

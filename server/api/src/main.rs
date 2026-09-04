@@ -67,7 +67,10 @@ async fn main() -> anyhow::Result<()> {
         .route("/documents", get(documents::list).post(documents::create))
         .route("/documents/search", get(documents::search))
         .route("/documents/:id", get(documents::get).patch(documents::update))
-        .route("/documents/:id/content", post(documents::set_content))
+        .route(
+            "/documents/:id/content",
+            get(documents::get_content).post(documents::set_content),
+        )
         .route("/documents/:id/room-token", post(rooms::issue))
         .route("/documents/:id/shares", post(shares::create))
         .route("/shares/:id", get(shares::resolve))
