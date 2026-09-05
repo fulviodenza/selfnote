@@ -97,6 +97,32 @@ export const EDITOR_HTML = /* html */ `<!doctype html>
       #preview-root { min-height: 100%; }
       /* Suppress editing affordances so the preview reads as read-only. */
       #preview .bn-side-menu, #preview [data-content-type] .bn-drag-handle { display: none !important; }
+
+      /*
+        Callout block (Notion/GitHub-alert). Mirrors packages/editor CALLOUT_CSS,
+        using literal Ink & Paper colors (the WebView has no CSS vars from the RN
+        theme). Config parity with web is what matters for CRDT sync; styling is
+        per-platform.
+      */
+      .callout {
+        display: flex; gap: 10px; align-items: flex-start;
+        margin: 6px 0; padding: 12px 14px;
+        border: 1px solid var(--callout-accent, #2B44C7);
+        border-left-width: 4px; border-radius: 12px;
+        background: var(--callout-wash, #EAEDFB); color: #1B1D22;
+      }
+      .callout .callout-icon-wrap {
+        flex: none; display: flex; align-items: center; justify-content: center;
+        height: 24px; color: var(--callout-accent, #2B44C7); user-select: none;
+      }
+      .callout .callout-icon { display: block; }
+      .callout .callout-body { flex: 1; min-width: 0; }
+      .callout .callout-body > * { margin: 0; }
+      .callout-note { --callout-accent: #2B44C7; --callout-wash: #EAEDFB; }
+      .callout-tip { --callout-accent: #1F9E6A; --callout-wash: #E4F4EE; }
+      .callout-warning { --callout-accent: #C1841E; --callout-wash: #F7EEDD; }
+      .callout-important { --callout-accent: #8B5CF6; --callout-wash: #EEE8FB; }
+      .callout-caution { --callout-accent: #C4392B; --callout-wash: #F8E7E4; }
     </style>
   </head>
   <body>
@@ -122,12 +148,187 @@ export const EDITOR_HTML = /* html */ `<!doctype html>
       import { fromBase64, toBase64 } from "https://esm.sh/lib0@0.2.117/buffer";
       import {
         BlockNoteEditor,
+        BlockNoteSchema,
+        createBlockSpec,
+        defaultBlockSpecs,
         SuggestionMenu,
         getDefaultSlashMenuItems,
         filterSuggestionItems,
       } from "https://esm.sh/@blocknote/core@0.54.0?external=yjs";
       import { withCollaboration } from "https://esm.sh/@blocknote/core@0.54.0/yjs?external=yjs";
       import { Awareness } from "https://esm.sh/y-protocols@1.0.7/awareness?external=yjs";
+
+      /* ------------------------------------------------------- Callout ---- */
+      // Notion/GitHub-alert callout block. Its CONFIG (type, propSchema, content)
+      // MUST match the web editor byte-for-byte (packages/editor/src/callout.tsx
+      // CALLOUT_CONFIG) or the shared Yjs schema desyncs across web/mobile.
+      const CALLOUT_KINDS = ["note", "tip", "warning", "important", "caution"];
+      const CALLOUT_CONFIG = {
+        type: "callout",
+        propSchema: { kind: { default: "note", values: CALLOUT_KINDS } },
+        content: "inline",
+      };
+      // Feather-style icon inner-paths per kind (mirror callout.tsx CALLOUT_ICON_PATHS).
+      const CALLOUT_ICONS = {
+        note: '<circle cx="12" cy="12" r="10"/><path d="M12 16v-4M12 8h.01"/>',
+        tip: '<path d="M22 11.08V12a10 10 0 1 1-5.93-9.14"/><path d="M22 4 12 14.01l-3-3"/>',
+        warning: '<path d="M10.29 3.86 1.82 18a2 2 0 0 0 1.71 3h16.94a2 2 0 0 0 1.71-3L13.71 3.86a2 2 0 0 0-3.42 0Z"/><path d="M12 9v4M12 17h.01"/>',
+        important: '<path d="M7.86 2h8.28L22 7.86v8.28L16.14 22H7.86L2 16.14V7.86L7.86 2Z"/><path d="M12 8v4M12 16h.01"/>',
+        caution: '<circle cx="12" cy="12" r="10"/><path d="M12 8v4M12 16h.01"/>',
+      };
+      function calloutIconSvg(kind) {
+        const paths = CALLOUT_ICONS[kind] || CALLOUT_ICONS.note;
+        return '<svg class="callout-icon" viewBox="0 0 24 24" width="20" height="20" ' +
+          'fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" ' +
+          'stroke-linejoin="round" aria-hidden="true">' + paths + '</svg>';
+      }
+      // Vanilla block spec: render returns { dom, contentDOM }. createBlockSpec
+      // returns a factory (options?) => BlockSpec in 0.54, so we invoke it below.
+      const calloutBlockFactory = createBlockSpec(CALLOUT_CONFIG, {
+        render: (block) => {
+          const kind = (block.props && block.props.kind) || "note";
+          const dom = document.createElement("div");
+          dom.className = "callout callout-" + kind;
+          dom.setAttribute("data-kind", kind);
+          const iconWrap = document.createElement("div");
+          iconWrap.className = "callout-icon-wrap";
+          iconWrap.setAttribute("contenteditable", "false");
+          iconWrap.innerHTML = calloutIconSvg(kind);
+          const body = document.createElement("div");
+          body.className = "callout-body";
+          dom.appendChild(iconWrap);
+          dom.appendChild(body);
+          return { dom, contentDOM: body };
+        },
+      });
+      // Shared schema: default blocks + our callout (matches web schema.ts).
+      const bnSchema = BlockNoteSchema.create({
+        blockSpecs: { ...defaultBlockSpecs, callout: calloutBlockFactory() },
+      });
+
+      // GitHub-alert marker helpers, mirroring callout.tsx parseCalloutMarker.
+      const CALLOUT_MARKER_RE = new RegExp(
+        "^(?:>\\\\s*)?\\\\[!(" + CALLOUT_KINDS.join("|") + ")\\\\]\\\\s$", "i");
+      function calloutKindFromText(text) {
+        const m = CALLOUT_MARKER_RE.exec(text);
+        if (!m) return null;
+        const k = m[1].toLowerCase();
+        return CALLOUT_KINDS.indexOf(k) !== -1 ? k : null;
+      }
+
+      // Input rule: on the trailing space after "[!kind]" at the start of an
+      // empty paragraph, convert it to a callout. Implemented as a keydown on the
+      // editor DOM (the WebView bundle has no prosemirror-inputrules import), so
+      // it mirrors the web editor's behavior closely without extra deps.
+      function setupCalloutInputRule(editor) {
+        let dom = null;
+        try { dom = editor._tiptapEditor && editor._tiptapEditor.view && editor._tiptapEditor.view.dom; } catch {}
+        if (!dom) return;
+        dom.addEventListener("keydown", (e) => {
+          if (e.key !== " " && e.key !== "Spacebar") return;
+          let block;
+          try { block = editor.getTextCursorPosition().block; } catch { return; }
+          if (block.type && block.type !== "paragraph") return;
+          let text = "";
+          try {
+            const c = block.content;
+            if (Array.isArray(c)) text = c.map((n) => (n && n.text) || "").join("");
+          } catch {}
+          const kind = calloutKindFromText(text + " ");
+          if (!kind) return;
+          e.preventDefault();
+          try { editor.updateBlock(block, { type: "callout", props: { kind: kind } }); } catch {}
+        }, true);
+      }
+
+      // Uppercase GitHub label for a kind (mirrors callout.tsx calloutLabel).
+      function calloutLabel(kind) { return String(kind || "note").toUpperCase(); }
+
+      // Export blocks to markdown, emitting callouts as GitHub alerts. Callout
+      // blocks are swapped for a sentinel paragraph so BlockNote lays them out in
+      // order; each sentinel is then replaced with the rendered alert. Mirrors
+      // packages/editor/src/calloutMarkdown.ts.
+      async function calloutBlocksToMarkdown(editor, blocks) {
+        const list = blocks || editor.document || [];
+        const alerts = [];
+        const sentinel = (i) => " CALLOUT_" + i + " ";
+        const patched = [];
+        for (const block of list) {
+          if (block && block.type === "callout") {
+            const i = alerts.length;
+            const kind = (block.props && block.props.kind) || "note";
+            let inner = "";
+            try {
+              inner = await editor.blocksToMarkdownLossy([
+                { type: "paragraph", content: block.content },
+              ]);
+            } catch {}
+            const body = inner.replace(/\\s+$/, "");
+            const lines = body.length ? body.split("\\n") : [""];
+            const quoted = lines.map((l) => (l ? "> " + l : ">")).join("\\n");
+            alerts.push("> [!" + calloutLabel(kind) + "]\\n" + quoted);
+            patched.push({ type: "paragraph", content: [{ type: "text", text: sentinel(i), styles: {} }] });
+          } else {
+            patched.push(block);
+          }
+        }
+        let md = await editor.blocksToMarkdownLossy(patched);
+        for (let i = 0; i < alerts.length; i++) md = md.replace(sentinel(i), () => alerts[i]);
+        return md;
+      }
+
+      // Parse markdown into blocks, converting "> [!kind]" alerts into callouts.
+      async function calloutMarkdownToBlocks(editor, markdown) {
+        const lines = String(markdown || "").split("\\n");
+        const out = [];
+        const alerts = [];
+        const sentinel = (i) => " CALLOUT_" + i + " ";
+        const alertKind = (line) => {
+          if (!/^\\s*>/.test(line)) return null;
+          const inner = line.replace(/^\\s*>\\s?/, "").trim();
+          const k = calloutKindFromText(inner + " ");
+          if (k && new RegExp("^\\\\[!" + calloutLabel(k) + "\\\\]\\\\s*$", "i").test(inner)) return k;
+          return null;
+        };
+        for (let i = 0; i < lines.length; i++) {
+          const kind = alertKind(lines[i]);
+          if (!kind) { out.push(lines[i]); continue; }
+          const body = [];
+          let j = i + 1;
+          for (; j < lines.length; j++) {
+            const l = lines[j];
+            if (/^\\s*>/.test(l)) body.push(l.replace(/^\\s*>\\s?/, ""));
+            else break;
+          }
+          out.push(sentinel(alerts.length));
+          alerts.push({ kind: kind, body: body.join("\\n").trim() });
+          i = j - 1;
+        }
+        const blocks = await editor.tryParseMarkdownToBlocks(out.join("\\n"));
+        if (alerts.length === 0) return blocks;
+        // Pre-parse each alert body for inline content.
+        const bodyContent = [];
+        for (const a of alerts) {
+          let content = [{ type: "text", text: a.body, styles: {} }];
+          try {
+            const parsed = await editor.tryParseMarkdownToBlocks(a.body || "");
+            if (parsed[0] && parsed[0].content) content = parsed[0].content;
+          } catch {}
+          bodyContent.push(content);
+        }
+        return blocks.map((block) => {
+          if (!block || block.type !== "paragraph") return block;
+          const c = block.content;
+          if (!Array.isArray(c) || c.length !== 1) return block;
+          const t = (c[0] && c[0].text ? c[0].text : "").trim();
+          for (let i = 0; i < alerts.length; i++) {
+            if (t === sentinel(i).trim()) {
+              return { type: "callout", props: { kind: alerts[i].kind }, content: bodyContent[i] };
+            }
+          }
+          return block;
+        });
+      }
 
       const RN = window.ReactNativeWebView;
       const send = (o) => RN && RN.postMessage(JSON.stringify(o));
@@ -256,7 +457,7 @@ export const EDITOR_HTML = /* html */ `<!doctype html>
           (async () => {
             let text = "";
             try {
-              if (bnEditor) text = await bnEditor.blocksToMarkdownLossy(bnEditor.document);
+              if (bnEditor) text = await calloutBlocksToMarkdown(bnEditor);
             } catch (e) {
               send({ type: "console", level: "error", text: "getText failed: " + e });
             }
@@ -271,7 +472,7 @@ export const EDITOR_HTML = /* html */ `<!doctype html>
             let selection = "";
             try {
               if (bnEditor) {
-                text = await bnEditor.blocksToMarkdownLossy(bnEditor.document);
+                text = await calloutBlocksToMarkdown(bnEditor);
                 try {
                   selection = bnEditor.getSelectedText ? bnEditor.getSelectedText() : "";
                 } catch { selection = ""; }
@@ -287,7 +488,7 @@ export const EDITOR_HTML = /* html */ `<!doctype html>
           (async () => {
             try {
               if (!bnEditor) return;
-              const blocks = await bnEditor.tryParseMarkdownToBlocks(msg.text || "");
+              const blocks = await calloutMarkdownToBlocks(bnEditor, msg.text || "");
               bnEditor.replaceBlocks(bnEditor.document, blocks);
             } catch (e) {
               send({ type: "console", level: "error", text: "replace failed: " + e });
@@ -306,6 +507,7 @@ export const EDITOR_HTML = /* html */ `<!doctype html>
                 Y.applyUpdate(tmp, fromBase64(msg.state));
                 const ed = BlockNoteEditor.create(
                   withCollaboration({
+                    schema: bnSchema,
                     collaboration: {
                       fragment: tmp.getXmlFragment("document-store"),
                       user: { name: "render", color: "#000000" },
@@ -313,7 +515,7 @@ export const EDITOR_HTML = /* html */ `<!doctype html>
                     },
                   }),
                 );
-                text = await ed.blocksToMarkdownLossy(ed.document);
+                text = await calloutBlocksToMarkdown(ed);
               }
             } catch (e) {
               send({ type: "console", level: "error", text: "renderMarkdown failed: " + e });
@@ -332,6 +534,7 @@ export const EDITOR_HTML = /* html */ `<!doctype html>
               if (msg.state) Y.applyUpdate(tmp, fromBase64(msg.state));
               const ed = BlockNoteEditor.create(
                 withCollaboration({
+                  schema: bnSchema,
                   collaboration: {
                     fragment: tmp.getXmlFragment("document-store"),
                     user: { name: "preview", color: "#606670" },
@@ -357,7 +560,7 @@ export const EDITOR_HTML = /* html */ `<!doctype html>
           (async () => {
             try {
               if (!bnEditor) return;
-              const blocks = await bnEditor.tryParseMarkdownToBlocks(msg.text);
+              const blocks = await calloutMarkdownToBlocks(bnEditor, msg.text);
               const docBlocks = bnEditor.document;
               const ref = docBlocks[docBlocks.length - 1];
               if (ref) bnEditor.insertBlocks(blocks, ref, "after");
@@ -388,6 +591,7 @@ export const EDITOR_HTML = /* html */ `<!doctype html>
         try {
           const editor = BlockNoteEditor.create(
             withCollaboration({
+              schema: bnSchema,
               collaboration: {
                 fragment: doc.getXmlFragment("document-store"),
                 user: user || { name: "Guest", color: "#2563eb" },
@@ -398,6 +602,7 @@ export const EDITOR_HTML = /* html */ `<!doctype html>
           bnEditor = editor;
           editor.mount(document.getElementById("root"));
           setupSlashMenu(editor);
+          setupCalloutInputRule(editor);
           window.__editorMounted = true;
           const fb = document.getElementById("fallback");
           if (fb) fb.style.display = "none";
@@ -464,11 +669,11 @@ export const EDITOR_HTML = /* html */ `<!doctype html>
       async function runSummarize(block) {
         if (!bnEditor) return;
         let context = "";
-        try { context = await bnEditor.blocksToMarkdownLossy(bnEditor.document); } catch {}
+        try { context = await calloutBlocksToMarkdown(bnEditor); } catch {}
         const reply = await bridge("aiSummarize", { context });
         if (!reply || reply.type !== "aiSummarizeResult" || !reply.text) return;
         try {
-          const blocks = await bnEditor.tryParseMarkdownToBlocks(reply.text);
+          const blocks = await calloutMarkdownToBlocks(bnEditor, reply.text);
           const ref = block || bnEditor.getTextCursorPosition().block;
           bnEditor.insertBlocks(blocks, ref, "after");
         } catch (e) {
@@ -502,6 +707,34 @@ export const EDITOR_HTML = /* html */ `<!doctype html>
           aliases: ["link", "note", "mention"],
           group: "Blocks",
           onItemClick: () => openLinkPicker(),
+        });
+        // Callout: a default (note) plus one per kind, matching the web editor.
+        const insertCallout = (kind) => {
+          const block = editor.getTextCursorPosition().block;
+          const content = block.content;
+          const isEmpty = block.type === "paragraph" && (!Array.isArray(content) || content.length === 0);
+          if (isEmpty) {
+            editor.updateBlock(block, { type: "callout", props: { kind: kind } });
+            try { editor.setTextCursorPosition(block, "end"); } catch {}
+          } else {
+            const created = editor.insertBlocks(
+              [{ type: "callout", props: { kind: kind }, content: [] }], block, "after");
+            try { if (created && created[0]) editor.setTextCursorPosition(created[0], "end"); } catch {}
+          }
+        };
+        items.push({
+          title: "Callout",
+          aliases: ["callout", "note", "admonition", "alert"],
+          group: "Blocks",
+          onItemClick: () => insertCallout("note"),
+        });
+        CALLOUT_KINDS.forEach((kind) => {
+          items.push({
+            title: "Callout: " + kind.charAt(0).toUpperCase() + kind.slice(1),
+            aliases: ["callout " + kind, kind],
+            group: "Blocks",
+            onItemClick: () => insertCallout(kind),
+          });
         });
         // /ai-summarize — only when AI is available with the "summarize" feature.
         if (aiAvailable && aiFeatures.indexOf("summarize") !== -1) {

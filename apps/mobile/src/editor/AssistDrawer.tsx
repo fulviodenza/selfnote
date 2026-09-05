@@ -49,6 +49,37 @@ function extractInsertable(md: string): string {
   return parts.length ? parts.join("\n\n") : md.trim();
 }
 
+/** The five callout kinds (GitHub-alert parity), matching the editor. */
+const CALLOUT_KINDS = ["note", "tip", "warning", "important", "caution"] as const;
+type CalloutKind = (typeof CALLOUT_KINDS)[number];
+
+/** Feather icon name per callout kind (mirrors the editor's icon choices). */
+const CALLOUT_ICON: Record<CalloutKind, React.ComponentProps<typeof Feather>["name"]> = {
+  note: "info",
+  tip: "check-circle",
+  warning: "alert-triangle",
+  important: "alert-octagon",
+  caution: "alert-circle",
+};
+
+/** Kind of a leading `[!kind]` marker in a blockquote's text, else null. */
+function calloutKind(text: string): CalloutKind | null {
+  const m = /^\s*\[!(\w+)\]/i.exec(text);
+  if (!m) return null;
+  const k = m[1].toLowerCase();
+  return (CALLOUT_KINDS as readonly string[]).includes(k) ? (k as CalloutKind) : null;
+}
+
+/** Recursively collect the plain text of a markdown-display AST node. */
+function astText(node: { content?: string; children?: unknown[] } | undefined): string {
+  if (!node) return "";
+  let out = typeof node.content === "string" ? node.content : "";
+  if (Array.isArray(node.children)) {
+    for (const c of node.children) out += astText(c as { content?: string; children?: unknown[] });
+  }
+  return out;
+}
+
 /** Hide the insert markers when rendering the reply in the chat. */
 function stripInsertMarkers(md: string): string {
   return md
@@ -88,6 +119,7 @@ export function AssistDrawer({
   const { colors, type } = useTheme();
   const styles = useMemo(() => makeStyles(colors, type), [colors, type]);
   const mdStyles = useMemo(() => makeMarkdownStyles(colors), [colors]);
+  const mdRules = useMemo(() => makeMarkdownRules(colors), [colors]);
   const [messages, setMessages] = useState<Msg[]>([]);
   const [input, setInput] = useState("");
   const [busy, setBusy] = useState(false);
@@ -296,7 +328,9 @@ export function AssistDrawer({
                 >
                   {m.role === "assistant" && !m.error ? (
                     m.content ? (
-                      <Markdown style={mdStyles}>{stripInsertMarkers(m.content)}</Markdown>
+                      <Markdown style={mdStyles} rules={mdRules}>
+                        {stripInsertMarkers(m.content)}
+                      </Markdown>
                     ) : m.streaming ? (
                       <Text style={type.body}>…</Text>
                     ) : null
@@ -646,3 +680,67 @@ const makeMarkdownStyles = (colors: Palette) => ({
   th: { padding: 6 },
   td: { padding: 6, borderColor: colors.hairline },
 });
+
+/** Accent + wash colors per callout kind, from the app palette. */
+function calloutColors(colors: Palette, kind: CalloutKind): { accent: string; wash: string } {
+  switch (kind) {
+    case "tip":
+      return { accent: "#1F9E6A", wash: "#E4F4EE" };
+    case "warning":
+      return { accent: colors.warn, wash: "#F7EEDD" };
+    case "important":
+      return { accent: "#8B5CF6", wash: "#EEE8FB" };
+    case "caution":
+      return { accent: colors.danger, wash: colors.dangerWash };
+    default:
+      return { accent: colors.accent, wash: colors.accentWash };
+  }
+}
+
+/**
+ * Custom markdown-display rules: render `> [!kind]` alert blockquotes as styled
+ * callout boxes (icon + tinted body), leaving ordinary blockquotes to the
+ * default rule. The marker paragraph is dropped so only the body shows.
+ */
+function makeMarkdownRules(colors: Palette) {
+  return {
+    blockquote: (
+      node: { key: string; children?: unknown[] },
+      children: React.ReactNode,
+      _parent: unknown,
+      styles: Record<string, object>,
+    ) => {
+      const kind = calloutKind(astText(node as { content?: string; children?: unknown[] }));
+      if (!kind) {
+        return (
+          <View key={node.key} style={styles._VIEW_SAFE_blockquote}>
+            {children}
+          </View>
+        );
+      }
+      const { accent, wash } = calloutColors(colors, kind);
+      // Drop the first child (the `[!kind]` marker paragraph) from the body.
+      const kids = Array.isArray(children) ? children.slice(1) : children;
+      return (
+        <View
+          key={node.key}
+          style={{
+            flexDirection: "row",
+            gap: 8,
+            alignItems: "flex-start",
+            marginBottom: 8,
+            padding: 12,
+            borderRadius: 12,
+            borderWidth: 1,
+            borderLeftWidth: 4,
+            borderColor: accent,
+            backgroundColor: wash,
+          }}
+        >
+          <Feather name={CALLOUT_ICON[kind]} size={18} color={accent} style={{ marginTop: 2 }} />
+          <View style={{ flex: 1, minWidth: 0 }}>{kids}</View>
+        </View>
+      );
+    },
+  };
+}
