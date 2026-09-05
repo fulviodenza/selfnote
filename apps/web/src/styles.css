@@ -181,6 +181,27 @@ body {
   font-size: 13px;
 }
 
+/* Chevron toggle for pages with children — clickable without opening the page. */
+.row-toggle {
+  width: 16px;
+  height: 16px;
+  flex: none;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 0;
+  border: none;
+  background: none;
+  color: var(--muted);
+  cursor: pointer;
+  border-radius: var(--radius-sm);
+}
+
+.row-toggle:hover {
+  color: var(--fg);
+  background: var(--hover);
+}
+
 .row-title {
   flex: 1;
   overflow: hidden;

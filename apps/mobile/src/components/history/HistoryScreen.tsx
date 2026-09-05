@@ -160,12 +160,12 @@ export function HistoryScreen({
     <Modal visible animationType="slide" onRequestClose={onClose} presentationStyle="fullScreen">
       <View style={styles.screen}>
         <View style={styles.topbar}>
-          <IconButton glyph="✕" label="Close version history" onPress={onClose} />
+          <IconButton icon="x" label="Close version history" onPress={onClose} />
           <Text style={[type.docTitle, styles.title]} numberOfLines={1}>
             Version history
           </Text>
           {canWrite && !offline ? (
-            <IconButton glyph="＋" label="Save version" onPress={saveVersion} disabled={saving} />
+            <IconButton icon="plus" label="Save version" onPress={saveVersion} disabled={saving} />
           ) : (
             <View style={styles.spacer} />
           )}
@@ -214,7 +214,7 @@ export function HistoryScreen({
             </Text>
             {canWrite ? (
               <Text style={[type.meta, styles.centerNote]}>
-                Tap ＋ to save the current state as a version.
+                Tap the plus button to save the current state as a version.
               </Text>
             ) : null}
           </View>

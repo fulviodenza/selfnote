@@ -7,6 +7,7 @@ import { useEffect, useState } from "react";
 import { api, type TokenInfo } from "./api";
 import { CalendarFeedCard } from "./CalendarFeed";
 import { VoiceSettingsCard } from "./VoiceSettings";
+import { Icon } from "./Icon";
 
 /** The instance's public origin — what the MCP server should point SELFNOTE_URL at. */
 const INSTANCE_URL = window.location.origin;
@@ -76,7 +77,7 @@ export function ConnectionsModal({
         <div className="conn-head">
           <h2 className="conn-title">Connections</h2>
           <button className="icon-btn" onClick={onClose} aria-label="Close">
-            ✕
+            <Icon name="x" size={16} />
           </button>
         </div>
         <p className="conn-intro">

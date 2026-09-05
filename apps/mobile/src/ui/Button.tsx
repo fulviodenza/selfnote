@@ -1,8 +1,10 @@
+import { Feather } from "@expo/vector-icons";
 import { ActivityIndicator, Pressable, StyleSheet, Text, View, type ViewStyle } from "react-native";
 import * as Haptics from "expo-haptics";
 import { radius, sizing, spacing } from "../theme";
 import { useTheme } from "../theme-context";
 import type { Palette } from "../theme";
+import type { IconName } from "./IconButton";
 
 export type ButtonVariant = "primary" | "secondary" | "ghost" | "destructive";
 
@@ -13,7 +15,8 @@ export interface ButtonProps {
   disabled?: boolean;
   loading?: boolean;
   style?: ViewStyle;
-  icon?: string;
+  /** Optional leading Feather icon name (e.g. "plus"). */
+  icon?: IconName;
 }
 
 /**
@@ -59,7 +62,7 @@ export function Button({
       ) : (
         <View style={styles.content}>
           {icon ? (
-            <Text style={[type.button, { color: textColor(colors, variant, disabled) }, styles.icon]}>{icon}</Text>
+            <Feather name={icon} size={18} color={textColor(colors, variant, disabled)} />
           ) : null}
           <Text style={[type.button, { color: textColor(colors, variant, disabled) }]}>{label}</Text>
         </View>
@@ -98,5 +101,4 @@ function textColor(colors: Palette, v: ButtonVariant, disabled: boolean): string
 const styles = StyleSheet.create({
   base: { alignItems: "center", justifyContent: "center", paddingHorizontal: spacing.lg },
   content: { flexDirection: "row", alignItems: "center", gap: spacing.sm },
-  icon: { fontSize: 18 },
 });

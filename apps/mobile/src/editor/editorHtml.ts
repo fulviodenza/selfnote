@@ -81,7 +81,8 @@ export const EDITOR_HTML = /* html */ `<!doctype html>
         padding: 8px; border-radius: 8px; cursor: pointer; font-size: 16px;
       }
       #linkpick .row:active { background: #EAEDFB; }
-      #linkpick .row .ricon { width: 22px; text-align: center; }
+      #linkpick .row .ricon { width: 22px; text-align: center; color: #606670; }
+      #linkpick .row .ricon svg { vertical-align: middle; }
       #linkpick .row .rtitle { flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
       #linkpick .state { padding: 12px 4px; color: #9A9EA6; font-size: 15px; }
       /*
@@ -412,6 +413,15 @@ export const EDITOR_HTML = /* html */ `<!doctype html>
       // since the WebView bundle has no React. Items: the default blocks plus
       // Table, Link note, and (gated) AI summarize.
 
+      // Feather "file-text" icon as inline SVG (stroke = currentColor), used as
+      // the fallback when a note has no custom icon. Trusted static markup.
+      const FILE_ICON_SVG =
+        '<svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" ' +
+        'stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">' +
+        '<path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/>' +
+        '<polyline points="14 2 14 8 20 8"/><line x1="16" y1="13" x2="8" y2="13"/>' +
+        '<line x1="16" y1="17" x2="8" y2="17"/><polyline points="10 9 9 9 8 9"/></svg>';
+
       // Escape untrusted text before injecting it into innerHTML.
       function esc(s) {
         return String(s == null ? "" : s).replace(/[&<>"']/g, (c) => (
@@ -610,8 +620,9 @@ export const EDITOR_HTML = /* html */ `<!doctype html>
         }
         let html = '<div class="lbl">' + esc(label) + "</div>";
         docs.forEach((d) => {
+          const iconHtml = d.icon ? esc(d.icon) : FILE_ICON_SVG;
           html += '<div class="row" data-id="' + esc(d.id) + '" data-title="' + esc(d.title || "") + '">' +
-            '<span class="ricon">' + esc(d.icon || "📄") + "</span>" +
+            '<span class="ricon">' + iconHtml + "</span>" +
             '<span class="rtitle">' + esc(d.title || "Untitled") + "</span>" +
             "</div>";
         });

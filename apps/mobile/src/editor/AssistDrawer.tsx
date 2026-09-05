@@ -7,6 +7,7 @@
  * Shown only when /ai/status reports a provider, so plain servers show nothing.
  */
 import { useEffect, useMemo, useRef, useState } from "react";
+import { Feather } from "@expo/vector-icons";
 import { Pressable, ScrollView, StyleSheet, Text, TextInput, View } from "react-native";
 import Markdown from "react-native-markdown-display";
 import {
@@ -233,7 +234,7 @@ export function AssistDrawer({
       <View style={styles.panel}>
         <View style={styles.header}>
           <View style={styles.brand}>
-            <Text style={styles.spark}>✦</Text>
+            <Feather name="star" size={18} color={colors.accent} />
             <Text style={type.title}>Assist</Text>
           </View>
           <View style={styles.headerRight}>
@@ -251,7 +252,7 @@ export function AssistDrawer({
                 <Text style={styles.clearText}>New chat</Text>
               </Pressable>
             ) : null}
-            <IconButton glyph="✕" label="Close" onPress={onClose} />
+            <IconButton icon="x" label="Close" onPress={onClose} />
           </View>
         </View>
         {providerBadge ? <Text style={[type.meta, styles.badge]}>{providerBadge}</Text> : null}
@@ -338,7 +339,11 @@ export function AssistDrawer({
             >
               {contextNotes.map((n) => (
                 <View key={n.id} style={styles.chip}>
-                  <Text style={styles.chipIcon}>{n.icon || "📄"}</Text>
+                  {n.icon ? (
+                    <Text style={styles.chipIcon}>{n.icon}</Text>
+                  ) : (
+                    <Feather name="file-text" size={13} color={colors.inkSoft} />
+                  )}
                   <Text style={styles.chipTitle} numberOfLines={1}>
                     {n.title || "Untitled"}
                   </Text>
@@ -349,7 +354,7 @@ export function AssistDrawer({
                     accessibilityRole="button"
                     accessibilityLabel={`Remove ${n.title || "Untitled"}`}
                   >
-                    <Text style={styles.chipRemove}>✕</Text>
+                    <Feather name="x" size={13} color={colors.inkSoft} style={styles.chipRemove} />
                   </Pressable>
                 </View>
               ))}
@@ -367,7 +372,10 @@ export function AssistDrawer({
                 contextNotes.length >= MAX_EXTRA_DOCS && styles.addDisabled,
               ]}
             >
-              <Text style={styles.addText}>＋ Add note</Text>
+              <View style={styles.addInner}>
+                <Feather name="plus" size={14} color={colors.accent} />
+                <Text style={styles.addText}>Add note</Text>
+              </View>
             </Pressable>
             {contextNotes.length === 0 ? (
               <Pressable
@@ -400,7 +408,7 @@ export function AssistDrawer({
               accessibilityLabel="Stop"
               style={[styles.sendBtn, styles.stopBtn]}
             >
-              <Text style={styles.stopGlyph}>■</Text>
+              <Feather name="square" size={14} color={colors.surface} />
             </Pressable>
           ) : (
             <Pressable
@@ -411,7 +419,7 @@ export function AssistDrawer({
               accessibilityLabel="Send"
               style={[styles.sendBtn, !input.trim() && styles.sendDisabled]}
             >
-              <Text style={styles.sendGlyph}>↑</Text>
+              <Feather name="arrow-up" size={20} color={colors.onAccent} />
             </Pressable>
           )}
         </View>
@@ -449,7 +457,6 @@ const makeStyles = (colors: Palette, type: TypeRoles) =>
       paddingHorizontal: spacing.xl,
     },
     brand: { flexDirection: "row", alignItems: "center", gap: spacing.sm },
-    spark: { color: colors.accent, fontSize: 18 },
     headerRight: { flexDirection: "row", alignItems: "center", gap: spacing.sm },
     clearBtn: {
       minHeight: 34,
@@ -538,7 +545,7 @@ const makeStyles = (colors: Palette, type: TypeRoles) =>
       paddingVertical: 1,
       overflow: "hidden",
     },
-    chipRemove: { ...type.meta, color: colors.inkSoft, fontSize: 12, paddingLeft: 2 },
+    chipRemove: { paddingLeft: 2 },
     contextActions: { flexDirection: "row", gap: spacing.sm },
     addBtn: {
       minHeight: 34,
@@ -549,6 +556,7 @@ const makeStyles = (colors: Palette, type: TypeRoles) =>
       borderColor: colors.hairline,
     },
     addDisabled: { opacity: 0.4 },
+    addInner: { flexDirection: "row", alignItems: "center", gap: spacing.xs },
     addText: { ...type.meta, color: colors.accent, fontWeight: "600" },
 
     composer: {
@@ -583,9 +591,7 @@ const makeStyles = (colors: Palette, type: TypeRoles) =>
       justifyContent: "center",
     },
     sendDisabled: { opacity: 0.4 },
-    sendGlyph: { color: colors.onAccent, fontSize: 20, fontWeight: "700" },
     stopBtn: { backgroundColor: colors.ink },
-    stopGlyph: { color: colors.surface, fontSize: 14 },
   });
 
 /** Map Markdown elements to the app's palette for the assistant bubbles. */

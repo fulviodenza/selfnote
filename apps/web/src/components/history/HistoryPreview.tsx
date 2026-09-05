@@ -9,6 +9,7 @@ import { useEffect, useState } from "react";
 import { ReadOnlyPreview } from "@selfnote/editor";
 import { api, type Checkpoint, type CheckpointState } from "../../api";
 import { relativeTime } from "./relativeTime";
+import { Icon } from "../../Icon";
 
 export function HistoryPreview({
   docId,
@@ -83,7 +84,7 @@ export function HistoryPreview({
   return (
     <div className="history-preview">
       <div className="history-preview-banner">
-        <span className="history-preview-eye">👁</span>
+        <span className="history-preview-eye"><Icon name="eye" size={15} /></span>
         <span>
           Read-only preview · {relativeTime(checkpoint.created_at)}
           {checkpoint.label ? ` · ${checkpoint.label}` : ""}

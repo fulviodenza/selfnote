@@ -203,7 +203,7 @@ export function GraphView({
   return (
     <View style={styles.flex}>
       <View style={[styles.topbar, { borderBottomColor: colors.hairline, backgroundColor: colors.paper }]}>
-        <IconButton glyph="‹" label="Back to documents" onPress={onBack} />
+        <IconButton icon="chevron-left" label="Back to documents" onPress={onBack} />
         <Text style={[type.docTitle, styles.flex]} numberOfLines={1}>
           Graph
         </Text>

@@ -17,6 +17,7 @@ import {
   toDateInput,
   toTimeInput,
 } from "./tasks";
+import { Icon } from "./Icon";
 
 export function TaskControls({
   docId,
@@ -45,7 +46,7 @@ export function TaskControls({
     return (
       <div className="task-bar">
         <button className="task-make" onClick={makeTask} disabled={busy}>
-          ☑ Make task
+          <Icon name="check-square" size={15} /> Make task
         </button>
       </div>
     );
@@ -100,7 +101,9 @@ function TaskEditor({
         disabled={busy}
         title="Cycle status"
       >
-        <span className="task-pill-mark">{task.status === "done" ? "✔" : "○"}</span>
+        <span className="task-pill-mark">
+          <Icon name={task.status === "done" ? "check" : "circle"} size={14} />
+        </span>
         {STATUS_LABEL[task.status]}
       </button>
 

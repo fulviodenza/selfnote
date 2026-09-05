@@ -14,6 +14,7 @@
  */
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { api, type AiProposal } from "./api";
+import { Icon } from "./Icon";
 
 /* ------------------------------- diff engine ------------------------------- */
 
@@ -102,7 +103,7 @@ export function AiProposalBanner({
 
   return (
     <div className="proposal-banner">
-      <span className="proposal-banner-spark">✦</span>
+      <span className="proposal-banner-spark"><Icon name="sparkles" size={16} /></span>
       <span className="proposal-banner-text">
         {pending.length} pending AI edit{pending.length === 1 ? "" : "s"}
       </span>
@@ -116,7 +117,7 @@ export function AiProposalBanner({
           aria-label="Dismiss"
           title="Dismiss"
         >
-          ✕
+          <Icon name="x" size={16} />
         </button>
       </div>
     </div>
@@ -224,12 +225,12 @@ export function AiDiffPreview({
       <div className="proposal-drawer" onClick={(e) => e.stopPropagation()}>
         <div className="proposal-drawer-head">
           <div className="proposal-drawer-title">
-            <span className="proposal-drawer-spark">✦</span>
+            <span className="proposal-drawer-spark"><Icon name="sparkles" size={16} /></span>
             Review AI edit
             {remaining > 0 ? <span className="proposal-drawer-count">+{remaining} more</span> : null}
           </div>
           <button className="icon-btn" onClick={onClose} aria-label="Close">
-            ✕
+            <Icon name="x" size={16} />
           </button>
         </div>
 
@@ -246,7 +247,11 @@ export function AiDiffPreview({
           {rows.map((r, i) => (
             <div key={i} className={`proposal-line ${r.kind}`}>
               <span className="proposal-gutter">
-                {r.kind === "add" ? "+" : r.kind === "del" ? "−" : ""}
+                {r.kind === "add" ? (
+                  <Icon name="plus" size={12} />
+                ) : r.kind === "del" ? (
+                  <Icon name="minus" size={12} />
+                ) : null}
               </span>
               <span className="proposal-line-text">{r.text || " "}</span>
             </div>

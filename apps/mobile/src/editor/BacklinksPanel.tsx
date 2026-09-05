@@ -12,6 +12,7 @@
  * PUTs its outgoing links (a new backlink may have appeared on the target side).
  */
 import { useCallback, useEffect, useMemo, useState } from "react";
+import { Feather } from "@expo/vector-icons";
 import { ActivityIndicator, Pressable, StyleSheet, Text, View } from "react-native";
 import { api, type Backlink, type OutgoingLink } from "../api";
 import { spacing } from "../theme";
@@ -44,7 +45,11 @@ function RefRow({
   return (
     <Row onPress={onPress} accessibilityLabel={title || "Untitled"}>
       <View style={styles.refRow}>
-        <Text style={styles.refIcon}>{icon || "📄"}</Text>
+        {icon ? (
+          <Text style={styles.refIcon}>{icon}</Text>
+        ) : (
+          <Feather name="file-text" size={18} color={colors.inkSoft} style={styles.refIconGlyph} />
+        )}
         <View style={styles.flex}>
           <Text style={type.docTitle} numberOfLines={1}>
             {title || "Untitled"}
@@ -171,7 +176,12 @@ export function BacklinksPanel({
         accessibilityRole="button"
         accessibilityLabel={collapsed ? "Expand linked references" : "Collapse linked references"}
       >
-        <Text style={[styles.chevron, { color: colors.inkFaint }]}>{collapsed ? "▸" : "▾"}</Text>
+        <Feather
+          name={collapsed ? "chevron-right" : "chevron-down"}
+          size={16}
+          color={colors.inkFaint}
+          style={styles.chevron}
+        />
         <Text style={[type.label, styles.flex]}>
           Linked references{headerCount > 0 ? ` (${headerCount})` : ""}
         </Text>
@@ -191,10 +201,11 @@ const styles = StyleSheet.create({
     paddingHorizontal: spacing.gutter,
     paddingVertical: spacing.md,
   },
-  chevron: { fontSize: 14, width: 16, textAlign: "center" },
+  chevron: { width: 16, textAlign: "center" },
   subhead: { paddingHorizontal: spacing.gutter, paddingTop: spacing.md, paddingBottom: spacing.xs },
   refRow: { flexDirection: "row", alignItems: "center", gap: spacing.sm },
   refIcon: { fontSize: 18, width: 24, textAlign: "center" },
+  refIconGlyph: { width: 24, textAlign: "center" },
   placeholder: {
     paddingHorizontal: spacing.gutter,
     paddingBottom: spacing.lg,

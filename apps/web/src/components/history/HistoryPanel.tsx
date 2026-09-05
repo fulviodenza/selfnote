@@ -10,6 +10,7 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import { api, type Checkpoint, type CheckpointKind } from "../../api";
 import { HistoryEntry } from "./HistoryEntry";
 import { HistoryPreview } from "./HistoryPreview";
+import { Icon } from "../../Icon";
 
 const PAGE = 50;
 
@@ -136,7 +137,7 @@ export function HistoryPanel({
     <aside className="assist history-panel">
       <div className="assist-head">
         <div className="assist-brand">
-          <span className="assist-spark">🕑</span>
+          <span className="assist-spark"><Icon name="clock" size={16} /></span>
           <span className="assist-title">Version history</span>
         </div>
         <div className="assist-head-right">
@@ -146,7 +147,7 @@ export function HistoryPanel({
             </button>
           )}
           <button className="icon-btn" onClick={onClose} aria-label="Close">
-            ✕
+            <Icon name="x" size={16} />
           </button>
         </div>
       </div>

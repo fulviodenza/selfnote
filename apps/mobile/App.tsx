@@ -10,6 +10,7 @@ import {
   Text,
   View,
 } from "react-native";
+import { Feather } from "@expo/vector-icons";
 import { StatusBar } from "expo-status-bar";
 import AsyncStorage from "@react-native-async-storage/async-storage";
 import { createDocConnection, type ConnectionStatus } from "@selfnote/core";
@@ -278,7 +279,7 @@ function AuthScreen({ onAuthed, onSettings }: { onAuthed: () => void; onSettings
       <ScrollView contentContainerStyle={styles.authBody} keyboardShouldPersistTaps="handled">
         <View style={styles.headerRow}>
           <Text style={type.title}>selfnote</Text>
-          <IconButton glyph="⚙" label="Settings" onPress={onSettings} />
+          <IconButton icon="settings" label="Settings" onPress={onSettings} />
         </View>
         <Text style={[type.body, { color: colors.inkSoft, marginBottom: spacing.sm }]}>
           {mode === "login" ? "Sign in to your instance." : "Create your account."}
@@ -473,9 +474,9 @@ function DocListScreen({
     <View style={styles.flex}>
       <View style={styles.topbar}>
         <Text style={[type.docTitle, styles.flex]}>Documents</Text>
-        <IconButton glyph="✔" label="Tasks" onPress={onTasks} />
-        <IconButton glyph="◍" label="Graph" onPress={onGraph} />
-        <IconButton glyph="⚙" label="Settings" onPress={onSettings} />
+        <IconButton icon="check-square" label="Tasks" onPress={onTasks} />
+        <IconButton icon="git-branch" label="Graph" onPress={onGraph} />
+        <IconButton icon="settings" label="Settings" onPress={onSettings} />
         <Button variant="ghost" label="Log out" onPress={onLogout} style={styles.logout} />
       </View>
 
@@ -515,7 +516,7 @@ function DocListScreen({
               onLongPress={() => setActionsDoc(item.doc)}
               accessibilityLabel={item.doc.title || "Untitled"}
               trailing={
-                <IconButton glyph="＋" label="Add subpage" onPress={() => createDoc(item.doc.id)} />
+                <IconButton icon="plus" label="Add subpage" onPress={() => createDoc(item.doc.id)} />
               }
             >
               <View style={styles.rowInner}>
@@ -526,9 +527,11 @@ function DocListScreen({
                     accessibilityLabel={collapsed.has(item.doc.id) ? "Expand" : "Collapse"}
                     style={styles.chevron}
                   >
-                    <Text style={styles.chevronGlyph}>
-                      {collapsed.has(item.doc.id) ? "▸" : "▾"}
-                    </Text>
+                    <Feather
+                      name={collapsed.has(item.doc.id) ? "chevron-right" : "chevron-down"}
+                      size={16}
+                      color={colors.inkSoft}
+                    />
                   </Pressable>
                 ) : (
                   <View style={styles.chevron} />
@@ -543,7 +546,7 @@ function DocListScreen({
       )}
 
       <View style={styles.fab}>
-        <Button label="New page" icon="＋" onPress={() => createDoc(null)} loading={creating} />
+        <Button label="New page" icon="plus" onPress={() => createDoc(null)} loading={creating} />
       </View>
 
       {actionsDoc ? (
@@ -943,14 +946,14 @@ function EditorTopbar({
   const styles = useMemo(() => makeStyles(colors, type), [colors, type]);
   return (
     <View style={styles.topbar}>
-      <IconButton glyph="‹" label="Back to documents" onPress={onBack} />
+      <IconButton icon="chevron-left" label="Back to documents" onPress={onBack} />
       <Text style={[type.docTitle, styles.flex]} numberOfLines={1}>
         {title || "Untitled"}
       </Text>
-      {onHistory ? <IconButton glyph="🕘" label="Version history" onPress={onHistory} /> : null}
-      {onShare ? <IconButton glyph="↗" label="Share" onPress={onShare} /> : null}
-      {onActions ? <IconButton glyph="✨" label="AI actions" onPress={onActions} /> : null}
-      {onAssist ? <IconButton glyph="✦" label="AI Assist" onPress={onAssist} active /> : null}
+      {onHistory ? <IconButton icon="clock" label="Version history" onPress={onHistory} /> : null}
+      {onShare ? <IconButton icon="share" label="Share" onPress={onShare} /> : null}
+      {onActions ? <IconButton icon="zap" label="AI actions" onPress={onActions} /> : null}
+      {onAssist ? <IconButton icon="star" label="AI Assist" onPress={onAssist} active /> : null}
       {status ? <StatusDot state={status} /> : null}
     </View>
   );
@@ -1023,7 +1026,7 @@ function SettingsScreen({
         ))}
       </View>
 
-      <Button label={saved ? "Saved ✓" : "Save"} onPress={save} />
+      <Button label={saved ? "Saved" : "Save"} onPress={save} />
       <Text style={type.meta}>
         Defaults: {defaults.apiUrl} · {defaults.syncUrl}
       </Text>
@@ -1072,7 +1075,6 @@ const makeStyles = (colors: Palette, type: TypeRoles) =>
   segment: { flexDirection: "row", gap: spacing.sm },
   rowInner: { flexDirection: "row", alignItems: "center", gap: spacing.sm },
   chevron: { width: 28, height: 28, alignItems: "center", justifyContent: "center" },
-  chevronGlyph: { fontSize: 16, color: colors.inkSoft },
   error: { ...type.body, color: colors.danger },
   listPad: { paddingBottom: 96 },
   offlineBanner: {

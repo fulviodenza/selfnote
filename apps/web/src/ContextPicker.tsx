@@ -7,6 +7,7 @@
  */
 import { useEffect, useMemo, useRef, useState } from "react";
 import { api, type Document } from "./api";
+import { Icon } from "./Icon";
 
 export type ContextSource = "linked" | "recent" | "manual";
 
@@ -153,17 +154,17 @@ export function ContextPicker({
       <div className="ctx-chips">
         {selected.map((s) => (
           <span key={s.id} className="ctx-chip" title={s.title || "Untitled"}>
-            <span className="ctx-chip-icon">{s.icon || "📄"}</span>
+            <span className="ctx-chip-icon">{s.icon || <Icon name="file-text" size={14} />}</span>
             <span className="ctx-chip-title">{s.title || "Untitled"}</span>
             <span className={`ctx-chip-src ${s.source}`}>{SOURCE_LABEL[s.source]}</span>
             <button className="ctx-chip-x" onClick={() => remove(s.id)} aria-label="Remove">
-              ✕
+              <Icon name="x" size={13} />
             </button>
           </span>
         ))}
         <div className="ctx-add-wrap" ref={popRef}>
           <button className="ctx-add" onClick={() => setOpen((v) => !v)}>
-            + Add note
+            <Icon name="plus" size={14} /> Add note
           </button>
           {open && (
             <div className="ctx-pop">
@@ -204,7 +205,7 @@ export function ContextPicker({
         </div>
         {hasLinks && (
           <button className="ctx-pull" onClick={pullLinked}>
-            ⚭ Pull in linked notes
+            <Icon name="link" size={14} /> Pull in linked notes
           </button>
         )}
       </div>
@@ -231,7 +232,7 @@ function Section({
       ) : (
         items.map((c) => (
           <button key={c.id} className="ctx-opt" onClick={() => onPick(c)}>
-            <span className="ctx-opt-icon">{c.icon || "📄"}</span>
+            <span className="ctx-opt-icon">{c.icon || <Icon name="file-text" size={14} />}</span>
             <span className="ctx-opt-title">{c.title || "Untitled"}</span>
           </button>
         ))

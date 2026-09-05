@@ -28,6 +28,7 @@ import { importObsidianVault, type ImportProgress } from "./obsidian";
 import { ConnectionsModal } from "./Connections";
 import { TaskView } from "./TaskView";
 import { TaskControls } from "./TaskControls";
+import { Icon } from "./Icon";
 import type { Task } from "./api";
 import { syncUrl, needsOnboarding, saveServer, deriveFromBase } from "./server";
 
@@ -355,8 +356,8 @@ function LoginScreen({
 
   return (
     <div className="auth-wrap">
-      <button className="auth-theme icon-btn" onClick={onToggleTheme}>
-        {theme === "light" ? "🌙" : "☀️"}
+      <button className="auth-theme icon-btn" onClick={onToggleTheme} aria-label="Toggle theme">
+        <Icon name={theme === "light" ? "moon" : "sun"} size={18} />
       </button>
       <form className="auth-card" onSubmit={submit}>
         <div className="auth-brand">selfnote</div>
@@ -443,22 +444,51 @@ function Sidebar({
     return map;
   }, [docs]);
 
+  // Collapsed page ids (default: everything expanded). Persisted so the tree
+  // keeps its shape across reloads.
+  const [collapsed, setCollapsed] = useState<Set<string>>(() => {
+    try {
+      const raw = localStorage.getItem("selfnote_tree_collapsed");
+      return new Set<string>(raw ? (JSON.parse(raw) as string[]) : []);
+    } catch {
+      return new Set<string>();
+    }
+  });
+  const toggleCollapsed = (id: string) =>
+    setCollapsed((prev) => {
+      const next = new Set(prev);
+      if (next.has(id)) next.delete(id);
+      else next.add(id);
+      try {
+        localStorage.setItem("selfnote_tree_collapsed", JSON.stringify([...next]));
+      } catch {
+        /* storage unavailable — keep in-memory only */
+      }
+      return next;
+    });
+
   const renderTree = (parentId: string | null, depth: number): ReactNode =>
-    (childrenOf.get(parentId) ?? []).map((d) => (
-      <Row
-        key={d.id}
-        doc={d}
-        depth={depth}
-        active={d.id === activeId}
-        hasChildren={(childrenOf.get(d.id) ?? []).length > 0}
-        onOpen={onOpen}
-        onCreate={onCreate}
-        onRename={onRename}
-        onArchive={onArchive}
-      >
-        {renderTree(d.id, depth + 1)}
-      </Row>
-    ));
+    (childrenOf.get(parentId) ?? []).map((d) => {
+      const hasChildren = (childrenOf.get(d.id) ?? []).length > 0;
+      const expanded = !collapsed.has(d.id);
+      return (
+        <Row
+          key={d.id}
+          doc={d}
+          depth={depth}
+          active={d.id === activeId}
+          hasChildren={hasChildren}
+          expanded={expanded}
+          onToggle={toggleCollapsed}
+          onOpen={onOpen}
+          onCreate={onCreate}
+          onRename={onRename}
+          onArchive={onArchive}
+        >
+          {hasChildren && expanded ? renderTree(d.id, depth + 1) : null}
+        </Row>
+      );
+    });
 
   return (
     <aside className="sidebar">
@@ -470,10 +500,10 @@ function Sidebar({
             title={theme === "light" ? "Switch to dark" : "Switch to light"}
             onClick={onToggleTheme}
           >
-            {theme === "light" ? "🌙" : "☀️"}
+            <Icon name={theme === "light" ? "moon" : "sun"} size={18} />
           </button>
           <button className="icon-btn" title="New page" onClick={() => onCreate(null)}>
-            ＋
+            <Icon name="plus" size={18} />
           </button>
         </div>
       </div>
@@ -482,14 +512,14 @@ function Sidebar({
           className={tasksActive ? "nav-item active" : "nav-item"}
           onClick={onOpenTasks}
         >
-          <span className="nav-item-icon">☑</span>
+          <span className="nav-item-icon"><Icon name="check-square" size={16} /></span>
           Tasks
         </button>
         <button
           className={graphActive ? "nav-item active" : "nav-item"}
           onClick={onOpenGraph}
         >
-          <span className="nav-item-icon">◈</span>
+          <span className="nav-item-icon"><Icon name="git-branch" size={16} /></span>
           Graph
         </button>
       </div>
@@ -498,10 +528,10 @@ function Sidebar({
       </div>
       <div className="sidebar-foot">
         <button className="foot-btn" onClick={onImport}>
-          ⬇ Import Obsidian vault
+          <Icon name="download" size={16} /> Import Obsidian vault
         </button>
         <button className="foot-btn" onClick={() => setShowConnections(true)}>
-          ⚙ Connections
+          <Icon name="settings" size={16} /> Connections
         </button>
         <button className="foot-btn" onClick={onLogout}>
           Log out
@@ -522,6 +552,8 @@ function Row({
   depth,
   active,
   hasChildren,
+  expanded,
+  onToggle,
   onOpen,
   onCreate,
   onRename,
@@ -532,6 +564,8 @@ function Row({
   depth: number;
   active: boolean;
   hasChildren: boolean;
+  expanded: boolean;
+  onToggle: (id: string) => void;
   onOpen: (id: string) => void;
   onCreate: (parentId: string | null) => void;
   onRename: (id: string, title: string) => void;
@@ -553,7 +587,23 @@ function Row({
         style={{ paddingLeft: 8 + depth * 16 }}
         onClick={() => !editing && onOpen(doc.id)}
       >
-        <span className="row-icon">{hasChildren ? "▾" : "•"}</span>
+        {hasChildren ? (
+          <button
+            type="button"
+            className="row-toggle"
+            aria-label={expanded ? "Collapse" : "Expand"}
+            onClick={(e) => {
+              e.stopPropagation();
+              onToggle(doc.id);
+            }}
+          >
+            <Icon name={expanded ? "chevron-down" : "chevron-right"} size={14} />
+          </button>
+        ) : (
+          <span className="row-icon">
+            <Icon name="circle-filled" size={6} />
+          </span>
+        )}
         {editing ? (
           <input
             className="row-input"
@@ -583,14 +633,14 @@ function Row({
           </span>
         )}
         <span className="row-actions" onClick={(e) => e.stopPropagation()}>
-          <button title="Add subpage" onClick={() => onCreate(doc.id)}>
-            ＋
+          <button title="Add subpage" aria-label="Add subpage" onClick={() => onCreate(doc.id)}>
+            <Icon name="plus" size={15} />
           </button>
-          <button title="Rename" onClick={() => (setDraft(doc.title), setEditing(true))}>
-            ✎
+          <button title="Rename" aria-label="Rename" onClick={() => (setDraft(doc.title), setEditing(true))}>
+            <Icon name="edit-3" size={15} />
           </button>
-          <button title="Archive" onClick={() => onArchive(doc.id)}>
-            ×
+          <button title="Archive" aria-label="Archive" onClick={() => onArchive(doc.id)}>
+            <Icon name="x" size={15} />
           </button>
         </span>
       </div>
@@ -975,7 +1025,7 @@ function EditorPaneInner({
     <div className="editor-pane">
       <div className="topbar">
         <span className="user" style={{ color: user.color }}>
-          ● {user.name}
+          <Icon name="circle-filled" size={8} /> {user.name}
         </span>
         <span className="status">
           <span className="dot" style={{ background: STATUS_COLOR[status] }} />
@@ -990,7 +1040,7 @@ function EditorPaneInner({
               className={showAssist ? "toggle on" : "toggle"}
               onClick={() => setShowAssist((v) => !v)}
             >
-              ✦ Assist
+              <Icon name="sparkles" size={15} /> Assist
             </button>
           )}
           <button
@@ -998,7 +1048,7 @@ function EditorPaneInner({
             title="Version history (⌘⇧H)"
             onClick={() => setShowHistory((v) => !v)}
           >
-            🕑 History
+            <Icon name="clock" size={15} /> History
           </button>
           <button
             className={showShares ? "toggle on" : "toggle"}
@@ -1016,7 +1066,7 @@ function EditorPaneInner({
                 title="Page menu"
                 onClick={() => setMenuOpen((v) => !v)}
               >
-                ⋯
+                <Icon name="more-horizontal" size={16} />
               </button>
               {menuOpen && (
                 <>
@@ -1079,7 +1129,7 @@ function EditorPaneInner({
               <div className="subpages-title">Sub-pages</div>
               {childPages.map((c) => (
                 <button key={c.id} className="subpage-link" onClick={() => onOpenPage(c.id)}>
-                  <span className="subpage-icon">📄</span>
+                  <span className="subpage-icon"><Icon name="file-text" size={15} /></span>
                   {c.title || "Untitled"}
                 </button>
               ))}
@@ -1165,8 +1215,8 @@ function SharedEditor({
       <div className="shared-bar">
         <span className="brand">selfnote</span>
         <span className="shared-tag">Shared page · {editable ? "editable" : "read-only"}</span>
-        <button className="icon-btn" onClick={onToggleTheme}>
-          {theme === "light" ? "🌙" : "☀️"}
+        <button className="icon-btn" onClick={onToggleTheme} aria-label="Toggle theme">
+          <Icon name={theme === "light" ? "moon" : "sun"} size={18} />
         </button>
       </div>
       <div className="editor-scroll">

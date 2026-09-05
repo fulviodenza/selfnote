@@ -1,10 +1,14 @@
-import { Pressable, StyleSheet, Text, type ViewStyle } from "react-native";
+import { Feather } from "@expo/vector-icons";
+import { Pressable, StyleSheet, type ViewStyle } from "react-native";
 import { hitSlop, radius, sizing } from "../theme";
 import { useTheme } from "../theme-context";
 
+/** A Feather glyph name (e.g. "x", "plus", "refresh-cw", "copy"). */
+export type IconName = React.ComponentProps<typeof Feather>["name"];
+
 export interface IconButtonProps {
-  /** A single glyph/emoji, e.g. "⚙", "‹", "＋", "✕". */
-  glyph: string;
+  /** A Feather icon name, e.g. "settings", "chevron-left", "plus", "x". */
+  icon: IconName;
   onPress: () => void;
   label: string;
   active?: boolean;
@@ -13,8 +17,9 @@ export interface IconButtonProps {
 }
 
 /** 44px visual circle inside a 48px touch target (DESIGN.md §4). */
-export function IconButton({ glyph, onPress, label, active = false, disabled = false, style }: IconButtonProps) {
+export function IconButton({ icon, onPress, label, active = false, disabled = false, style }: IconButtonProps) {
   const { colors } = useTheme();
+  const color = disabled ? colors.inkFaint : active ? colors.accent : colors.ink;
   return (
     <Pressable
       accessibilityRole="button"
@@ -29,9 +34,7 @@ export function IconButton({ glyph, onPress, label, active = false, disabled = f
         style,
       ]}
     >
-      <Text style={[styles.glyph, { color: disabled ? colors.inkFaint : active ? colors.accent : colors.ink }]}>
-        {glyph}
-      </Text>
+      <Feather name={icon} size={22} color={color} />
     </Pressable>
   );
 }
@@ -44,5 +47,4 @@ const styles = StyleSheet.create({
     alignItems: "center",
     justifyContent: "center",
   },
-  glyph: { fontSize: 22, lineHeight: 26 },
 });

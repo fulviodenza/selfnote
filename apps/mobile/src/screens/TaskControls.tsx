@@ -9,6 +9,7 @@
  * contract in docs/features/calendar-task-sync.md.
  */
 import { useCallback, useEffect, useMemo, useState } from "react";
+import { Feather } from "@expo/vector-icons";
 import { ActivityIndicator, Pressable, StyleSheet, Text, View } from "react-native";
 import { api, type Task, type TaskPriority, type TaskStatus } from "../api";
 import {
@@ -128,7 +129,7 @@ export function TaskControls({
             { backgroundColor: pressed ? colors.surfaceSunken : colors.surface },
           ]}
         >
-          <Text style={styles.makeGlyph}>☐</Text>
+          <Feather name="square" size={18} color={colors.inkSoft} />
           <Text style={[type.label, { color: colors.ink }]}>
             {busy ? "Making task…" : "Make task"}
           </Text>
@@ -194,7 +195,7 @@ export function TaskControls({
             { backgroundColor: pressed ? colors.surfaceSunken : colors.surface },
           ]}
         >
-          <Text style={styles.chipGlyph}>🗓</Text>
+          <Feather name="calendar" size={14} color={task.due_at ? colors.ink : colors.inkSoft} />
           <Text style={[type.meta, { color: task.due_at ? colors.ink : colors.inkSoft }]}>
             {task.due_at ? dueLabel(task) : "No date"}
           </Text>
@@ -210,7 +211,7 @@ export function TaskControls({
             { backgroundColor: pressed ? colors.surfaceSunken : colors.surface },
           ]}
         >
-          <Text style={[type.meta, { color: colors.inkSoft }]}>⋯</Text>
+          <Feather name="more-horizontal" size={16} color={colors.inkSoft} />
         </Pressable>
       </View>
 
@@ -233,7 +234,9 @@ export function TaskControls({
             >
               <PriorityDot priority={p} />
               <Text style={[type.body, { color: colors.ink, flex: 1 }]}>{PRIORITY_LABEL[p]}</Text>
-              {task.priority === p ? <Text style={styles.check}>✓</Text> : null}
+              {task.priority === p ? (
+                <Feather name="check" size={16} color={colors.accent} />
+              ) : null}
             </Pressable>
           ))}
         </Sheet>
@@ -274,7 +277,6 @@ const makeStyles = (colors: Palette, type: TypeRoles) =>
       borderWidth: 1,
       borderColor: colors.hairline,
     },
-    makeGlyph: { fontSize: 18, color: colors.inkSoft },
     wrap: { gap: spacing.sm, paddingBottom: spacing.sm },
     segment: {
       flexDirection: "row",
@@ -304,7 +306,6 @@ const makeStyles = (colors: Palette, type: TypeRoles) =>
       borderColor: colors.hairline,
       minHeight: 36,
     },
-    chipGlyph: { fontSize: 14 },
     optionRow: {
       flexDirection: "row",
       alignItems: "center",
@@ -313,5 +314,4 @@ const makeStyles = (colors: Palette, type: TypeRoles) =>
       paddingHorizontal: spacing.sm,
       borderRadius: radius.sm,
     },
-    check: { ...type.body, color: colors.accent, fontWeight: "600" },
   });

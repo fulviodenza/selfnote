@@ -12,6 +12,7 @@
  * Rendered only when /ai/status reports a provider (gated by the caller).
  */
 import { useEffect, useMemo, useRef, useState } from "react";
+import { Feather } from "@expo/vector-icons";
 import { Alert, Pressable, ScrollView, StyleSheet, Text, View } from "react-native";
 import Markdown from "react-native-markdown-display";
 import * as Clipboard from "expo-clipboard";
@@ -179,10 +180,10 @@ export function NoteAiActions({
         <View style={[styles.grabber, { backgroundColor: colors.hairline }]} />
         <View style={styles.header}>
           <View style={styles.brand}>
-            <Text style={styles.spark}>✦</Text>
+            <Feather name="star" size={18} color={colors.accent} />
             <Text style={type.title}>{selected ? selected.label : "AI actions"}</Text>
           </View>
-          <IconButton glyph="✕" label="Close" onPress={onClose} />
+          <IconButton icon="x" label="Close" onPress={onClose} />
         </View>
 
         {!selected ? (
@@ -212,7 +213,7 @@ export function NoteAiActions({
                     <Text style={styles.actionLabel}>{a.label}</Text>
                     <Text style={[type.meta, styles.actionHint]}>{a.hint}</Text>
                   </View>
-                  <Text style={styles.chevron}>›</Text>
+                  <Feather name="chevron-right" size={20} color={colors.inkFaint} style={styles.chevron} />
                 </Pressable>
               ))}
             </View>
@@ -253,7 +254,7 @@ export function NoteAiActions({
                   />
                   <FooterBtn label="Replace" disabled={!canAct} onPress={replace} styles={styles} />
                   <FooterBtn
-                    label={copied ? "Copied ✓" : "Copy"}
+                    label={copied ? "Copied" : "Copy"}
                     disabled={!canAct}
                     onPress={copy}
                     styles={styles}
@@ -330,7 +331,6 @@ const makeStyles = (colors: Palette, type: TypeRoles) =>
     },
     header: { flexDirection: "row", alignItems: "center", justifyContent: "space-between" },
     brand: { flexDirection: "row", alignItems: "center", gap: spacing.sm },
-    spark: { color: colors.accent, fontSize: 18 },
     scopeHint: { marginTop: -spacing.xs },
 
     actions: { gap: spacing.sm },
@@ -348,7 +348,7 @@ const makeStyles = (colors: Palette, type: TypeRoles) =>
     disabled: { opacity: 0.4 },
     actionLabel: { ...type.button, color: colors.ink },
     actionHint: { marginTop: 1 },
-    chevron: { color: colors.inkFaint, fontSize: 22, paddingLeft: spacing.sm },
+    chevron: { paddingLeft: spacing.sm },
     badge: { textAlign: "center" },
 
     result: { maxHeight: 360, borderRadius: radius.md, backgroundColor: colors.surfaceSunken },

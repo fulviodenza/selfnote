@@ -14,6 +14,7 @@
  * HistoryPreview, adapted to the WebView bridge.
  */
 import { useEffect, useMemo, useState } from "react";
+import { Feather } from "@expo/vector-icons";
 import { ActivityIndicator, Alert, Pressable, StyleSheet, Text, View } from "react-native";
 import { api, type Checkpoint, type CheckpointDetail } from "../../api";
 import type { EditorHandle } from "../../editor/WebViewEditor";
@@ -150,7 +151,7 @@ export function HistoryPreviewScreen({
           accessibilityLabel="Back to history"
           style={({ pressed }) => [styles.backBtn, pressed && styles.pressed]}
         >
-          <Text style={styles.backGlyph}>‹</Text>
+          <Feather name="chevron-left" size={24} color={colors.accent} />
         </Pressable>
         <View style={styles.bannerText}>
           <Text style={styles.bannerLabel} numberOfLines={1}>
@@ -243,7 +244,6 @@ const makeStyles = (colors: Palette, type: TypeRoles) =>
       borderBottomColor: colors.hairline,
     },
     backBtn: { width: 32, height: 32, alignItems: "center", justifyContent: "center" },
-    backGlyph: { fontSize: 28, lineHeight: 30, color: colors.accent },
     pressed: { opacity: 0.6 },
     bannerText: { flex: 1 },
     bannerLabel: { ...type.label, color: colors.accent, fontWeight: "600" },

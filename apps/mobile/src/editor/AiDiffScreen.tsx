@@ -12,6 +12,7 @@
  * See docs/features/ai-edit-diff-preview.md §5.
  */
 import { useMemo, useState } from "react";
+import { Feather } from "@expo/vector-icons";
 import { ActivityIndicator, Modal, Pressable, ScrollView, StyleSheet, Text, View } from "react-native";
 import Markdown from "react-native-markdown-display";
 import { api, type AiProposal } from "../api";
@@ -133,7 +134,7 @@ export function AiDiffScreen({
             accessibilityLabel="Close diff"
             style={({ pressed }) => [styles.closeBtn, pressed && styles.pressed]}
           >
-            <Text style={styles.closeGlyph}>✕</Text>
+            <Feather name="x" size={18} color={colors.inkSoft} />
           </Pressable>
           <Text style={[type.docTitle, styles.title]} numberOfLines={1}>
             Review AI edit
@@ -244,7 +245,6 @@ const makeStyles = (colors: Palette, type: TypeRoles) =>
       backgroundColor: colors.paper,
     },
     closeBtn: { width: 32, height: 32, alignItems: "center", justifyContent: "center" },
-    closeGlyph: { fontSize: 18, color: colors.inkSoft },
     title: { flex: 1, textAlign: "center" },
     pressed: { opacity: 0.6 },
 

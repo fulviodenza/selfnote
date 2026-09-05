@@ -14,6 +14,7 @@ import {
   groupTasks,
   relativeDue,
 } from "./tasks";
+import { Icon } from "./Icon";
 
 const STATUS_FILTERS: TaskStatus[] = ["todo", "in_progress", "done"];
 
@@ -108,7 +109,9 @@ export function TaskView({
             {grouped!.get("done")!.length > 0 && (
               <section className="task-group">
                 <button className="task-group-head as-toggle" onClick={() => setDoneOpen((v) => !v)}>
-                  <span className="task-group-caret">{doneOpen ? "▾" : "▸"}</span>
+                  <span className="task-group-caret">
+                    <Icon name={doneOpen ? "chevron-down" : "chevron-right"} size={15} />
+                  </span>
                   <span className="task-group-label">{GROUP_LABEL.done}</span>
                   <span className="task-group-count">{grouped!.get("done")!.length}</span>
                 </button>
@@ -145,7 +148,7 @@ function TaskRow({
         onClick={(e) => e.stopPropagation()}
         onChange={() => onToggle(task)}
       />
-      <span className="task-row-icon">{task.icon || "📄"}</span>
+      <span className="task-row-icon">{task.icon || <Icon name="file-text" size={15} />}</span>
       <span className={task.status === "done" ? "task-row-title done" : "task-row-title"}>
         {task.title || "Untitled"}
       </span>

@@ -120,7 +120,7 @@ export function ShareAnalyticsSheet({
           <View style={[styles.grabber, { backgroundColor: colors.hairline }]} />
           <View style={styles.header}>
             <Text style={type.title}>Share links</Text>
-            <IconButton glyph="✕" label="Close" onPress={onClose} />
+            <IconButton icon="x" label="Close" onPress={onClose} />
           </View>
 
           {loading ? (
@@ -173,7 +173,7 @@ function ShareRow({ share, onCopy }: { share: ShareAnalytics; onCopy: () => void
         <Text style={[type.meta, styles.url]} numberOfLines={1} selectable>
           {absoluteShareUrl(share.url)}
         </Text>
-        <IconButton glyph="⧉" label="Copy share link" onPress={onCopy} />
+        <IconButton icon="copy" label="Copy share link" onPress={onCopy} />
       </View>
       <View style={styles.stats}>
         <Text style={type.meta}>{views}</Text>

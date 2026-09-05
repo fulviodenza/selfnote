@@ -71,7 +71,7 @@ export function VoiceSection() {
             textAlignVertical="top"
             style={styles.input}
           />
-          <Button label={saved ? "Saved ✓" : "Save voice"} onPress={save} loading={busy} />
+          <Button label={saved ? "Saved" : "Save voice"} onPress={save} loading={busy} />
         </>
       )}
     </View>

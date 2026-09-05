@@ -7,6 +7,7 @@
  * Strict parity with apps/web TaskView, against docs/features/calendar-task-sync.md.
  */
 import { useCallback, useEffect, useMemo, useState } from "react";
+import { Feather } from "@expo/vector-icons";
 import {
   ActivityIndicator,
   Pressable,
@@ -97,9 +98,9 @@ export function TasksScreen({
   return (
     <View style={styles.flex}>
       <View style={styles.topbar}>
-        <IconButton glyph="‹" label="Back" onPress={onBack} />
+        <IconButton icon="chevron-left" label="Back" onPress={onBack} />
         <Text style={[type.docTitle, styles.flex]}>Tasks</Text>
-        <IconButton glyph="⟳" label="Refresh" onPress={() => load(true)} />
+        <IconButton icon="refresh-cw" label="Refresh" onPress={() => load(true)} />
       </View>
 
       <View style={styles.filterRow}>
@@ -201,7 +202,7 @@ function TaskRow({
         onPress={() => onToggle(task)}
         style={[styles.checkbox, done && { backgroundColor: colors.live, borderColor: colors.live }]}
       >
-        {done ? <Text style={styles.checkMark}>✓</Text> : null}
+        {done ? <Feather name="check" size={15} color={colors.onAccent} /> : null}
       </Pressable>
 
       <View style={styles.rowBody}>
@@ -289,7 +290,6 @@ const makeStyles = (colors: Palette, type: TypeRoles) =>
       alignItems: "center",
       justifyContent: "center",
     },
-    checkMark: { color: colors.onAccent, fontSize: 15, fontWeight: "700" },
     rowBody: { flex: 1, gap: 2 },
     rowTitleLine: { flexDirection: "row", alignItems: "center", gap: spacing.sm },
     rowIcon: { fontSize: 16 },

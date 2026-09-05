@@ -10,6 +10,7 @@ import remarkGfm from "remark-gfm";
 import { createRenderer } from "@selfnote/editor";
 import { api, type AiProposal, type AiStatus, type ChatMessage, type ExtraDoc } from "./api";
 import { ContextPicker, type SelectedNote } from "./ContextPicker";
+import { Icon } from "./Icon";
 
 /** Per-note context budget, mirroring the server's MAX_CONTEXT_CHARS. */
 const MAX_CONTEXT_CHARS = 24_000;
@@ -217,7 +218,7 @@ export function AssistPanel({
     <aside className="assist">
       <div className="assist-head">
         <div className="assist-brand">
-          <span className="assist-spark">✦</span>
+          <span className="assist-spark"><Icon name="sparkles" size={16} /></span>
           <span className="assist-title">Assist</span>
         </div>
         <div className="assist-head-right">
@@ -234,7 +235,7 @@ export function AssistPanel({
             </button>
           )}
           <button className="icon-btn" onClick={onClose} aria-label="Close">
-            ✕
+            <Icon name="x" size={16} />
           </button>
         </div>
       </div>
@@ -309,7 +310,7 @@ export function AssistPanel({
         />
         {busy ? (
           <button className="assist-send stop" onClick={stop} aria-label="Stop">
-            ■
+            <Icon name="square" size={16} />
           </button>
         ) : (
           <button
@@ -318,7 +319,7 @@ export function AssistPanel({
             disabled={!input.trim()}
             aria-label="Send"
           >
-            ↑
+            <Icon name="arrow-up" size={18} />
           </button>
         )}
       </div>

@@ -12,6 +12,7 @@ import { useEffect, useRef, useState } from "react";
 import ReactMarkdown from "react-markdown";
 import remarkGfm from "remark-gfm";
 import { api, type AiActionKind, type AiActionScope } from "./api";
+import { Icon } from "./Icon";
 
 /**
  * Minimal structural view of the BlockNote editor we need for note-level
@@ -111,7 +112,7 @@ export function NoteAiActions({
         aria-haspopup="menu"
         aria-expanded={open}
       >
-        ✦ AI actions
+        <Icon name="sparkles" size={15} /> AI actions
       </button>
       {open && (
         <>
@@ -280,14 +281,14 @@ function AiActionResult({
       <div className="nai-panel" role="dialog" aria-label={`${ACTION_TITLE[pending.kind]} result`}>
         <div className="nai-panel-head">
           <div className="nai-panel-title">
-            <span className="assist-spark">✦</span>
+            <span className="assist-spark"><Icon name="sparkles" size={16} /></span>
             {ACTION_TITLE[pending.kind]}
             <span className="nai-panel-scope">
               {pending.scope === "selection" ? "Selected text" : "Whole note"}
             </span>
           </div>
           <button className="icon-btn" onClick={onDismiss} aria-label="Dismiss">
-            ✕
+            <Icon name="x" size={16} />
           </button>
         </div>
 

@@ -25,7 +25,7 @@ export function Sheet({
         <View style={[styles.grabber, { backgroundColor: colors.hairline }]} />
         <View style={styles.header}>
           <Text style={type.title}>{title}</Text>
-          <IconButton glyph="✕" label="Close" onPress={onClose} />
+          <IconButton icon="x" label="Close" onPress={onClose} />
         </View>
         {children}
       </View>

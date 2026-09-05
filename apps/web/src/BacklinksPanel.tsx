@@ -10,6 +10,7 @@
  */
 import { useEffect, useState } from "react";
 import { api, type Backlink, type OutgoingLink } from "./api";
+import { Icon } from "./Icon";
 
 export function BacklinksPanel({
   docId,
@@ -52,7 +53,9 @@ export function BacklinksPanel({
         onClick={() => setCollapsed((c) => !c)}
         aria-expanded={!collapsed}
       >
-        <span className="backlinks-caret">{collapsed ? "▸" : "▾"}</span>
+        <span className="backlinks-caret">
+          <Icon name={collapsed ? "chevron-right" : "chevron-down"} size={15} />
+        </span>
         <span className="backlinks-title">Linked references</span>
         {backlinks && backlinks.length > 0 && (
           <span className="backlinks-count">{backlinks.length}</span>
@@ -70,7 +73,9 @@ export function BacklinksPanel({
               {backlinks!.map((b) => (
                 <li key={b.source.id}>
                   <button className="backlinks-item" onClick={() => onOpen(b.source.id)}>
-                    <span className="backlinks-icon">{b.source.icon || "📄"}</span>
+                    <span className="backlinks-icon">
+                      {b.source.icon || <Icon name="corner-up-left" size={15} />}
+                    </span>
                     <span className="backlinks-item-text">
                       <span className="backlinks-item-title">
                         {b.source.title || "Untitled"}
@@ -90,7 +95,9 @@ export function BacklinksPanel({
                 {outgoing!.map((o) => (
                   <li key={o.target.id}>
                     <button className="backlinks-item" onClick={() => onOpen(o.target.id)}>
-                      <span className="backlinks-icon">{o.target.icon || "📄"}</span>
+                      <span className="backlinks-icon">
+                        {o.target.icon || <Icon name="file-text" size={15} />}
+                      </span>
                       <span className="backlinks-item-text">
                         <span className="backlinks-item-title">
                           {o.target.title || "Untitled"}

@@ -10,6 +10,7 @@
  * caller resolves each pick's Markdown body when the chat is sent.
  */
 import { useEffect, useMemo, useState } from "react";
+import { Feather } from "@expo/vector-icons";
 import { ActivityIndicator, Pressable, ScrollView, StyleSheet, Text, TextInput, View } from "react-native";
 import { api } from "../api";
 import { useTheme } from "../theme-context";
@@ -123,11 +124,15 @@ export function ContextPickerSheet({
       accessibilityLabel={`Add ${note.title || "Untitled"}`}
       style={({ pressed }) => [styles.row, pressed && styles.rowPressed]}
     >
-      <Text style={styles.rowIcon}>{note.icon || "📄"}</Text>
+      {note.icon ? (
+        <Text style={styles.rowIcon}>{note.icon}</Text>
+      ) : (
+        <Feather name="file-text" size={16} color={colors.inkSoft} style={styles.rowIconGlyph} />
+      )}
       <Text style={[type.body, styles.rowTitle]} numberOfLines={1}>
         {note.title || "Untitled"}
       </Text>
-      <Text style={styles.rowAdd}>＋</Text>
+      <Feather name="plus" size={18} color={colors.accent} style={styles.rowAdd} />
     </Pressable>
   );
 
@@ -212,6 +217,7 @@ const makeStyles = (colors: Palette, type: TypeRoles) =>
     },
     rowPressed: { backgroundColor: colors.accentWash },
     rowIcon: { fontSize: 16, width: 22, textAlign: "center" },
+    rowIconGlyph: { width: 22, textAlign: "center" },
     rowTitle: { ...type.body, flex: 1 },
-    rowAdd: { color: colors.accent, fontSize: 18, fontWeight: "700", width: 24, textAlign: "center" },
+    rowAdd: { width: 24, textAlign: "center" },
   });
