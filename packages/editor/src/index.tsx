@@ -23,8 +23,23 @@ import { FRAGMENT_NAME, type DocConnection } from "@selfnote/core";
 import * as Y from "yjs";
 import { fromBase64, toBase64 } from "lib0/buffer";
 import { LinkNotePopover, type LinkNoteDoc, type LinkNoteProvider } from "./LinkNotePopover";
+import { schema } from "./schema";
+import { CALLOUT_KINDS, ensureCalloutStyles, type CalloutKind } from "./callout";
+import { registerCalloutInputRule } from "./calloutInputRule";
+import {
+  blocksToMarkdownWithCallouts,
+  markdownToBlocksWithCallouts,
+  type MarkdownEditor,
+} from "./calloutMarkdown";
 
 export type { LinkNoteDoc, LinkNoteProvider } from "./LinkNotePopover";
+export {
+  CALLOUT_KINDS,
+  CALLOUT_CONFIG,
+  CALLOUT_CSS,
+  calloutIconSvg,
+  type CalloutKind,
+} from "./callout";
 
 export interface EditorUser {
   name: string;
@@ -76,6 +91,29 @@ export interface CollaborativeEditorProps {
   summarize?: SummarizeFn;
   /** Surface a transient error to the user (e.g. AI `409`/network failure). */
   onError?: (message: string) => void;
+}
+
+/**
+ * A small Feather-style "file-text" glyph (stroke=currentColor) used as the
+ * fallback icon for a note that has no custom emoji — no emoji in the UI.
+ */
+function FileGlyph() {
+  return (
+    <svg
+      width={16}
+      height={16}
+      viewBox="0 0 24 24"
+      fill="none"
+      stroke="currentColor"
+      strokeWidth={2}
+      strokeLinecap="round"
+      strokeLinejoin="round"
+      aria-hidden
+    >
+      <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8Z" />
+      <path d="M14 2v6h6M16 13H8M16 17H8M10 9H8" />
+    </svg>
+  );
 }
 
 /** Plain text of a BlockNote block's inline content. */
@@ -173,6 +211,9 @@ export function CollaborativeEditor({
 }: CollaborativeEditorProps) {
   const editor = useCreateBlockNote(
     withCollaboration({
+      // The shared schema (default blocks + our `callout`). MUST match the
+      // mobile vanilla editor's schema for CRDT sync — see callout.tsx.
+      schema,
       collaboration: {
         provider: connection.provider,
         fragment: connection.fragment,
@@ -180,6 +221,12 @@ export function CollaborativeEditor({
       },
     }),
   );
+
+  // Inject the callout CSS once, and attach the `[!kind] ` input rule.
+  useEffect(() => {
+    ensureCalloutStyles();
+    registerCalloutInputRule(editor as unknown as Parameters<typeof registerCalloutInputRule>[0]);
+  }, [editor]);
 
   // Anchored `/link-note` picker; null when closed. Coordinates come from the
   // caret's client rect at the moment the command runs.
@@ -225,10 +272,11 @@ export function CollaborativeEditor({
       "after",
     );
     try {
-      const context = await editor.blocksToMarkdownLossy(editor.document);
+      const md = editor as unknown as MarkdownEditor;
+      const context = await blocksToMarkdownWithCallouts(md);
       const text = await summarize(context);
-      const blocks = await editor.tryParseMarkdownToBlocks(text);
-      editor.replaceBlocks([placeholder], blocks);
+      const blocks = await markdownToBlocksWithCallouts(md, text);
+      editor.replaceBlocks([placeholder], blocks as Parameters<typeof editor.replaceBlocks>[1]);
     } catch (e) {
       editor.removeBlocks([placeholder]);
       onError?.(errorMessage(e));
@@ -254,6 +302,9 @@ export function CollaborativeEditor({
             );
           },
         },
+        // Callout: a default "Callout" (note) plus one per kind. Inserting swaps
+        // the current empty block (or inserts after) with a callout of that kind.
+        ...calloutSlashItems(editor),
       ];
 
       if (linkNoteProvider) {
@@ -318,7 +369,7 @@ export function CollaborativeEditor({
       }
       return docs.map((d) => ({
         title: d.title || "Untitled",
-        icon: <span>{d.icon || "📄"}</span>,
+        icon: d.icon ? <span>{d.icon}</span> : <FileGlyph />,
         onItemClick: () => insertLink(d),
       }));
     },
@@ -396,7 +447,7 @@ export function ReadOnlyPreview({
     const doc = new Y.Doc();
     try {
       for (const u of updates) Y.applyUpdate(doc, fromBase64(u));
-      const scratch = BlockNoteEditor.create();
+      const scratch = BlockNoteEditor.create({ schema });
       return yDocToBlocks(scratch, doc, FRAGMENT_NAME);
     } catch {
       return [];
@@ -407,9 +458,14 @@ export function ReadOnlyPreview({
 
   const editor = useCreateBlockNote(
     // BlockNote requires at least one block; fall back to a default empty doc.
-    { initialContent: blocks.length ? blocks : undefined },
+    { schema, initialContent: blocks.length ? blocks : undefined },
     [blocks],
   );
+
+  // The preview may contain callouts — ensure their styles are present.
+  useEffect(() => {
+    ensureCalloutStyles();
+  }, []);
 
   return <BlockNoteView editor={editor} theme={theme} editable={false} />;
 }
@@ -431,6 +487,59 @@ function emptyTableRows(): { cells: string[] }[] {
   return [row(), row(), row()];
 }
 
+/** Human label for a callout kind's slash item, e.g. "Callout: Warning". */
+function calloutTitle(kind: CalloutKind): string {
+  return `Callout: ${kind.charAt(0).toUpperCase()}${kind.slice(1)}`;
+}
+
+/**
+ * Slash-menu items for callouts: a default "Callout" (note) plus one per kind.
+ * Inserting on an empty paragraph converts it in place (caret inside), otherwise
+ * inserts a new callout after the current block.
+ */
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+function calloutSlashItems(editor: any): DefaultReactSuggestionItem[] {
+  const insert = (kind: CalloutKind) => {
+    const block = editor.getTextCursorPosition().block as {
+      id: string;
+      type?: string;
+      content?: unknown;
+    };
+    const content = block.content;
+    const isEmpty =
+      block.type === "paragraph" &&
+      (!Array.isArray(content) || content.length === 0);
+    if (isEmpty) {
+      editor.updateBlock(block, { type: "callout", props: { kind } });
+      editor.setTextCursorPosition?.(block, "end");
+    } else {
+      const [created] = editor.insertBlocks(
+        [{ type: "callout", props: { kind }, content: [] }],
+        block,
+        "after",
+      ) as Array<{ id: string }>;
+      if (created) editor.setTextCursorPosition?.(created, "end");
+    }
+  };
+  const items: DefaultReactSuggestionItem[] = [
+    {
+      title: "Callout",
+      aliases: ["callout", "note", "admonition", "alert"],
+      group: "Blocks",
+      onItemClick: () => insert("note"),
+    },
+  ];
+  for (const kind of CALLOUT_KINDS) {
+    items.push({
+      title: calloutTitle(kind),
+      aliases: [`callout ${kind}`, kind],
+      group: "Blocks",
+      onItemClick: () => insert(kind),
+    });
+  }
+  return items;
+}
+
 /**
  * Headless Markdown → Yjs converter for bulk import (e.g. an Obsidian vault).
  * Reuses one editor instance; returns a base64 Yjs update the API can seed a
@@ -441,11 +550,19 @@ export interface MarkdownImporter {
 }
 
 export function createImporter(): MarkdownImporter {
-  const editor = BlockNoteEditor.create();
+  const editor = BlockNoteEditor.create({ schema });
   return {
     async toUpdateBase64(markdown: string) {
-      const blocks = await editor.tryParseMarkdownToBlocks(markdown);
-      const ydoc = blocksToYDoc(editor, blocks, FRAGMENT_NAME);
+      // GitHub-alert blockquotes (`> [!NOTE]`) import as callout blocks.
+      const blocks = await markdownToBlocksWithCallouts(
+        editor as unknown as MarkdownEditor,
+        markdown,
+      );
+      // The generic block types from a custom schema don't line up with
+      // blocksToYDoc's inferred params (a known BlockNote generics quirk); the
+      // runtime shapes match, so bridge through `any`.
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      const ydoc = blocksToYDoc(editor as any, blocks as any, FRAGMENT_NAME);
       return toBase64(Y.encodeStateAsUpdate(ydoc));
     },
   };
@@ -463,14 +580,15 @@ export interface MarkdownRenderer {
 }
 
 export function createRenderer(): MarkdownRenderer {
-  const editor = BlockNoteEditor.create();
+  const editor = BlockNoteEditor.create({ schema });
   return {
     async fromUpdatesBase64(updates: string[]) {
       const ydoc = new Y.Doc();
       for (const u of updates) Y.applyUpdate(ydoc, fromBase64(u));
       const blocks = yDocToBlocks(editor, ydoc, FRAGMENT_NAME);
       ydoc.destroy();
-      return editor.blocksToMarkdownLossy(blocks);
+      // Callouts render as GitHub alerts so they survive the markdown hop.
+      return blocksToMarkdownWithCallouts(editor as unknown as MarkdownEditor, blocks);
     },
   };
 }

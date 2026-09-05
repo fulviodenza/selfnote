@@ -12,6 +12,29 @@
  */
 import { useEffect, useMemo, useRef, useState } from "react";
 
+/**
+ * A small Feather-style "file-text" glyph (stroke=currentColor) used as the
+ * fallback icon for a note that has no custom emoji — no emoji in the UI.
+ */
+function FileGlyph() {
+  return (
+    <svg
+      width={15}
+      height={15}
+      viewBox="0 0 24 24"
+      fill="none"
+      stroke="currentColor"
+      strokeWidth={2}
+      strokeLinecap="round"
+      strokeLinejoin="round"
+      aria-hidden
+    >
+      <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8Z" />
+      <path d="M14 2v6h6M16 13H8M16 17H8M10 9H8" />
+    </svg>
+  );
+}
+
 /** The subset of a document the picker needs to render + link. */
 export interface LinkNoteDoc {
   id: string;
@@ -140,7 +163,7 @@ export function LinkNotePopover({ provider, anchor, onSelect, onClose }: LinkNot
               onMouseEnter={() => setActive(i)}
               onClick={() => onSelect(doc)}
             >
-              <span className="link-note-icon">{doc.icon || "📄"}</span>
+              <span className="link-note-icon">{doc.icon || <FileGlyph />}</span>
               <span className="link-note-title">{doc.title || "Untitled"}</span>
             </button>
           ))

@@ -17,6 +17,7 @@
     "@blocknote/react": "^0.54.0",
     "@selfnote/core": "workspace:*",
     "lib0": "^0.2.99",
+    "prosemirror-inputrules": "^1.5.0",
     "y-prosemirror": "^1.3.7"
   },
   "peerDependencies": {

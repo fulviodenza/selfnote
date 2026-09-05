@@ -6,8 +6,9 @@
  */
 import { useEffect, useMemo, useRef, useState } from "react";
 import ReactMarkdown from "react-markdown";
+import type { Components } from "react-markdown";
 import remarkGfm from "remark-gfm";
-import { createRenderer } from "@selfnote/editor";
+import { createRenderer, CALLOUT_KINDS, calloutIconSvg, type CalloutKind } from "@selfnote/editor";
 import { api, type AiProposal, type AiStatus, type ChatMessage, type ExtraDoc } from "./api";
 import { ContextPicker, type SelectedNote } from "./ContextPicker";
 import { Icon } from "./Icon";
@@ -59,6 +60,71 @@ const SUGGESTIONS: { label: string; prompt: string; send?: boolean }[] = [
   { label: "Draft an outline", prompt: "Draft an outline for this note.", send: true },
   { label: "Improve the writing", prompt: "Improve the writing in this note — clearer and tighter, same meaning.", send: true },
 ];
+
+/** Kind of a leading `[!kind]` GitHub-alert marker in text, else null. */
+function markerKind(text: string): CalloutKind | null {
+  const m = /^\s*\[!(\w+)\]/i.exec(text);
+  if (!m) return null;
+  const k = m[1].toLowerCase();
+  return (CALLOUT_KINDS as readonly string[]).includes(k) ? (k as CalloutKind) : null;
+}
+
+/** Collect the plain text of a React node tree (for marker detection). */
+function nodeText(node: unknown): string {
+  if (node == null || typeof node === "boolean") return "";
+  if (typeof node === "string" || typeof node === "number") return String(node);
+  if (Array.isArray(node)) return node.map(nodeText).join("");
+  const props = (node as { props?: { children?: unknown } }).props;
+  return props ? nodeText(props.children) : "";
+}
+
+/**
+ * Render `> [!kind]` alert blockquotes as styled callouts (reusing the editor's
+ * `.callout` CSS), leaving ordinary blockquotes untouched. The marker line is
+ * stripped and the remaining content shown inside the callout body.
+ */
+const mdComponents: Components = {
+  blockquote({ children }) {
+    const kind = markerKind(nodeText(children));
+    if (!kind) return <blockquote>{children}</blockquote>;
+    return (
+      <div className={`callout callout-${kind}`} data-kind={kind}>
+        <span
+          className="callout-icon-wrap"
+          aria-hidden
+          dangerouslySetInnerHTML={{ __html: calloutIconSvg(kind, 18) }}
+        />
+        <div className="callout-body">
+          <CalloutBody>{children}</CalloutBody>
+        </div>
+      </div>
+    );
+  },
+};
+
+/**
+ * Render a callout blockquote's children, dropping the leading `[!kind]` marker.
+ * The marker may be its own paragraph (`> [!NOTE]\n> body`) — in which case we
+ * drop that whole node — or lead the first paragraph inline, which we trim.
+ */
+function CalloutBody({ children }: { children: React.ReactNode }) {
+  const arr = (Array.isArray(children) ? children : [children]).filter(
+    (c) => !(typeof c === "string" && c.trim() === ""),
+  );
+  const first = arr[0];
+  const firstText = nodeText(first).trim();
+  if (/^\[!\w+\]$/i.test(firstText)) {
+    // The marker sits alone in the first paragraph — drop it entirely.
+    return <>{arr.slice(1)}</>;
+  }
+  if (typeof first === "string") {
+    // Marker leads a plain-text first child — trim it off.
+    const rest = arr.slice(1);
+    return <>{[first.replace(/^\s*\[!\w+\]\s*/i, ""), ...rest]}</>;
+  }
+  // Marker leads a rich first paragraph: render everything (marker shows inline).
+  return <>{arr}</>;
+}
 
 export function AssistPanel({
   editor,
@@ -260,7 +326,7 @@ export function AssistPanel({
               <div className="assist-bubble">
                 {m.role === "assistant" && !m.error ? (
                   <div className="assist-md">
-                    <ReactMarkdown remarkPlugins={[remarkGfm]}>
+                    <ReactMarkdown remarkPlugins={[remarkGfm]} components={mdComponents}>
                       {stripInsertMarkers(m.content)}
                     </ReactMarkdown>
                   </div>
