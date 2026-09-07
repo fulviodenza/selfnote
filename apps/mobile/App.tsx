@@ -11,6 +11,7 @@ import {
   View,
 } from "react-native";
 import { Feather } from "@expo/vector-icons";
+import { useFonts } from "expo-font";
 import { StatusBar } from "expo-status-bar";
 import AsyncStorage from "@react-native-async-storage/async-storage";
 import { createDocConnection, type ConnectionStatus } from "@selfnote/core";
@@ -58,6 +59,7 @@ import {
   ErrorBoundary,
 } from "./src/ui";
 import { ThemeProvider, useTheme, type ThemeMode } from "./src/theme-context";
+import { useAndroidBack } from "./src/hooks/useAndroidBack";
 import { TaskControls } from "./src/screens/TaskControls";
 import { TasksScreen } from "./src/screens/TasksScreen";
 import { CalendarFeedSection } from "./src/screens/CalendarFeedSection";
@@ -89,6 +91,11 @@ function AppInner() {
   const styles = useMemo(() => makeStyles(colors, type), [colors, type]);
   const toast = useToast();
   const [phase, setPhase] = useState<Phase>("booting");
+  // Load the Feather icon font before rendering any UI. In release builds the
+  // lazy per-glyph load @expo/vector-icons does on its own can silently fail,
+  // leaving every icon blank — the font is also embedded natively via the
+  // expo-font config plugin (app.json), so this normally resolves instantly.
+  const [fontsLoaded, fontError] = useFonts(Feather.font);
   const [showSettings, setShowSettings] = useState(false);
   const [openDoc, setOpenDoc] = useState<Document | null>(null);
   // The signed-in workspace (single-workspace model), lifted so the Tasks screen
@@ -136,6 +143,45 @@ function AppInner() {
       await goPostConfig();
     })();
   }, [goPostConfig]);
+
+  // Android back: close the topmost thing, one level at a time. The editor
+  // registers its own handler for its overlays (RN runs handlers LIFO, so the
+  // editor gets first refusal); returning false at the root lets the OS
+  // background the app.
+  useAndroidBack(
+    useCallback(() => {
+      if (showSettings) {
+        setShowSettings(false);
+        return true;
+      }
+      if (openDoc) {
+        setOpenDoc(null);
+        return true;
+      }
+      if (showGraph) {
+        setShowGraph(false);
+        return true;
+      }
+      if (showTasks) {
+        setShowTasks(false);
+        return true;
+      }
+      return false;
+    }, [showSettings, openDoc, showGraph, showTasks]),
+  );
+
+  // Hold at the boot spinner until the icon font is ready — but never brick
+  // the app if the load errors; icons degrade to blanks in that case.
+  if (!fontsLoaded && !fontError) {
+    return (
+      <Screen>
+        <StatusBar style="auto" />
+        <View style={styles.center}>
+          <ActivityIndicator color={colors.accent} />
+        </View>
+      </Screen>
+    );
+  }
 
   return (
     <Screen>
@@ -781,6 +827,42 @@ function ConnectedEditor({
   }, []);
 
   const offline = status === "disconnected" || status === "offline";
+
+  // Android back closes overlays top-down (mirroring their visual stacking);
+  // with nothing open it falls through to the root handler, which pops back
+  // to the document list.
+  useAndroidBack(
+    useCallback(() => {
+      if (previewCheckpoint) {
+        editorRef.current?.clearPreview();
+        setPreviewCheckpoint(null);
+        setShowHistory(true);
+        return true;
+      }
+      if (showHistory) {
+        setShowHistory(false);
+        return true;
+      }
+      if (reviewing) {
+        setReviewing(null);
+        refreshProposals();
+        return true;
+      }
+      if (showShares) {
+        setShowShares(false);
+        return true;
+      }
+      if (showActions) {
+        setShowActions(false);
+        return true;
+      }
+      if (showAssist) {
+        setShowAssist(false);
+        return true;
+      }
+      return false;
+    }, [previewCheckpoint, showHistory, reviewing, showShares, showActions, showAssist, refreshProposals]),
+  );
 
   return (
     <View style={[styles.flex, { backgroundColor: colors.surface }]}>
