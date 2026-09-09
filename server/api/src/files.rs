@@ -36,6 +36,20 @@ pub async fn upload(
     if member_role(&state, q.workspace_id, user.id).await?.is_none() {
         return Err(AppError::Forbidden);
     }
+    // A claimed owning page must live in the same workspace the caller is
+    // uploading into; otherwise a member of workspace A could tie a file to a
+    // page in workspace B (and to that page's trash/delete lifecycle).
+    if let Some(doc_id) = q.doc_id {
+        let row: Option<(Uuid,)> =
+            sqlx::query_as("select workspace_id from documents where id = $1")
+                .bind(doc_id)
+                .fetch_optional(&state.pool)
+                .await?;
+        match row {
+            Some((ws,)) if ws == q.workspace_id => {}
+            _ => return Err(AppError::BadRequest("doc_id is not in this workspace".into())),
+        }
+    }
 
     while let Some(field) = multipart
         .next_field()

@@ -300,12 +300,20 @@ function AppRoot() {
   // alias for closing the tab. e.code identifies the physical key — on macOS
   // Alt+W's e.key is "∑".
   useEffect(() => {
+    // Alt+W must not fire while typing: on macOS Option+W is how you type "∑",
+    // so inside an input/textarea/contenteditable the keystroke stays text.
+    // Cmd/Ctrl+W has no text meaning and stays global.
+    const inEditable = (t: EventTarget | null) => {
+      const el = t instanceof HTMLElement ? t : null;
+      return !!el && (el.isContentEditable || el.tagName === "INPUT" || el.tagName === "TEXTAREA");
+    };
     const onKey = (e: KeyboardEvent) => {
       const mod = e.metaKey || e.ctrlKey;
+      const altOnly = e.altKey && !mod;
       if (
         e.code === "KeyW" &&
         !e.shiftKey &&
-        ((mod && !e.altKey) || (e.altKey && !mod))
+        ((mod && !e.altKey) || (altOnly && !inEditable(e.target)))
       ) {
         e.preventDefault();
         if (view === "editor" && activeId) closeTab(activeId);

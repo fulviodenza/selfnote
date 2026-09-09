@@ -311,7 +311,8 @@ export function editorHtml(theme: "light" | "dark"): string {
         if (!m) return null;
         const k = m[1].toLowerCase();
         if (CALLOUT_KINDS.indexOf(k) !== -1) return k;
-        return CALLOUT_ALIASES[k] || null;
+        // Own-property check so "[!constructor]" can't walk the prototype chain.
+        return Object.prototype.hasOwnProperty.call(CALLOUT_ALIASES, k) ? CALLOUT_ALIASES[k] : null;
       }
 
       // Input rule: on the trailing space after "[!kind]" at the start of an

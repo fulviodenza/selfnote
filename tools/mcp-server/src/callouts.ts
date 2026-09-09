@@ -106,7 +106,9 @@ function parseMarker(raw: string): CalloutKind | null {
   if (!m) return null;
   const k = m[1].toLowerCase();
   if ((CALLOUT_KINDS as readonly string[]).includes(k)) return k as CalloutKind;
-  return CALLOUT_ALIASES[k] ?? null;
+  // Own-property check: a bare index would walk the prototype chain, so
+  // "[!constructor]" would resolve to Object's constructor function.
+  return Object.prototype.hasOwnProperty.call(CALLOUT_ALIASES, k) ? CALLOUT_ALIASES[k] : null;
 }
 
 /** Structural subset of the (server) BlockNote editor the round-trip needs. */
