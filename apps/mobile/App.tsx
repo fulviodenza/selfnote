@@ -61,7 +61,7 @@ import {
 import { ThemeProvider, useTheme, type ThemeMode } from "./src/theme-context";
 import { useAndroidBack } from "./src/hooks/useAndroidBack";
 import { TaskControls } from "./src/screens/TaskControls";
-import { LabelRow } from "./src/components/LabelRow";
+import { BulkLabelButton, LabelRow } from "./src/components/LabelRow";
 import { TasksScreen } from "./src/screens/TasksScreen";
 import { CalendarFeedSection } from "./src/screens/CalendarFeedSection";
 import { VoiceSection } from "./src/screens/VoiceSection";
@@ -531,6 +531,10 @@ function DocListScreen({
         <View style={styles.searchWrap}>
           <Input value={query} onChangeText={setQuery} placeholder="Search pages" autoCorrect={false} />
         </View>
+      ) : null}
+
+      {workspaceId && docs && docs.length > 0 ? (
+        <BulkLabelButton workspaceId={workspaceId} onError={(m) => toast(m)} />
       ) : null}
 
       {error ? <Text style={[styles.error, styles.pad]}>{error}</Text> : null}

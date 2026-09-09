@@ -16,9 +16,83 @@ import {
   TextInput,
   View,
 } from "react-native";
-import { api, type Label, type LabelSuggestion } from "../api";
+import { api, type BulkLabelStatus, type Label, type LabelSuggestion } from "../api";
 import { spacing } from "../theme";
 import { useTheme } from "../theme-context";
+
+/**
+ * Entry point for the bulk "label everything" job (mobile parity for web's
+ * BulkLabelButton) — shown on the document list; polls progress while running.
+ */
+export function BulkLabelButton({
+  workspaceId,
+  onError,
+}: {
+  workspaceId: string;
+  onError?: (message: string) => void;
+}) {
+  const { colors } = useTheme();
+  const styles = useMemo(() => makeStyles(colors), [colors]);
+  const [status, setStatus] = useState<BulkLabelStatus | null>(null);
+
+  useEffect(() => {
+    let alive = true;
+    let timer: ReturnType<typeof setTimeout>;
+    const tick = async () => {
+      try {
+        const s = await api.bulkLabelStatus(workspaceId);
+        if (!alive) return;
+        setStatus(s);
+        if (s.running) timer = setTimeout(tick, 2000);
+      } catch {
+        /* older server / offline — leave idle */
+      }
+    };
+    void tick();
+    return () => {
+      alive = false;
+      clearTimeout(timer);
+    };
+  }, [workspaceId, status?.running]);
+
+  const start = async () => {
+    try {
+      setStatus(await api.bulkLabelStart(workspaceId));
+    } catch (e) {
+      const msg = e instanceof Error ? e.message : "";
+      onError?.(
+        /no ai provider/i.test(msg)
+          ? "No AI provider configured."
+          : /already running/i.test(msg)
+            ? "Bulk labeling is already running."
+            : "Couldn't start bulk labeling.",
+      );
+    }
+  };
+
+  const label = status?.running
+    ? `Labeling ${status.done}/${status.total}…`
+    : status && status.total > 0 && status.done === status.total
+      ? `Labeled ${status.labeled} notes`
+      : "Label all notes with AI";
+
+  return (
+    <Pressable
+      style={styles.bulkBtn}
+      onPress={() => void start()}
+      disabled={status?.running ?? false}
+      accessibilityRole="button"
+      accessibilityLabel={label}
+    >
+      {status?.running ? (
+        <ActivityIndicator size="small" color={colors.accent} />
+      ) : (
+        <Feather name="zap" size={13} color={colors.accent} />
+      )}
+      <Text style={styles.bulkText}>{label}</Text>
+    </Pressable>
+  );
+}
 
 export function LabelRow({
   docId,
@@ -270,4 +344,19 @@ const makeStyles = (colors: ReturnType<typeof useTheme>["colors"]) =>
     itemText: { flex: 1, fontSize: 14, color: colors.ink },
     itemOn: { fontWeight: "600" },
     empty: { color: colors.inkSoft, fontSize: 13, padding: spacing.sm },
+    bulkBtn: {
+      flexDirection: "row",
+      alignItems: "center",
+      gap: 6,
+      alignSelf: "flex-start",
+      paddingHorizontal: 10,
+      paddingVertical: 5,
+      borderRadius: 999,
+      borderWidth: 1,
+      borderStyle: "dashed",
+      borderColor: colors.hairline,
+      marginHorizontal: spacing.md,
+      marginBottom: spacing.xs,
+    },
+    bulkText: { fontSize: 12, color: colors.accent },
   });
