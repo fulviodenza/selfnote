@@ -4,7 +4,7 @@
   <meta charset="utf-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1" />
   <title>Selfnote: your notes, your server</title>
-  <meta name="description" content="Selfnote is a self-hosted, Notion-like workspace: real-time collaborative editing, offline-first sync, and AI that runs against a model you control. Web, desktop, and mobile." />
+  <meta name="description" content="Selfnote is a private, Notion-style workspace: write together in real time, keep working offline, organize with tasks, labels, and links, and use AI on your terms. Your notes live on your server. Web, desktop, and mobile." />
   <link rel="icon" type="image/png" href="/assets/favicon.png" />
   <link rel="preconnect" href="https://fonts.googleapis.com" />
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
@@ -31,15 +31,15 @@
     <div class="wrap">
       <div>
         <h1>Your notes, on&nbsp;your&nbsp;server.</h1>
-        <p class="lede">Selfnote is a self-hosted workspace for people who want Notion-style
-        editing without handing their thinking to someone else's cloud. Real-time
-        collaboration, offline-first sync, and AI that runs against a model you control, on web,
-        desktop, and mobile.</p>
+        <p class="lede">Selfnote is a private workspace for the notes that matter: a fast
+        Notion-style editor, real-time collaboration, and offline writing that just works.
+        It lives on your own server, so your thinking stays yours, on web, desktop,
+        and mobile.</p>
         <div class="hero-actions">
           <a class="btn btn-terra" href="/download.html">Download for Android</a>
-          <a class="btn btn-quiet" href="/docs/self-hosting.html">Self-host in 10 minutes</a>
+          <a class="btn btn-quiet" href="/docs/self-hosting.html">Set up your server</a>
         </div>
-        <p class="hero-note-under">Open source · one Helm chart or a Kubernetes operator · bring your own Postgres box</p>
+        <p class="hero-note-under">Free and open source · web, desktop, and mobile · your notes never leave your server</p>
       </div>
 
       <figure class="mock-note" role="img" aria-label="A Selfnote document being edited by two people at once, one of them offline">
@@ -63,39 +63,37 @@
   <section class="section section-rule">
     <div class="wrap">
       <h2>Two people can type in the same sentence. One of them can be offline.</h2>
-      <p class="lead">Every document is a CRDT (Yjs on the clients, its Rust port yrs on the
-      server), so edits merge by structure, not by timestamp. Go offline for a day, keep
-      writing, reconnect: your changes and everyone else's converge without a conflict
-      dialog, ever. The server persists the update stream to Postgres and compacts
-      snapshots, so documents survive restarts and time-travel stays possible.</p>
+      <p class="lead">Write together and watch each other's cursors move, or write alone on a
+      plane. When you come back online, everyone's edits merge cleanly, without a conflict
+      dialog, ever. And nothing is lost along the way: every page keeps its full history,
+      so you can preview any past version and bring it back.</p>
 
       <div class="pillars">
         <div class="pillar">
           <h3>Write</h3>
           <ul>
-            <li><b>Block editor</b>The same BlockNote editor on every client: headings, todos, tables, code, callouts, images.</li>
+            <li><b>Block editor</b>Headings, todos, tables, code, callouts, images, and files, the same on every device.</li>
             <li><b>Slash commands</b>Type <code>/</code> to insert blocks, link notes, or run AI actions without leaving the keyboard.</li>
-            <li><b>Page tree</b>Nested pages with rename, archive, and search across the workspace.</li>
-            <li><b>Version history</b>Named restore points on a timeline; preview any past state and restore it as a new edit;
-  history is never destroyed.</li>
+            <li><b>Tabs</b>Open pages like browser tabs and jump between them; your open set is right where you left it.</li>
+            <li><b>Version history</b>Named restore points on a timeline; preview any past state and restore it with one click.</li>
           </ul>
         </div>
         <div class="pillar">
           <h3>Connect</h3>
           <ul>
-            <li><b>Backlinks &amp; graph</b>Link notes to notes, see what links here, and explore the workspace as a 3D graph you can orbit.</li>
-            <li><b>Tasks &amp; calendar</b>Promote any page to a task with a due date; subscribe to your workspace as an iCal feed in Google, Apple, or Outlook.</li>
-            <li><b>Sharing</b>Public read or write links backed by short-lived room tokens, with view counts so you know when to revoke.</li>
-            <li><b>Obsidian import</b>Bring an existing Markdown vault in whole.</li>
+            <li><b>Backlinks &amp; graph</b>Link notes to notes, see what links here, and explore your workspace as a 3D graph you can orbit.</li>
+            <li><b>Tasks &amp; calendar</b>Promote any page to a task with a due date; see it on your Google, Apple, or Outlook calendar.</li>
+            <li><b>Sharing</b>Share a page with a read or write link, watch how often it's viewed, and revoke it any time.</li>
+            <li><b>Obsidian import</b>Bring your whole vault: folders become nested pages, images come along, callouts stay callouts.</li>
           </ul>
         </div>
         <div class="pillar">
           <h3>Own</h3>
           <ul>
-            <li><b>Self-hosted, fully</b>Two small Rust services and Postgres. Nothing is hardcoded; native apps ask which instance to connect to on first launch.</li>
-            <li><b>Offline-first</b>IndexedDB on web, SQLite on mobile; the app is complete without a connection.</li>
-            <li><b>AI on your terms</b>The Assist panel exists only when your server configures a provider, and it can be a model on your own box.</li>
-            <li><b>Kubernetes-native</b>A Helm chart today, a <code>Selfnote</code> operator CRD for one-command installs and gated upgrades.</li>
+            <li><b>Your server, your notes</b>Selfnote runs where you decide. No account with us, no tracking, nothing phones home.</li>
+            <li><b>Offline-first</b>Notes live on your device too; read and write with no connection and let sync catch up later.</li>
+            <li><b>Files &amp; media</b>PDFs, images, and videos live next to your notes and preview in place, with one tidy view of everything you've attached.</li>
+            <li><b>AI on your terms</b>The assistant only exists if you turn it on, and it can run entirely on your own hardware.</li>
           </ul>
         </div>
       </div>
@@ -105,9 +103,9 @@
   <section class="section section-rule">
     <div class="wrap">
       <h2>One design, three clients.</h2>
-      <p class="lead">Web, desktop (Tauri), and mobile (Expo) share the same "Ink &amp; Paper"
-      design system, the same editor, and the same sync core, so a note feels like the same
-      note everywhere, in light and dark.</p>
+      <p class="lead">Web, desktop, and mobile share the same "Ink &amp; Paper" design, the
+      same editor, and the same sync, so a note feels like the same note everywhere, in
+      light and dark.</p>
       <div class="shots">
         <figure>
           <img src="/assets/mobile-onboarding.png" alt="First-launch screen asking which Selfnote server to connect to" loading="lazy" />
@@ -127,28 +125,28 @@
 
   <section class="section section-rule">
     <div class="wrap">
-      <h2>AI that answers to your server.</h2>
-      <p class="lead">AI is off by default and server-owned. Configure one provider on your API
-      and the ✦ Assist panel appears on every client automatically: a streaming chat grounded
-      in the note you're editing, inline actions like Summarize and Extract action items, and
-      staged AI edits you approve as diffs before they touch a document.</p>
+      <h2>AI that answers to you.</h2>
+      <p class="lead">AI is off until you turn it on, and you choose what powers it. Once you
+      do, the ✦ Assist panel appears on every device: a chat that knows the note you're
+      editing, one-tap actions like Summarize and Extract action items, and AI edits you
+      review as a proposal and approve before they touch a page.</p>
       <table class="providers">
-        <tr><th>Provider</th><th>What it means for your data</th></tr>
-        <tr><td>Claude CLI (subscription)</td><td>The API image bundles the Claude Code CLI; document text never leaves your box, and there's no per-request billing.</td></tr>
-        <tr><td>Anthropic API</td><td>Pay-per-use against <code>api.anthropic.com</code>: the simplest cloud option.</td></tr>
-        <tr><td>Ollama</td><td>Open-weights models on your own hardware; fully self-hosted, end to end.</td></tr>
+        <tr><th>Powered by</th><th>What it means for your notes</th></tr>
+        <tr><td>Your Claude subscription</td><td>Use the assistant you already pay for, with no extra bills per request.</td></tr>
+        <tr><td>Anthropic API</td><td>The simplest option: pay only for what you use.</td></tr>
+        <tr><td>Ollama</td><td>Models running on your own hardware. Your notes never leave the house.</td></tr>
       </table>
-      <p style="margin-top:26px">And it works in the other direction too: a bundled
-      <a href="/docs/mcp.html">MCP server</a> lets Claude (in the CLI, Desktop, or claude.ai)
-      save a summary of any conversation straight into your notes and hand you back the link.</p>
+      <p style="margin-top:26px">And it works in the other direction too: <a href="/docs/mcp.html">connect
+      Claude to Selfnote</a> and it can file a summary of any conversation straight into your
+      notes and hand you back the link.</p>
     </div>
   </section>
 
   <section class="band">
     <div class="wrap">
       <h2>Take your notes back.</h2>
-      <p>Install the Android app, spin up a server with the Helm chart, or run the whole stack
-      on your laptop with three commands. The clients are free, the server is yours.</p>
+      <p>Install the app, connect it to your server, and start writing. The apps are free,
+      the notes are yours, and they're seen only by the people you choose to share with.</p>
       <div class="hero-actions">
         <a class="btn btn-quiet" href="https://github.com/fulviodenza/selfnote/releases/download/v0.1.0/selfnote-0.1.0.apk">Get the Android APK</a>
         <a class="btn btn-ghost" href="/docs/self-hosting.html">Read the self-hosting guide</a>
