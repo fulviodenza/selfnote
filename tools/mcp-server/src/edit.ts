@@ -74,6 +74,26 @@ export async function docToMarkdown(updatesBase64: string[]): Promise<string> {
   return renderMarkdown(editor(), blocks);
 }
 
+/**
+ * Render MANY notes to Markdown in one process. The per-invocation cost of
+ * this helper (node + jsdom startup) dwarfs a single render, so the search
+ * cache warmer sends batches instead of one CLI call per note. A note that
+ * fails to render maps to an empty string rather than failing the batch.
+ */
+export async function docsToMarkdownMany(
+  docs: { id: string; updates: string[] }[],
+): Promise<Record<string, string>> {
+  const out: Record<string, string> = {};
+  for (const d of docs) {
+    try {
+      out[d.id] = await docToMarkdown(d.updates);
+    } catch {
+      out[d.id] = "";
+    }
+  }
+  return out;
+}
+
 /** Diff that appends `markdown`'s blocks after the note's existing content. */
 export async function appendMarkdownDiff(
   updatesBase64: string[],

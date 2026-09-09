@@ -24,8 +24,10 @@ use crate::labels::Label;
 use crate::state::AppState;
 use crate::workspaces::member_role;
 
-/// Cap on stale notes re-rendered per search request.
-const MAX_REFRESH_PER_QUERY: i64 = 25;
+/// Stale notes rendered per diff-cli invocation by the background warmer.
+const WARM_BATCH: i64 = 40;
+/// Cap on notes one warm pass will refresh before giving up its slot.
+const WARM_MAX_PER_PASS: usize = 400;
 
 #[derive(Debug, Deserialize)]
 pub struct SearchReq {
@@ -73,7 +75,11 @@ pub async fn search(
         return Ok(Json(SearchResp { pages: vec![], labels: vec![], texts: vec![] }));
     }
 
-    refresh_stale_texts(&state, req.workspace_id).await;
+    // Warm the body-text cache in the BACKGROUND — the query itself must never
+    // wait on note rendering (the first search on a big workspace used to
+    // block for many seconds per keystroke). Body results simply improve as
+    // the cache fills over the next moments.
+    spawn_warm_texts(state.clone(), req.workspace_id);
 
     let like = format!("%{}%", q.replace('%', "\\%").replace('_', "\\_"));
 
@@ -126,47 +132,85 @@ pub async fn search(
     Ok(Json(SearchResp { pages, labels, texts }))
 }
 
-/// Re-render up to [`MAX_REFRESH_PER_QUERY`] notes whose cached text is older
-/// than the document row (or missing). Failures are logged and skipped — a
-/// stale snippet beats a failed search.
-async fn refresh_stale_texts(state: &AppState, workspace_id: Uuid) {
+/// Workspaces with a warm task currently running (one at a time each).
+fn warming() -> &'static std::sync::Mutex<std::collections::HashSet<Uuid>> {
+    static WARMING: std::sync::OnceLock<std::sync::Mutex<std::collections::HashSet<Uuid>>> =
+        std::sync::OnceLock::new();
+    WARMING.get_or_init(Default::default)
+}
+
+/// Kick off (at most one per workspace) a background task that re-renders
+/// notes whose cached text is older than the document row, in batches through
+/// the diff helper's `render_many` mode — one node process per WARM_BATCH
+/// notes instead of one per note. Failures skip the note; a stale snippet
+/// beats a failed search.
+fn spawn_warm_texts(state: AppState, workspace_id: Uuid) {
+    {
+        let mut set = warming().lock().unwrap();
+        if !set.insert(workspace_id) {
+            return; // already warming this workspace
+        }
+    }
+    tokio::spawn(async move {
+        let result = warm_texts(&state, workspace_id).await;
+        warming().lock().unwrap().remove(&workspace_id);
+        if let Err(e) = result {
+            tracing::warn!("search cache: warm of {workspace_id} failed: {e}");
+        }
+    });
+}
+
+async fn warm_texts(state: &AppState, workspace_id: Uuid) -> ApiResult<()> {
     #[derive(serde::Deserialize)]
-    struct Rendered {
-        markdown: String,
+    struct RenderedMany {
+        markdowns: std::collections::HashMap<String, String>,
     }
 
-    let stale: Vec<(Uuid,)> = match sqlx::query_as(
-        "select d.id from documents d \
-         left join document_texts t on t.document_id = d.id \
-         where d.workspace_id = $1 and not d.archived \
-           and (t.document_id is null or t.rendered_at < d.updated_at) \
-         order by d.updated_at desc limit $2",
-    )
-    .bind(workspace_id)
-    .bind(MAX_REFRESH_PER_QUERY)
-    .fetch_all(&state.pool)
-    .await
-    {
-        Ok(rows) => rows,
-        Err(e) => {
-            tracing::warn!("search cache: stale query failed: {e}");
-            return;
+    let mut refreshed = 0usize;
+    loop {
+        let stale: Vec<(Uuid,)> = sqlx::query_as(
+            "select d.id from documents d \
+             left join document_texts t on t.document_id = d.id \
+             where d.workspace_id = $1 and not d.archived \
+               and (t.document_id is null or t.rendered_at < d.updated_at) \
+             order by d.updated_at desc limit $2",
+        )
+        .bind(workspace_id)
+        .bind(WARM_BATCH)
+        .fetch_all(&state.pool)
+        .await?;
+        if stale.is_empty() {
+            return Ok(());
         }
-    };
 
-    for (doc_id,) in stale {
-        let res: ApiResult<()> = async {
-            let updates = crate::documents::load_content_updates(state, doc_id).await?;
-            let text = if updates.is_empty() {
-                String::new()
+        // Collect each note's update log; empty notes render to empty text
+        // without a CLI trip.
+        let mut docs = Vec::new();
+        let mut empty: Vec<Uuid> = Vec::new();
+        for (doc_id,) in &stale {
+            let updates = crate::documents::load_content_updates(state, *doc_id).await?;
+            if updates.is_empty() {
+                empty.push(*doc_id);
             } else {
-                let r: Rendered = crate::proposals::run_diff_cli(serde_json::json!({
-                    "mode": "render",
-                    "updates": updates,
-                }))
-                .await?;
-                r.markdown
-            };
+                docs.push(serde_json::json!({ "id": doc_id.to_string(), "updates": updates }));
+            }
+        }
+
+        let mut texts: Vec<(Uuid, String)> = empty.into_iter().map(|id| (id, String::new())).collect();
+        if !docs.is_empty() {
+            let r: RenderedMany = crate::proposals::run_diff_cli(serde_json::json!({
+                "mode": "render_many",
+                "docs": docs,
+            }))
+            .await?;
+            for (id, md) in r.markdowns {
+                if let Ok(id) = id.parse::<Uuid>() {
+                    texts.push((id, md));
+                }
+            }
+        }
+
+        for (doc_id, text) in &texts {
             sqlx::query(
                 "insert into document_texts (document_id, workspace_id, text, rendered_at) \
                  values ($1, $2, $3, now()) \
@@ -175,14 +219,15 @@ async fn refresh_stale_texts(state: &AppState, workspace_id: Uuid) {
             )
             .bind(doc_id)
             .bind(workspace_id)
-            .bind(&text)
+            .bind(text)
             .execute(&state.pool)
             .await?;
-            Ok(())
         }
-        .await;
-        if let Err(e) = res {
-            tracing::warn!("search cache: refresh of {doc_id} failed: {e}");
+
+        refreshed += texts.len();
+        if refreshed >= WARM_MAX_PER_PASS {
+            // Give up the slot; the next search re-arms the warmer.
+            return Ok(());
         }
     }
 }
