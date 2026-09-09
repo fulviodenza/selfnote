@@ -35,6 +35,7 @@ import {
   type Document,
   type AiStatus,
   type Label,
+  type SearchResults,
 } from "./src/api";
 import {
   getSettings,
@@ -429,6 +430,8 @@ function DocListScreen({
   const [wsLabels, setWsLabels] = useState<Label[]>([]);
   const [docLabelIds, setDocLabelIds] = useState<Map<string, string[]>>(new Map());
   const [filterLabel, setFilterLabel] = useState<string | null>(null);
+  // Server-side categorized search results for the current query (debounced).
+  const [serverHits, setServerHits] = useState<SearchResults | null>(null);
 
   // Load persisted collapse state once.
   useEffect(() => {
@@ -529,6 +532,29 @@ function DocListScreen({
     }
   };
 
+  // Categorized server search for the current query (labels + body text; the
+  // title list itself still filters locally so it works offline).
+  useEffect(() => {
+    const q = query.trim();
+    if (!q || !workspaceId) {
+      setServerHits(null);
+      return;
+    }
+    let stale = false;
+    const t = setTimeout(async () => {
+      try {
+        const r = await api.search(workspaceId, q);
+        if (!stale) setServerHits(r);
+      } catch {
+        if (!stale) setServerHits(null); // older server — local titles only
+      }
+    }, 250);
+    return () => {
+      stale = true;
+      clearTimeout(t);
+    };
+  }, [query, workspaceId]);
+
   // Search / label filter show a flat list; otherwise the collapsible tree.
   const q = query.trim().toLowerCase();
   const labelById = new Map(wsLabels.map((l) => [l.id, l]));
@@ -623,6 +649,67 @@ function DocListScreen({
           refreshing={false}
           keyboardShouldPersistTaps="handled"
           contentContainerStyle={styles.listPad}
+          ListFooterComponent={
+            q && serverHits && (serverHits.labels.length > 0 || serverHits.texts.length > 0) ? (
+              <View>
+                {serverHits.labels.length > 0 ? (
+                  <View>
+                    <Text style={styles.searchSection}>Labels</Text>
+                    {serverHits.labels.map((l) => (
+                      <Row
+                        key={l.id}
+                        onPress={() => {
+                          setFilterLabel(l.id);
+                          setQuery("");
+                        }}
+                        accessibilityLabel={`Filter by label ${l.name}`}
+                      >
+                        <View style={styles.rowInner}>
+                          <View style={[styles.labelFilterDot, { backgroundColor: l.color }]} />
+                          <Text style={[type.docTitle, styles.flex]} numberOfLines={1}>
+                            {l.name}
+                          </Text>
+                          <Text style={styles.searchHint}>filter pages</Text>
+                        </View>
+                      </Row>
+                    ))}
+                  </View>
+                ) : null}
+                {serverHits.texts.length > 0 ? (
+                  <View>
+                    <Text style={styles.searchSection}>Text in page</Text>
+                    {serverHits.texts.map((t) => {
+                      const target = docs?.find((d) => d.id === t.id);
+                      return (
+                        <Row
+                          key={t.id}
+                          onPress={() => target && onOpen(target)}
+                          accessibilityLabel={t.title || "Untitled"}
+                        >
+                          <View style={styles.flex}>
+                            <Text style={type.docTitle} numberOfLines={1}>
+                              {t.title || "Untitled"}
+                            </Text>
+                            <Text style={styles.searchSnippet} numberOfLines={2}>
+                              {t.snippet.split(/<\/?mark>/).map((part, i) =>
+                                i % 2 === 1 ? (
+                                  <Text key={i} style={styles.searchMark}>
+                                    {part}
+                                  </Text>
+                                ) : (
+                                  part
+                                ),
+                              )}
+                            </Text>
+                          </View>
+                        </Row>
+                      );
+                    })}
+                  </View>
+                ) : null}
+              </View>
+            ) : null
+          }
           renderItem={({ item }) => (
             <Row
               indent={item.depth * 20}
@@ -1255,6 +1342,19 @@ const makeStyles = (colors: Palette, type: TypeRoles) =>
   },
   labelFilterDot: { width: 7, height: 7, borderRadius: 4 },
   labelFilterText: { fontSize: 12, color: colors.inkSoft },
+  searchSection: {
+    fontSize: 11,
+    fontWeight: "600",
+    letterSpacing: 0.5,
+    textTransform: "uppercase",
+    color: colors.inkSoft,
+    paddingHorizontal: spacing.md,
+    paddingTop: spacing.md,
+    paddingBottom: spacing.xs,
+  },
+  searchHint: { fontSize: 11, color: colors.inkSoft },
+  searchSnippet: { fontSize: 12, color: colors.inkSoft, marginTop: 2 },
+  searchMark: { color: colors.ink, fontWeight: "600" },
   chevron: { width: 28, height: 28, alignItems: "center", justifyContent: "center" },
   error: { ...type.body, color: colors.danger },
   listPad: { paddingBottom: 96 },

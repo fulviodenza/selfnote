@@ -13,6 +13,7 @@ mod labels;
 mod links;
 mod proposals;
 mod rooms;
+mod search;
 mod shares;
 mod state;
 mod tasks;
@@ -79,6 +80,7 @@ async fn main() -> anyhow::Result<()> {
         .route("/workspaces/:id/members", post(workspaces::add_member))
         .route("/documents", get(documents::list).post(documents::create))
         .route("/documents/search", get(documents::search))
+        .route("/search", get(search::search))
         .route("/documents/recent", get(documents::recent))
         .route("/documents/link-search", get(links::link_search))
         .route("/documents/:id", get(documents::get).patch(documents::update))
