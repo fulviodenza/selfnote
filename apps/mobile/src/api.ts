@@ -468,6 +468,12 @@ export const api = {
       body: JSON.stringify({ label_ids: labelIds }),
     }).then((r) => r.labels),
 
+  /** Every document↔label assignment in the workspace (non-archived docs). */
+  listDocumentLabels: (workspaceId: string) =>
+    req<{ assignments: { document_id: string; label_id: string }[] }>(
+      `/workspaces/${workspaceId}/document-labels`,
+    ).then((r) => r.assignments),
+
   /** Start the bulk "label everything" job (labels only unlabeled notes). */
   bulkLabelStart: (workspaceId: string) =>
     req<BulkLabelStatus>(`/workspaces/${workspaceId}/labels/bulk`, { method: "POST" }),

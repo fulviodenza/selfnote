@@ -21,7 +21,8 @@ import {
 import { AssistPanel, type AiEditor } from "./AssistPanel";
 import { HistoryPanel } from "./components/history/HistoryPanel";
 import { NoteAiActions, type ActionEditor } from "./NoteAiActions";
-import { BulkLabelButton, LabelBar } from "./LabelBar";
+import { BulkLabelButton, LabelBar, LABELS_CHANGED_EVENT } from "./LabelBar";
+import type { Label } from "./api";
 import { AiProposalBanner, AiDiffPreview } from "./AiProposals";
 import { BacklinksPanel } from "./BacklinksPanel";
 import { GraphView } from "./GraphView";
@@ -435,6 +436,49 @@ function Sidebar({
   onImport: () => void;
 }) {
   const [showConnections, setShowConnections] = useState(false);
+
+  // Workspace labels + doc→labels assignments, for row dots and the label
+  // filter. Refetched when any label data changes (LABELS_CHANGED_EVENT).
+  const [wsLabels, setWsLabels] = useState<Label[]>([]);
+  const [docLabelIds, setDocLabelIds] = useState<Map<string, string[]>>(new Map());
+  const [filterLabel, setFilterLabel] = useState<string | null>(null);
+
+  useEffect(() => {
+    if (!workspaceId) return;
+    let alive = true;
+    const load = async () => {
+      try {
+        const [labels, assignments] = await Promise.all([
+          api.listLabels(workspaceId),
+          api.listDocumentLabels(workspaceId),
+        ]);
+        if (!alive) return;
+        setWsLabels(labels);
+        const map = new Map<string, string[]>();
+        for (const a of assignments) {
+          const list = map.get(a.document_id) ?? [];
+          list.push(a.label_id);
+          map.set(a.document_id, list);
+        }
+        setDocLabelIds(map);
+      } catch {
+        /* older server / offline — no labels UI */
+      }
+    };
+    void load();
+    window.addEventListener(LABELS_CHANGED_EVENT, load);
+    return () => {
+      alive = false;
+      window.removeEventListener(LABELS_CHANGED_EVENT, load);
+    };
+  }, [workspaceId]);
+
+  const labelById = useMemo(() => new Map(wsLabels.map((l) => [l.id, l])), [wsLabels]);
+  const dotsFor = (docId: string): string[] =>
+    (docLabelIds.get(docId) ?? [])
+      .map((id) => labelById.get(id)?.color)
+      .filter((c): c is string => !!c);
+
   const childrenOf = useMemo(() => {
     const map = new Map<string | null, Document[]>();
     for (const d of docs) {
@@ -485,11 +529,17 @@ function Sidebar({
           onCreate={onCreate}
           onRename={onRename}
           onArchive={onArchive}
+          dots={dotsFor(d.id)}
         >
           {hasChildren && expanded ? renderTree(d.id, depth + 1) : null}
         </Row>
       );
     });
+
+  // Label filter active: a flat list of the matching docs instead of the tree.
+  const filteredDocs = filterLabel
+    ? docs.filter((d) => (docLabelIds.get(d.id) ?? []).includes(filterLabel))
+    : null;
 
   return (
     <aside className="sidebar">
@@ -524,8 +574,50 @@ function Sidebar({
           Graph
         </button>
       </div>
+      {wsLabels.length > 0 && (
+        <div className="label-filter">
+          {wsLabels.map((l) => (
+            <button
+              key={l.id}
+              className={filterLabel === l.id ? "label-chip filter on" : "label-chip filter"}
+              style={{ ["--chip" as string]: l.color }}
+              onClick={() => setFilterLabel((cur) => (cur === l.id ? null : l.id))}
+            >
+              <span className="label-dot" />
+              {l.name}
+            </button>
+          ))}
+        </div>
+      )}
       <div className="tree">
-        {docs.length === 0 ? <div className="tree-empty">No pages yet</div> : renderTree(null, 0)}
+        {filteredDocs ? (
+          filteredDocs.length === 0 ? (
+            <div className="tree-empty">No pages with this label</div>
+          ) : (
+            filteredDocs.map((d) => (
+              <Row
+                key={d.id}
+                doc={d}
+                depth={0}
+                active={d.id === activeId}
+                hasChildren={false}
+                expanded={false}
+                onToggle={toggleCollapsed}
+                onOpen={onOpen}
+                onCreate={onCreate}
+                onRename={onRename}
+                onArchive={onArchive}
+                dots={dotsFor(d.id)}
+              >
+                {null}
+              </Row>
+            ))
+          )
+        ) : docs.length === 0 ? (
+          <div className="tree-empty">No pages yet</div>
+        ) : (
+          renderTree(null, 0)
+        )}
       </div>
       <div className="sidebar-foot">
         <button className="foot-btn" onClick={onImport}>
@@ -560,6 +652,7 @@ function Row({
   onCreate,
   onRename,
   onArchive,
+  dots,
   children,
 }: {
   doc: Document;
@@ -572,6 +665,8 @@ function Row({
   onCreate: (parentId: string | null) => void;
   onRename: (id: string, title: string) => void;
   onArchive: (id: string) => void;
+  /** Colors of the doc's labels, shown as compact dots after the title. */
+  dots?: string[];
   children: ReactNode;
 }) {
   const [editing, setEditing] = useState(false);
@@ -634,6 +729,13 @@ function Row({
             {doc.title || "Untitled"}
           </span>
         )}
+        {dots && dots.length > 0 ? (
+          <span className="row-label-dots" aria-hidden>
+            {dots.slice(0, 3).map((c, i) => (
+              <span key={i} className="row-label-dot" style={{ background: c }} />
+            ))}
+          </span>
+        ) : null}
         <span className="row-actions" onClick={(e) => e.stopPropagation()}>
           <button title="Add subpage" aria-label="Add subpage" onClick={() => onCreate(doc.id)}>
             <Icon name="plus" size={15} />

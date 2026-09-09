@@ -100,6 +100,7 @@ async fn main() -> anyhow::Result<()> {
             "/workspaces/:id/labels/bulk",
             get(labels::bulk_status).post(labels::bulk_start),
         )
+        .route("/workspaces/:id/document-labels", get(labels::assignments))
         .route("/labels/:id", axum::routing::patch(labels::update).delete(labels::delete))
         .route("/workspaces/:id/graph", get(links::graph))
         .route(

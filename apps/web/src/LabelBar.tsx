@@ -9,6 +9,19 @@ import { api, type BulkLabelStatus, type Label, type LabelSuggestion } from "./a
 import { Icon } from "./Icon";
 
 /**
+ * Fired on window whenever any label data changes (attach/detach, create,
+ * rename, recolor, delete), so distant views — the sidebar tree, filters —
+ * can refetch without prop-drilling through the app.
+ */
+export const LABELS_CHANGED_EVENT = "selfnote:labels-changed";
+const emitLabelsChanged = () => window.dispatchEvent(new Event(LABELS_CHANGED_EVENT));
+
+/** The server's default palette, offered as swatches when editing a label. */
+export const LABEL_COLORS = [
+  "#2B44C7", "#1F9E6A", "#C1841E", "#8B5CF6", "#C4392B", "#0E7490", "#B4468A", "#5B6472",
+];
+
+/**
  * Sidebar entry point for the bulk "label everything" job — useful right after
  * importing a vault. Starts the server job and polls progress while it runs.
  */
@@ -118,9 +131,42 @@ export function LabelBar({
   const save = async (ids: string[]) => {
     try {
       setLabels(await api.setDocLabels(docId, ids));
+      emitLabelsChanged();
     } catch {
       setError("Couldn’t update labels.");
       void reload();
+    }
+  };
+
+  // Manage mode: the label being edited in the picker (rename/recolor/delete).
+  const [editing, setEditing] = useState<Label | null>(null);
+
+  const saveEdit = async () => {
+    if (!editing) return;
+    try {
+      const updated = await api.updateLabel(editing.id, {
+        name: editing.name.trim(),
+        color: editing.color,
+      });
+      setAll((prev) => prev.map((l) => (l.id === updated.id ? updated : l)));
+      setLabels((prev) => prev.map((l) => (l.id === updated.id ? updated : l)));
+      setEditing(null);
+      emitLabelsChanged();
+    } catch {
+      setError("Couldn’t update the label.");
+    }
+  };
+
+  const removeLabel = async () => {
+    if (!editing) return;
+    try {
+      await api.deleteLabel(editing.id);
+      setAll((prev) => prev.filter((l) => l.id !== editing.id));
+      setLabels((prev) => prev.filter((l) => l.id !== editing.id));
+      setEditing(null);
+      emitLabelsChanged();
+    } catch {
+      setError("Couldn’t delete the label.");
     }
   };
 
@@ -227,19 +273,56 @@ export function LabelBar({
                   if (e.key === "Escape") setPickerOpen(false);
                 }}
               />
+              {editing && (
+                <div className="label-edit">
+                  <input
+                    value={editing.name}
+                    onChange={(e) => setEditing({ ...editing, name: e.target.value })}
+                    onKeyDown={(e) => {
+                      if (e.key === "Enter") void saveEdit();
+                      if (e.key === "Escape") setEditing(null);
+                    }}
+                  />
+                  <div className="label-swatches">
+                    {LABEL_COLORS.map((c) => (
+                      <button
+                        key={c}
+                        className={editing.color === c ? "label-swatch on" : "label-swatch"}
+                        style={{ ["--chip" as string]: c }}
+                        aria-label={`Color ${c}`}
+                        onClick={() => setEditing({ ...editing, color: c })}
+                      />
+                    ))}
+                  </div>
+                  <div className="label-edit-actions">
+                    <button className="label-edit-delete" onClick={() => void removeLabel()}>
+                      Delete
+                    </button>
+                    <button onClick={() => setEditing(null)}>Cancel</button>
+                    <button className="label-edit-save" onClick={() => void saveEdit()}>
+                      Save
+                    </button>
+                  </div>
+                </div>
+              )}
               <div className="label-pop-list">
-                {filtered.map((l) => {
+                {!editing && filtered.map((l) => {
                   const on = labels.some((x) => x.id === l.id);
                   return (
-                    <button
-                      key={l.id}
-                      className={on ? "label-pop-item on" : "label-pop-item"}
-                      onClick={() => toggle(l)}
-                    >
-                      <span className="label-dot" style={{ ["--chip" as string]: l.color }} />
-                      <span className="label-pop-name">{l.name}</span>
-                      {on ? <Icon name="check" size={13} /> : null}
-                    </button>
+                    <div key={l.id} className={on ? "label-pop-item on" : "label-pop-item"}>
+                      <button className="label-pop-main" onClick={() => toggle(l)}>
+                        <span className="label-dot" style={{ ["--chip" as string]: l.color }} />
+                        <span className="label-pop-name">{l.name}</span>
+                        {on ? <Icon name="check" size={13} /> : null}
+                      </button>
+                      <button
+                        className="label-pop-edit"
+                        aria-label={`Edit label ${l.name}`}
+                        onClick={() => setEditing(l)}
+                      >
+                        <Icon name="edit-3" size={12} />
+                      </button>
+                    </div>
                   );
                 })}
                 {q && !exactExists && (
