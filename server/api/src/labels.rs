@@ -422,7 +422,7 @@ pub async fn assignments(
         "select dl.document_id, dl.label_id \
          from document_labels dl \
          join documents d on d.id = dl.document_id \
-         where d.workspace_id = $1 and not d.archived",
+         where d.workspace_id = $1 and not d.archived and not d.trashed",
     )
     .bind(workspace_id)
     .fetch_all(&state.pool)
@@ -484,7 +484,7 @@ pub async fn bulk_start(
 
     let docs: Vec<(Uuid, String)> = sqlx::query_as(
         "select d.id, d.title from documents d \
-         where d.workspace_id = $1 and not d.archived \
+         where d.workspace_id = $1 and not d.archived and not d.trashed \
            and not exists (select 1 from document_labels dl where dl.document_id = d.id) \
          order by d.updated_at desc",
     )

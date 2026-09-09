@@ -83,7 +83,12 @@ async fn main() -> anyhow::Result<()> {
         .route("/search", get(search::search))
         .route("/documents/recent", get(documents::recent))
         .route("/documents/link-search", get(links::link_search))
-        .route("/documents/:id", get(documents::get).patch(documents::update))
+        .route(
+            "/documents/:id",
+            get(documents::get)
+                .patch(documents::update)
+                .delete(documents::delete),
+        )
         .route("/documents/:id/viewed", post(documents::mark_viewed))
         .route(
             "/documents/:id/links",
@@ -144,7 +149,8 @@ async fn main() -> anyhow::Result<()> {
             "/files",
             post(files::upload).layer(axum::extract::DefaultBodyLimit::max(32 * 1024 * 1024)),
         )
-        .route("/files/:id", get(files::download))
+        .route("/files/:id", get(files::download).delete(files::delete))
+        .route("/workspaces/:id/files", get(files::list))
         .layer(TraceLayer::new_for_http())
         .layer(CorsLayer::permissive())
         .with_state(state);

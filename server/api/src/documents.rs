@@ -20,6 +20,7 @@ pub struct Document {
     pub title: String,
     pub icon: Option<String>,
     pub archived: bool,
+    pub trashed: bool,
     pub created_at: DateTime<Utc>,
     pub updated_at: DateTime<Utc>,
 }
@@ -27,6 +28,8 @@ pub struct Document {
 #[derive(Debug, Deserialize)]
 pub struct ListQuery {
     pub workspace_id: Uuid,
+    /// Which shelf to list: "active" (default), "archived", or "trashed".
+    pub state: Option<String>,
 }
 
 pub async fn list(
@@ -37,10 +40,18 @@ pub async fn list(
     if member_role(&state, q.workspace_id, user.id).await?.is_none() {
         return Err(AppError::Forbidden);
     }
-    let rows: Vec<Document> = sqlx::query_as(
-        "select id, workspace_id, parent_id, title, icon, archived, created_at, updated_at \
-         from documents where workspace_id = $1 and not archived order by created_at",
-    )
+    let filter = match q.state.as_deref() {
+        None | Some("active") => "not archived and not trashed",
+        Some("archived") => "archived and not trashed",
+        Some("trashed") => "trashed",
+        Some(other) => {
+            return Err(AppError::BadRequest(format!("unknown state '{other}'")));
+        }
+    };
+    let rows: Vec<Document> = sqlx::query_as(&format!(
+        "select id, workspace_id, parent_id, title, icon, archived, trashed, created_at, updated_at \
+         from documents where workspace_id = $1 and {filter} order by created_at",
+    ))
     .bind(q.workspace_id)
     .fetch_all(&state.pool)
     .await?;
@@ -63,9 +74,9 @@ pub async fn search(
         return Err(AppError::Forbidden);
     }
     let rows: Vec<Document> = sqlx::query_as(
-        "select id, workspace_id, parent_id, title, icon, archived, created_at, updated_at \
+        "select id, workspace_id, parent_id, title, icon, archived, trashed, created_at, updated_at \
          from documents \
-         where workspace_id = $1 and not archived \
+         where workspace_id = $1 and not archived and not trashed \
            and to_tsvector('english', title) @@ websearch_to_tsquery('english', $2) \
          order by ts_rank(to_tsvector('english', title), websearch_to_tsquery('english', $2)) desc \
          limit 50",
@@ -98,7 +109,7 @@ pub async fn create(
     let title = body.title.unwrap_or_else(|| "Untitled".to_string());
     let doc: Document = sqlx::query_as(
         "insert into documents (workspace_id, parent_id, title) values ($1, $2, $3) \
-         returning id, workspace_id, parent_id, title, icon, archived, created_at, updated_at",
+         returning id, workspace_id, parent_id, title, icon, archived, trashed, created_at, updated_at",
     )
     .bind(body.workspace_id)
     .bind(body.parent_id)
@@ -209,7 +220,7 @@ pub async fn get_document(state: &AppState, doc_id: Uuid) -> ApiResult<Document>
 
 async fn load_document(state: &AppState, doc_id: Uuid) -> ApiResult<Document> {
     let doc: Option<Document> = sqlx::query_as(
-        "select id, workspace_id, parent_id, title, icon, archived, created_at, updated_at \
+        "select id, workspace_id, parent_id, title, icon, archived, trashed, created_at, updated_at \
          from documents where id = $1",
     )
     .bind(doc_id)
@@ -236,6 +247,7 @@ pub struct UpdateDocument {
     pub icon: Option<String>,
     pub parent_id: Option<Option<Uuid>>,
     pub archived: Option<bool>,
+    pub trashed: Option<bool>,
 }
 
 pub async fn update(
@@ -254,20 +266,42 @@ pub async fn update(
     let icon = body.icon.or(doc.icon);
     let parent_id = body.parent_id.unwrap_or(doc.parent_id);
     let archived = body.archived.unwrap_or(doc.archived);
+    let trashed = body.trashed.unwrap_or(doc.trashed);
 
     let updated: Document = sqlx::query_as(
-        "update documents set title = $2, icon = $3, parent_id = $4, archived = $5, updated_at = now() \
+        "update documents set title = $2, icon = $3, parent_id = $4, archived = $5, trashed = $6, updated_at = now() \
          where id = $1 \
-         returning id, workspace_id, parent_id, title, icon, archived, created_at, updated_at",
+         returning id, workspace_id, parent_id, title, icon, archived, trashed, created_at, updated_at",
     )
     .bind(doc_id)
     .bind(title)
     .bind(icon)
     .bind(parent_id)
     .bind(archived)
+    .bind(trashed)
     .fetch_one(&state.pool)
     .await?;
     Ok(Json(updated))
+}
+
+/// `DELETE /documents/:id` — permanently delete a page (the Trash view's
+/// "Delete forever"). Content, links, labels, history, and the files uploaded
+/// into the page all cascade via FKs.
+pub async fn delete(
+    State(state): State<AppState>,
+    user: AuthUser,
+    Path(doc_id): Path<Uuid>,
+) -> ApiResult<axum::http::StatusCode> {
+    let doc = load_document(&state, doc_id).await?;
+    match member_role(&state, doc.workspace_id, user.id).await? {
+        Some(r) if r != "viewer" => {}
+        _ => return Err(AppError::Forbidden),
+    }
+    sqlx::query("delete from documents where id = $1")
+        .bind(doc_id)
+        .execute(&state.pool)
+        .await?;
+    Ok(axum::http::StatusCode::NO_CONTENT)
 }
 
 /* ----------------------------------------------- multi-note context ------- */
@@ -354,7 +388,7 @@ pub async fn recent(
          from recent_documents r \
          join documents d on d.id = r.doc_id \
          join workspace_members m on m.workspace_id = d.workspace_id and m.user_id = $1 \
-         where r.user_id = $1 and not d.archived \
+         where r.user_id = $1 and not d.archived and not d.trashed \
          order by r.viewed_at desc \
          limit $2",
     )
