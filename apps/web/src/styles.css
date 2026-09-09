@@ -1627,6 +1627,10 @@ button.toggle.on {
   color: var(--fg);
   font-weight: 600;
 }
+.label-chip.filter.more {
+  border-style: dashed;
+  --chip: var(--muted);
+}
 .row-label-dots {
   display: inline-flex;
   gap: 3px;

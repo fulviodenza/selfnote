@@ -24,6 +24,9 @@ import { NoteAiActions, type ActionEditor } from "./NoteAiActions";
 import { BulkLabelButton, LabelBar, LABELS_CHANGED_EVENT } from "./LabelBar";
 import { SearchModal, FILTER_LABEL_EVENT } from "./SearchModal";
 import type { Label } from "./api";
+
+/** Label-filter chips shown in the sidebar before expanding. */
+const LABEL_FILTER_PREVIEW = 8;
 import { AiProposalBanner, AiDiffPreview } from "./AiProposals";
 import { BacklinksPanel } from "./BacklinksPanel";
 import { GraphView } from "./GraphView";
@@ -510,6 +513,18 @@ function Sidebar({
     return () => window.removeEventListener(FILTER_LABEL_EVENT, onFilter);
   }, []);
 
+  // Chips are collapsed by default so a big vocabulary doesn't swallow the
+  // sidebar: show the first few (keeping the active filter visible) + a
+  // "+N more" toggle.
+  const [labelsExpanded, setLabelsExpanded] = useState(false);
+  const visibleLabels = useMemo(() => {
+    if (labelsExpanded || wsLabels.length <= LABEL_FILTER_PREVIEW) return wsLabels;
+    const head = wsLabels.slice(0, LABEL_FILTER_PREVIEW);
+    const active = filterLabel && wsLabels.find((l) => l.id === filterLabel);
+    if (active && !head.some((l) => l.id === active.id)) head[head.length - 1] = active;
+    return head;
+  }, [wsLabels, labelsExpanded, filterLabel]);
+
   const labelById = useMemo(() => new Map(wsLabels.map((l) => [l.id, l])), [wsLabels]);
   const dotsFor = (docId: string): string[] =>
     (docLabelIds.get(docId) ?? [])
@@ -618,7 +633,7 @@ function Sidebar({
       </div>
       {wsLabels.length > 0 && (
         <div className="label-filter">
-          {wsLabels.map((l) => (
+          {visibleLabels.map((l) => (
             <button
               key={l.id}
               className={filterLabel === l.id ? "label-chip filter on" : "label-chip filter"}
@@ -629,6 +644,14 @@ function Sidebar({
               {l.name}
             </button>
           ))}
+          {wsLabels.length > LABEL_FILTER_PREVIEW && (
+            <button
+              className="label-chip filter more"
+              onClick={() => setLabelsExpanded((v) => !v)}
+            >
+              {labelsExpanded ? "less" : `+${wsLabels.length - visibleLabels.length} more`}
+            </button>
+          )}
         </div>
       )}
       <div className="tree">

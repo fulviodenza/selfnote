@@ -18,12 +18,16 @@
  *   - "render": the note body as Markdown (callouts as GitHub alerts). Input
  *     {updates}. Output {markdown}. Used by the AI bulk labeler, which needs
  *     each note's text server-side.
+ *   - "render_many": many notes in one process (amortizes node/jsdom startup).
+ *     Input {docs: [{id, updates}]}. Output {markdowns: {id: markdown}} — a
+ *     note that fails to render maps to "".
  *
  * Errors are reported as {error: "…"} on stdout with a non-zero exit code, so the
  * caller can surface a clean 409 instead of a stack trace.
  */
 import {
   computeProposal,
+  docsToMarkdownMany,
   docToMarkdown,
   mergeUpdatesBase64,
   replaceMarkdownDiff,
@@ -57,6 +61,10 @@ async function run(job: any): Promise<unknown> {
     }
     case "render": {
       return { markdown: await docToMarkdown(updates) };
+    }
+    case "render_many": {
+      if (!Array.isArray(job.docs)) throw new Error("docs must be an array");
+      return { markdowns: await docsToMarkdownMany(job.docs) };
     }
     case "restore": {
       if (typeof job.target !== "string") throw new Error("target must be a string");
