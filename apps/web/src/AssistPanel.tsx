@@ -4,7 +4,7 @@
  * and lets the user drop any reply straight into the document. Shown only when
  * /ai/status reports a provider.
  */
-import { useEffect, useMemo, useRef, useState } from "react";
+import { cloneElement, isValidElement, useEffect, useMemo, useRef, useState } from "react";
 import ReactMarkdown from "react-markdown";
 import type { Components } from "react-markdown";
 import remarkGfm from "remark-gfm";
@@ -34,6 +34,18 @@ function stripInsertMarkers(md: string): string {
     .replace(/<!--\s*\/?\s*insert\s*-->/gi, "")
     .replace(/\n{3,}/g, "\n\n")
     .trim();
+}
+
+/**
+ * Normalize `> [!kind] trailing text` (marker + body on one line) so the marker
+ * sits in its own quoted paragraph. The blockquote renderer can then always drop
+ * that first paragraph and show the whole remaining body inside the callout box.
+ */
+function normalizeAlertMarkers(md: string): string {
+  return md.replace(
+    /^([ \t]*>[ \t]*)\[!(\w+)\][ \t]+(\S.*)$/gm,
+    (_m, pre: string, kind: string, rest: string) => `${pre}[!${kind}]\n${pre}\n${pre}${rest}`,
+  );
 }
 
 /** Minimal structural view of the BlockNote editor we need. */
@@ -87,6 +99,10 @@ const mdComponents: Components = {
   blockquote({ children }) {
     const kind = markerKind(nodeText(children));
     if (!kind) return <blockquote>{children}</blockquote>;
+    const body = calloutChildren(children);
+    // Marker with no body (e.g. a stray `> [!note]`): render nothing at all
+    // rather than an empty box.
+    if (body.length === 0) return null;
     return (
       <div className={`callout callout-${kind}`} data-kind={kind}>
         <span
@@ -94,36 +110,44 @@ const mdComponents: Components = {
           aria-hidden
           dangerouslySetInnerHTML={{ __html: calloutIconSvg(kind, 18) }}
         />
-        <div className="callout-body">
-          <CalloutBody>{children}</CalloutBody>
-        </div>
+        <div className="callout-body">{body}</div>
       </div>
     );
   },
 };
 
+const MARKER_PREFIX = /^\s*\[!\w+\]\s*/i;
+
 /**
- * Render a callout blockquote's children, dropping the leading `[!kind]` marker.
- * The marker may be its own paragraph (`> [!NOTE]\n> body`) — in which case we
- * drop that whole node — or lead the first paragraph inline, which we trim.
+ * A callout blockquote's children with the `[!kind]` marker removed, wherever it
+ * sits: a marker-only first paragraph is dropped whole; a marker leading the
+ * first paragraph's text is trimmed off in place. Returns [] when nothing
+ * visible remains.
  */
-function CalloutBody({ children }: { children: React.ReactNode }) {
+function calloutChildren(children: React.ReactNode): React.ReactNode[] {
   const arr = (Array.isArray(children) ? children : [children]).filter(
     (c) => !(typeof c === "string" && c.trim() === ""),
   );
-  const first = arr[0];
-  const firstText = nodeText(first).trim();
-  if (/^\[!\w+\]$/i.test(firstText)) {
-    // The marker sits alone in the first paragraph — drop it entirely.
-    return <>{arr.slice(1)}</>;
+  if (arr.length === 0) return [];
+  const firstText = nodeText(arr[0]).trim();
+  const body = /^\[!\w+\]$/i.test(firstText)
+    ? arr.slice(1)
+    : [stripLeadingMarker(arr[0]), ...arr.slice(1)];
+  return nodeText(body).trim() ? body : [];
+}
+
+/** Remove a leading `[!kind]` from the first text run of a React node tree. */
+function stripLeadingMarker(node: React.ReactNode): React.ReactNode {
+  if (typeof node === "string") return node.replace(MARKER_PREFIX, "");
+  if (Array.isArray(node)) {
+    if (node.length === 0) return node;
+    return [stripLeadingMarker(node[0]), ...node.slice(1)];
   }
-  if (typeof first === "string") {
-    // Marker leads a plain-text first child — trim it off.
-    const rest = arr.slice(1);
-    return <>{[first.replace(/^\s*\[!\w+\]\s*/i, ""), ...rest]}</>;
+  if (isValidElement(node)) {
+    const children = (node.props as { children?: React.ReactNode }).children;
+    return cloneElement(node, undefined, stripLeadingMarker(children));
   }
-  // Marker leads a rich first paragraph: render everything (marker shows inline).
-  return <>{arr}</>;
+  return node;
 }
 
 export function AssistPanel({
@@ -327,7 +351,7 @@ export function AssistPanel({
                 {m.role === "assistant" && !m.error ? (
                   <div className="assist-md">
                     <ReactMarkdown remarkPlugins={[remarkGfm]} components={mdComponents}>
-                      {stripInsertMarkers(m.content)}
+                      {normalizeAlertMarkers(stripInsertMarkers(m.content))}
                     </ReactMarkdown>
                   </div>
                 ) : (

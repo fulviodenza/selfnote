@@ -336,6 +336,19 @@ button.toggle.on {
   background: transparent;
 }
 
+/* Quote blocks as a soft card — no "citation" left bar (overrides BlockNote's
+ * default border-left). Mirrors .assist-md blockquote. */
+.bn-editor [data-content-type="quote"],
+.bn-editor blockquote {
+  border-left: none;
+  padding: 10px 14px;
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  background: color-mix(in srgb, var(--fg) 4%, transparent);
+  color: var(--muted);
+  font-style: italic;
+}
+
 .subpages {
   max-width: 720px;
   margin: 12px auto 0;
@@ -1395,11 +1408,18 @@ button.toggle.on {
   color: inherit;
   font-size: 13px;
 }
+/* Quotes as a soft card — no "citation" left bar. */
 .assist-md blockquote {
   margin: 0 0 8px;
-  padding-left: 12px;
-  border-left: 3px solid var(--border);
+  padding: 10px 14px;
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  background: color-mix(in srgb, var(--fg) 4%, transparent);
   color: var(--muted);
+  font-style: italic;
+}
+.assist-md blockquote > :last-child {
+  margin-bottom: 0;
 }
 .assist-md table {
   border-collapse: collapse;
