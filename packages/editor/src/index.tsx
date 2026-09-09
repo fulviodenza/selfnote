@@ -26,6 +26,7 @@ import { LinkNotePopover, type LinkNoteDoc, type LinkNoteProvider } from "./Link
 import { schema } from "./schema";
 import { CALLOUT_KINDS, ensureCalloutStyles, type CalloutKind } from "./callout";
 import { registerCalloutInputRule } from "./calloutInputRule";
+import { registerSelectAllShortcut } from "./selectAll";
 import {
   blocksToMarkdownWithCallouts,
   markdownToBlocksWithCallouts,
@@ -222,10 +223,14 @@ export function CollaborativeEditor({
     }),
   );
 
-  // Inject the callout CSS once, and attach the `[!kind] ` input rule.
+  // Inject the callout CSS once, attach the `[!kind] ` input rule, and the
+  // Ctrl/Cmd+A progressive select-all.
   useEffect(() => {
     ensureCalloutStyles();
     registerCalloutInputRule(editor as unknown as Parameters<typeof registerCalloutInputRule>[0]);
+    registerSelectAllShortcut(
+      editor as unknown as Parameters<typeof registerSelectAllShortcut>[0],
+    );
   }, [editor]);
 
   // Anchored `/link-note` picker; null when closed. Coordinates come from the

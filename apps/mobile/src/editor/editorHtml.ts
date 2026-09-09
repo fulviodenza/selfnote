@@ -253,6 +253,34 @@ export const EDITOR_HTML = /* html */ `<!doctype html>
         }, true);
       }
 
+      // Ctrl/Cmd+A, Notion-style: first press selects the current block's
+      // content; when the block is already fully selected (or empty), select
+      // the whole document. Capture-phase so it beats ProseMirror's handler.
+      // Mirrors packages/editor/src/selectAll.ts.
+      function setupSelectAll(editor) {
+        const tiptap = editor._tiptapEditor;
+        let dom = null;
+        try { dom = tiptap && tiptap.view && tiptap.view.dom; } catch {}
+        if (!dom || !tiptap) return;
+        dom.addEventListener("keydown", (e) => {
+          if (!(e.metaKey || e.ctrlKey) || e.shiftKey || e.altKey) return;
+          if (e.key !== "a" && e.key !== "A") return;
+          let sel;
+          try { sel = tiptap.state.selection; } catch { return; }
+          e.preventDefault();
+          try {
+            const start = sel.$from.start();
+            const end = sel.$from.end();
+            const emptyBlock = start === end;
+            const coversBlock = sel.from <= start && sel.to >= end && sel.to > sel.from;
+            if (emptyBlock || coversBlock) tiptap.commands.selectAll();
+            else tiptap.commands.setTextSelection({ from: start, to: end });
+          } catch {
+            try { tiptap.commands.selectAll(); } catch {}
+          }
+        }, true);
+      }
+
       // Uppercase GitHub label for a kind (mirrors callout.tsx calloutLabel).
       function calloutLabel(kind) { return String(kind || "note").toUpperCase(); }
 
@@ -645,6 +673,7 @@ export const EDITOR_HTML = /* html */ `<!doctype html>
           editor.mount(document.getElementById("root"));
           setupSlashMenu(editor);
           setupCalloutInputRule(editor);
+          setupSelectAll(editor);
           window.__editorMounted = true;
           const fb = document.getElementById("fallback");
           if (fb) fb.style.display = "none";
