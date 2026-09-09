@@ -22,6 +22,7 @@ import { AssistPanel, type AiEditor } from "./AssistPanel";
 import { HistoryPanel } from "./components/history/HistoryPanel";
 import { NoteAiActions, type ActionEditor } from "./NoteAiActions";
 import { BulkLabelButton, LabelBar, LABELS_CHANGED_EVENT } from "./LabelBar";
+import { SearchModal, FILTER_LABEL_EVENT } from "./SearchModal";
 import type { Label } from "./api";
 import { AiProposalBanner, AiDiffPreview } from "./AiProposals";
 import { BacklinksPanel } from "./BacklinksPanel";
@@ -211,6 +212,19 @@ function AppRoot() {
   const activeDoc = docs.find((d) => d.id === activeId) ?? null;
   const childPages = docs.filter((d) => d.parent_id === activeId);
 
+  // Ctrl/Cmd+K search palette.
+  const [showSearch, setShowSearch] = useState(false);
+  useEffect(() => {
+    const onKey = (e: KeyboardEvent) => {
+      if ((e.metaKey || e.ctrlKey) && !e.shiftKey && (e.key === "k" || e.key === "K")) {
+        e.preventDefault();
+        setShowSearch((v) => !v);
+      }
+    };
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, []);
+
   const handleAutoTitle = async (title: string) => {
     const d = docs.find((x) => x.id === activeId);
     if (!d || d.title !== "Untitled" || !title || title === d.title) return;
@@ -277,7 +291,18 @@ function AppRoot() {
         onArchive={archive}
         onLogout={logout}
         onImport={() => fileInputRef.current?.click()}
+        onOpenSearch={() => setShowSearch(true)}
       />
+      {showSearch && workspaceId && (
+        <SearchModal
+          workspaceId={workspaceId}
+          onOpenPage={(id) => {
+            setView("editor");
+            setActiveId(id);
+          }}
+          onClose={() => setShowSearch(false)}
+        />
+      )}
       <main className="main">
         {view === "graph" && workspaceId ? (
           <GraphView
@@ -418,6 +443,7 @@ function Sidebar({
   onArchive,
   onLogout,
   onImport,
+  onOpenSearch,
 }: {
   docs: Document[];
   activeId: string | null;
@@ -434,6 +460,7 @@ function Sidebar({
   onArchive: (id: string) => void;
   onLogout: () => void;
   onImport: () => void;
+  onOpenSearch: () => void;
 }) {
   const [showConnections, setShowConnections] = useState(false);
 
@@ -472,6 +499,16 @@ function Sidebar({
       window.removeEventListener(LABELS_CHANGED_EVENT, load);
     };
   }, [workspaceId]);
+
+  // A search-modal "label" result asks us to show that label's pages.
+  useEffect(() => {
+    const onFilter = (e: Event) => {
+      const labelId = (e as CustomEvent<{ labelId?: string }>).detail?.labelId;
+      if (labelId) setFilterLabel(labelId);
+    };
+    window.addEventListener(FILTER_LABEL_EVENT, onFilter);
+    return () => window.removeEventListener(FILTER_LABEL_EVENT, onFilter);
+  }, []);
 
   const labelById = useMemo(() => new Map(wsLabels.map((l) => [l.id, l])), [wsLabels]);
   const dotsFor = (docId: string): string[] =>
@@ -559,6 +596,11 @@ function Sidebar({
         </div>
       </div>
       <div className="sidebar-nav">
+        <button className="nav-item" onClick={onOpenSearch} title="Search (⌘K / Ctrl+K)">
+          <span className="nav-item-icon"><Icon name="search" size={16} /></span>
+          Search
+          <kbd className="nav-kbd">⌘K</kbd>
+        </button>
         <button
           className={tasksActive ? "nav-item active" : "nav-item"}
           onClick={onOpenTasks}

@@ -355,6 +355,26 @@ export interface LabelSuggestion {
   color: string | null;
 }
 
+/** One title-match search result. */
+export interface SearchPageHit {
+  id: string;
+  title: string;
+  icon: string | null;
+  parent_id: string | null;
+}
+
+/** One body-text search result; `snippet` carries `<mark>` highlights. */
+export interface SearchTextHit extends SearchPageHit {
+  snippet: string;
+}
+
+/** Categorized results from GET /search. */
+export interface SearchResults {
+  pages: SearchPageHit[];
+  labels: Label[];
+  texts: SearchTextHit[];
+}
+
 /** Progress of a workspace's bulk "label everything" job. */
 export interface BulkLabelStatus {
   running: boolean;
@@ -520,6 +540,12 @@ export const api = {
       method: "PUT",
       body: JSON.stringify({ label_ids: labelIds }),
     }).then((r) => r.labels),
+
+  /** Categorized workspace search (pages / labels / body text) for the modal. */
+  search: (workspaceId: string, q: string) => {
+    const qs = new URLSearchParams({ workspace_id: workspaceId, q });
+    return req<SearchResults>(`/search?${qs.toString()}`);
+  },
 
   /** Every document↔label assignment in the workspace (non-archived docs). */
   listDocumentLabels: (workspaceId: string) =>
