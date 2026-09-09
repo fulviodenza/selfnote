@@ -77,6 +77,10 @@ export interface WebViewEditorProps {
   onLinksChanged?: (count: number) => void;
   /** Surface a slash-command failure (e.g. AI summarize 409) to the user. */
   onError?: (message: string) => void;
+  /** Selection toolbar: "Copy as Markdown" hands the rendered selection here. */
+  onCopyMarkdown?: (markdown: string) => void;
+  /** Selection toolbar: "Ask AI" hands the selected plain text here. */
+  onAskAi?: (selection: string) => void;
 }
 
 export const WebViewEditor = forwardRef<EditorHandle, WebViewEditorProps>(
@@ -92,6 +96,8 @@ export const WebViewEditor = forwardRef<EditorHandle, WebViewEditorProps>(
       onNavigateToDoc,
       onLinksChanged,
       onError,
+      onCopyMarkdown,
+      onAskAi,
     },
     handleRef,
   ) {
@@ -99,8 +105,24 @@ export const WebViewEditor = forwardRef<EditorHandle, WebViewEditorProps>(
     const post = (obj: unknown) => ref.current?.postMessage(JSON.stringify(obj));
 
     // Latest props for the message handler without re-subscribing per keystroke.
-    const cfg = useRef({ docId, workspaceId, onNavigateToDoc, onLinksChanged, onError });
-    cfg.current = { docId, workspaceId, onNavigateToDoc, onLinksChanged, onError };
+    const cfg = useRef({
+      docId,
+      workspaceId,
+      onNavigateToDoc,
+      onLinksChanged,
+      onError,
+      onCopyMarkdown,
+      onAskAi,
+    });
+    cfg.current = {
+      docId,
+      workspaceId,
+      onNavigateToDoc,
+      onLinksChanged,
+      onError,
+      onCopyMarkdown,
+      onAskAi,
+    };
 
     // Pending text/selection requests, resolved when the WebView replies.
     const pending = useRef(new Map<number, (r: EditorSelection) => void>());
@@ -220,6 +242,10 @@ export const WebViewEditor = forwardRef<EditorHandle, WebViewEditorProps>(
       } else if (msg.type === "aiSummarize" && typeof msg.requestId === "number") {
         // /ai-summarize: POST /ai/complete with intent "summarize".
         void handleAiSummarize(msg.requestId, msg.context ?? "");
+      } else if (msg.type === "copyMarkdown" && typeof msg.text === "string") {
+        cfg.current.onCopyMarkdown?.(msg.text);
+      } else if (msg.type === "askAi" && typeof msg.text === "string") {
+        cfg.current.onAskAi?.(msg.text);
       } else if (msg.type === "navigateToDoc" && typeof msg.id === "string") {
         cfg.current.onNavigateToDoc?.(msg.id);
       } else if (msg.type === "linksChanged" && Array.isArray(msg.links)) {

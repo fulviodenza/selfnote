@@ -14,11 +14,13 @@ import { filterSuggestionItems } from "@blocknote/core/extensions";
 import { blocksToYDoc, yDocToBlocks, withCollaboration } from "@blocknote/core/yjs";
 import { BlockNoteView } from "@blocknote/mantine";
 import {
+  FormattingToolbarController,
   getDefaultReactSlashMenuItems,
   SuggestionMenuController,
   useCreateBlockNote,
   type DefaultReactSuggestionItem,
 } from "@blocknote/react";
+import { SelfnoteFormattingToolbar } from "./formattingToolbar";
 import { FRAGMENT_NAME, type DocConnection } from "@selfnote/core";
 import * as Y from "yjs";
 import { fromBase64, toBase64 } from "lib0/buffer";
@@ -92,6 +94,11 @@ export interface CollaborativeEditorProps {
   summarize?: SummarizeFn;
   /** Surface a transient error to the user (e.g. AI `409`/network failure). */
   onError?: (message: string) => void;
+  /**
+   * When provided, the selection toolbar shows an "Ask AI" button that hands
+   * the selected text to the host (which opens the Assist panel prefilled).
+   */
+  onAskAi?: (selection: string) => void;
 }
 
 /**
@@ -209,6 +216,7 @@ export function CollaborativeEditor({
   aiFeatures,
   summarize,
   onError,
+  onAskAi,
 }: CollaborativeEditorProps) {
   const editor = useCreateBlockNote(
     withCollaboration({
@@ -405,9 +413,14 @@ export function CollaborativeEditor({
         editable={editable}
         onChange={handleChange}
         // We supply our own slash menu (defaults + Table / Link note / AI
-        // summarize) instead of BlockNote's built-in one.
+        // summarize) and formatting toolbar (defaults + callout block-type
+        // entries + Ask AI + Copy as Markdown) instead of the built-in ones.
         slashMenu={false}
+        formattingToolbar={false}
       >
+        <FormattingToolbarController
+          formattingToolbar={() => <SelfnoteFormattingToolbar onAskAi={onAskAi} />}
+        />
         <SuggestionMenuController triggerCharacter="/" getItems={getSlashItems} />
         {linkNoteProvider && (
           <>

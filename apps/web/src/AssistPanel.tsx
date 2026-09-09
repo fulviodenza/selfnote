@@ -155,6 +155,7 @@ export function AssistPanel({
   status,
   docId,
   workspaceId,
+  prefill,
   onClose,
   onStaged,
 }: {
@@ -162,6 +163,8 @@ export function AssistPanel({
   status: AiStatus;
   docId: string;
   workspaceId: string;
+  /** Seed the composer (e.g. "Ask AI about selection"); user finishes the thought. */
+  prefill?: string;
   onClose: () => void;
   /** Called with a freshly-staged proposal so the parent can open the diff gate. */
   onStaged: (proposal: AiProposal) => void;
@@ -181,6 +184,14 @@ export function AssistPanel({
     setContext([]);
     setMessages([]);
   }, [docId]);
+
+  // Seed the composer from the host (e.g. "Ask AI about selection").
+  useEffect(() => {
+    if (prefill) {
+      setInput(prefill);
+      inputRef.current?.focus();
+    }
+  }, [prefill]);
 
   // Keep the newest message in view as it streams.
   useEffect(() => {

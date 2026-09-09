@@ -998,6 +998,8 @@ function EditorPaneInner({
   const [showShares, setShowShares] = useState(false);
   const [ai, setAi] = useState<AiStatus | null>(null);
   const [showAssist, setShowAssist] = useState(false);
+  // Composer prefill for "Ask AI about selection" from the formatting toolbar.
+  const [assistPrefill, setAssistPrefill] = useState("");
   const [showHistory, setShowHistory] = useState(false);
   const [editor, setEditor] = useState<AiEditor | null>(null);
   const titleTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
@@ -1275,6 +1277,18 @@ function EditorPaneInner({
             aiFeatures={ai?.features}
             summarize={ai?.available ? summarize : undefined}
             onError={showToast}
+            onAskAi={
+              ai?.available
+                ? (selection) => {
+                    setAssistPrefill(
+                      selection.trim()
+                        ? `About this passage:\n> ${selection.trim().replace(/\n/g, "\n> ")}\n\n`
+                        : "",
+                    );
+                    setShowAssist(true);
+                  }
+                : undefined
+            }
           />
           {editorToast && <div className="editor-toast">{editorToast}</div>}
           {childPages.length > 0 && (
@@ -1296,6 +1310,7 @@ function EditorPaneInner({
             status={ai}
             docId={doc.id}
             workspaceId={doc.workspace_id}
+            prefill={assistPrefill}
             onClose={() => setShowAssist(false)}
             onStaged={(proposal) => {
               bumpProposals();
