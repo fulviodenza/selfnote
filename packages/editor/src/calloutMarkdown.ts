@@ -23,7 +23,6 @@
  */
 import {
   CALLOUT_KINDS,
-  calloutLabel,
   calloutToMarkdown,
   parseCalloutMarker,
   type CalloutKind,
@@ -150,7 +149,9 @@ function markerLine(line: string): { kind: CalloutKind; rest: string } | null {
   const inner = line.replace(/^\s*>\s?/, "");
   const kind = parseCalloutMarker(inner);
   if (!kind) return null;
-  const m = new RegExp(`^\\s*\\[!${calloutLabel(kind)}\\]\\s*(.*)$`, "i").exec(inner);
+  // Match the raw marker token (which may be an alias like `[!info]`, possibly
+  // with an Obsidian fold suffix) rather than the canonical label.
+  const m = /^\s*\[!\w+\][+-]?\s*(.*)$/.exec(inner);
   if (!m) return null;
   return { kind, rest: m[1].trim() };
 }
