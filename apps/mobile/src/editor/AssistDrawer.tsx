@@ -112,6 +112,7 @@ export function AssistDrawer({
   docId,
   workspaceId,
   getText,
+  prefill,
   resolveMarkdown,
   onInsert,
   onReply,
@@ -121,6 +122,8 @@ export function AssistDrawer({
   docId: string;
   workspaceId: string;
   getText: () => Promise<string>;
+  /** Seed the composer (e.g. "Ask AI about selection"); user finishes the thought. */
+  prefill?: string;
   /** Render another note's body to Markdown for extra-context (from cache). */
   resolveMarkdown: (docId: string) => Promise<string>;
   onInsert: (text: string) => void;
@@ -134,6 +137,11 @@ export function AssistDrawer({
   const mdRules = useMemo(() => makeMarkdownRules(colors), [colors]);
   const [messages, setMessages] = useState<Msg[]>([]);
   const [input, setInput] = useState("");
+
+  // Seed the composer from the host (e.g. the selection bar's "Ask AI").
+  useEffect(() => {
+    if (prefill) setInput(prefill);
+  }, [prefill]);
   const [busy, setBusy] = useState(false);
   // Notes folded into each turn as extra context (opt-in, session-scoped per doc).
   const [contextNotes, setContextNotes] = useState<ContextNote[]>([]);

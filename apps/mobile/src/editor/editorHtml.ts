@@ -124,6 +124,33 @@ export const EDITOR_HTML = /* html */ `<!doctype html>
       .callout-important { --callout-accent: #8B5CF6; --callout-wash: #EEE8FB; }
       .callout-caution { --callout-accent: #C4392B; --callout-wash: #F8E7E4; }
 
+      /* Selection action bar (mobile stand-in for the web formatting toolbar). */
+      #selbar {
+        position: fixed;
+        left: 50%;
+        bottom: 14px;
+        transform: translateX(-50%);
+        display: none;
+        gap: 4px;
+        padding: 6px;
+        border: 1px solid #E2E1DC;
+        border-radius: 14px;
+        background: #FFFFFF;
+        box-shadow: 0 6px 24px rgba(0, 0, 0, 0.16);
+        z-index: 40;
+      }
+      #selbar.show { display: flex; }
+      #selbar button {
+        border: none;
+        background: none;
+        color: #1B1D22;
+        font-size: 13px;
+        font-weight: 600;
+        padding: 8px 10px;
+        border-radius: 10px;
+      }
+      #selbar button:active { background: #EAEDFB; }
+
       /* Quote blocks as a soft card — no "citation" left bar (mirrors web). */
       .bn-editor [data-content-type="quote"],
       .bn-editor blockquote {
@@ -279,6 +306,75 @@ export const EDITOR_HTML = /* html */ `<!doctype html>
             try { tiptap.commands.selectAll(); } catch {}
           }
         }, true);
+      }
+
+      // Selection action bar: shown while a non-empty text selection exists.
+      // Turn into callout/quote in place, copy the selection as Markdown (via
+      // RN's clipboard), or hand the selected text to the Assist drawer.
+      // Mobile parity for packages/editor/src/formattingToolbar.tsx.
+      function setupSelectionToolbar(editor) {
+        const tiptap = editor._tiptapEditor;
+        if (!tiptap) return;
+
+        const bar = document.createElement("div");
+        bar.id = "selbar";
+        const mkBtn = (label, fn) => {
+          const b = document.createElement("button");
+          b.textContent = label;
+          // mousedown so the tap doesn't collapse the selection first.
+          b.addEventListener("mousedown", (e) => { e.preventDefault(); fn(); });
+          bar.appendChild(b);
+        };
+
+        const selectedBlocks = () => {
+          try {
+            const sel = editor.getSelection && editor.getSelection();
+            if (sel && Array.isArray(sel.blocks) && sel.blocks.length) return sel.blocks;
+          } catch {}
+          try { return [editor.getTextCursorPosition().block]; } catch { return []; }
+        };
+        const turnInto = (type, props) => {
+          for (const block of selectedBlocks()) {
+            try { editor.updateBlock(block, props ? { type, props } : { type }); } catch {}
+          }
+        };
+
+        mkBtn("Callout", () => turnInto("callout", { kind: "note" }));
+        mkBtn("Quote", () => turnInto("quote"));
+        mkBtn("Copy MD", () => {
+          (async () => {
+            try {
+              const md = await calloutBlocksToMarkdown(editor, selectedBlocks());
+              send({ type: "copyMarkdown", text: String(md || "").trim() });
+            } catch {}
+          })();
+        });
+        // Always created; shown only when the server reports an AI provider
+        // (aiAvailable arrives from RN after mount).
+        const aiBtn = document.createElement("button");
+        aiBtn.textContent = "Ask AI";
+        aiBtn.addEventListener("mousedown", (e) => {
+          e.preventDefault();
+          let text = "";
+          try { text = String(window.getSelection() || ""); } catch {}
+          send({ type: "askAi", text: text.trim() });
+        });
+        bar.appendChild(aiBtn);
+        document.body.appendChild(bar);
+
+        let timer = null;
+        document.addEventListener("selectionchange", () => {
+          if (timer) clearTimeout(timer);
+          timer = setTimeout(() => {
+            let show = false;
+            try {
+              const sel = tiptap.state.selection;
+              show = editable && sel && sel.to > sel.from;
+            } catch {}
+            aiBtn.style.display = aiAvailable ? "" : "none";
+            bar.className = show ? "show" : "";
+          }, 150);
+        });
       }
 
       // Uppercase GitHub label for a kind (mirrors callout.tsx calloutLabel).
@@ -674,6 +770,7 @@ export const EDITOR_HTML = /* html */ `<!doctype html>
           setupSlashMenu(editor);
           setupCalloutInputRule(editor);
           setupSelectAll(editor);
+          setupSelectionToolbar(editor);
           window.__editorMounted = true;
           const fb = document.getElementById("fallback");
           if (fb) fb.style.display = "none";

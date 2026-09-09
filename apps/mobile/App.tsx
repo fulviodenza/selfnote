@@ -11,6 +11,7 @@ import {
   View,
 } from "react-native";
 import { Feather } from "@expo/vector-icons";
+import * as Clipboard from "expo-clipboard";
 import { useFonts } from "expo-font";
 import { StatusBar } from "expo-status-bar";
 import AsyncStorage from "@react-native-async-storage/async-storage";
@@ -913,6 +914,8 @@ function ConnectedEditor({
   // Staged AI edits awaiting review (banner) + the one currently open in the diff.
   const [proposals, setProposals] = useState<AiProposal[]>([]);
   const [reviewing, setReviewing] = useState<AiProposal | null>(null);
+  // Composer prefill for the selection bar's "Ask AI".
+  const [assistPrefill, setAssistPrefill] = useState("");
   // Bumped after the editor re-scans + stores its outgoing links, so the
   // backlinks/outgoing panel re-fetches (docs/features/backlinks-graph.md §5).
   const [linksVersion, setLinksVersion] = useState(0);
@@ -1075,6 +1078,19 @@ function ConnectedEditor({
         onNavigateToDoc={onNavigateToDoc}
         onLinksChanged={() => setLinksVersion((v) => v + 1)}
         onError={(m) => toast(m)}
+        onCopyMarkdown={(md) => {
+          Clipboard.setStringAsync(md)
+            .then(() => toast("Copied as Markdown."))
+            .catch(() => toast("Couldn't copy."));
+        }}
+        onAskAi={(selection) => {
+          setAssistPrefill(
+            selection
+              ? `About this passage:\n> ${selection.replace(/\n/g, "\n> ")}\n\n`
+              : "",
+          );
+          setShowAssist(true);
+        }}
       />
       <BacklinksPanel
         docId={doc.id}
@@ -1087,6 +1103,7 @@ function ConnectedEditor({
           status={ai}
           docId={doc.id}
           workspaceId={doc.workspace_id}
+          prefill={assistPrefill}
           getText={() => editorRef.current?.getText() ?? Promise.resolve("")}
           resolveMarkdown={async (id) => {
             // The current note is already mounted — read it live; others come
