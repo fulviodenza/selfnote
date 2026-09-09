@@ -1,0 +1,130 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Claude & MCP — Selfnote</title>
+  <meta name="description" content="Connect Claude in the CLI, Desktop, or claude.ai to your Selfnote so it can save and edit notes." />
+  <link rel="icon" type="image/png" href="/assets/favicon.png" />
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+  <link href="https://fonts.googleapis.com/css2?family=Source+Serif+4:opsz,wght@8..60,400..700&family=Inter+Tight:wght@400..700&display=swap" rel="stylesheet" />
+  <link rel="stylesheet" href="/assets/site.css" />
+</head>
+<body>
+
+<header class="site-head">
+  <div class="wrap">
+    <a class="brand" href="/"><img src="/assets/logo.png" alt="" />Selfnote</a>
+    <nav class="site-nav">
+      <a href="/docs/" aria-current="page">Docs</a>
+      <a href="/use-cases.html" class="hide-sm">Use cases</a>
+      <a href="/resources.html" class="hide-sm">Resources</a>
+      <a href="/download.html">Download</a>
+      <a href="https://github.com/fulviodenza/selfnote">GitHub</a>
+    </nav>
+  </div>
+</header>
+
+<div class="docs-shell">
+  <div class="wrap">
+    <nav class="docs-nav" aria-label="Documentation">
+      <h4>Getting started</h4>
+      <a href="/docs/">Overview &amp; quick start</a>
+      <a href="/docs/self-hosting.html">Self-hosting</a>
+      <a href="/docs/clients.html">The clients</a>
+      <h4>Guides</h4>
+      <a href="/docs/ai.html">Enabling AI Assist</a>
+      <a href="/docs/mcp.html" aria-current="page">Claude &amp; MCP</a>
+      <h4>Reference</h4>
+      <a href="/docs/architecture.html">Architecture</a>
+      <a href="/docs/roadmap.html">Feature briefs</a>
+    </nav>
+
+    <article class="prose">
+
+      <h1>Claude &amp; MCP</h1>
+      <p class="subtitle">In a chat that has nothing to do with Selfnote, say "save this to my
+      notes" — Claude writes a clean summary into your instance and hands back the link.</p>
+
+      <h2>How it connects</h2>
+      <p>The <a href="https://github.com/fulviodenza/selfnote/tree/main/tools/mcp-server">Selfnote
+      MCP server</a> runs in two modes, built from the same package:</p>
+      <ul>
+        <li><strong>Local</strong> — a small stdio process next to Claude CLI or Claude
+        Desktop.</li>
+        <li><strong>Remote</strong> — an HTTP endpoint behind TLS, so claude.ai can reach it as
+        a custom connector.</li>
+      </ul>
+
+      <h2>1 — Mint a personal access token</h2>
+      <p>In the Selfnote web app: <strong>Connections</strong> (sidebar) → name a token →
+      <strong>Generate</strong>. Copy the <code>snp_…</code> value; it's shown once and can
+      read and write your notes, so treat it like a password. Revoke it any time from the same
+      screen.</p>
+
+      <h2>2 — Local setup (Claude CLI or Desktop)</h2>
+<pre><code>cd tools/mcp-server && npm install && npm run build
+
+claude mcp add selfnote \
+  --env SELFNOTE_URL=https://notes.example.com \
+  --env SELFNOTE_TOKEN=snp_... \
+  -- node "$(pwd)/dist/index.js"</code></pre>
+      <p>For Claude Desktop, add the equivalent entry to
+      <code>claude_desktop_config.json</code> and restart; the <code>selfnote</code> tools
+      should appear.</p>
+
+      <h2>2′ — Remote setup (claude.ai)</h2>
+      <p>Run the server in HTTP mode behind TLS — on an existing cluster, publishing a
+      hostname through your Cloudflare tunnel is the easiest route:</p>
+<pre><code>docker run -d --name selfnote-mcp -p 8080:8080 \
+  -e MCP_HTTP_PORT=8080 \
+  -e MCP_HTTP_AUTH=$(openssl rand -hex 24) \
+  -e SELFNOTE_URL=https://notes.example.com \
+  -e SELFNOTE_TOKEN=snp_... \
+  ghcr.io/fulviodenza/selfnote-mcp:latest</code></pre>
+      <p>Then in claude.ai → Settings → Connectors → Add custom connector, point it at
+      <code>https://mcp.notes.example.com/mcp</code> with the <code>MCP_HTTP_AUTH</code> value
+      as the bearer token.</p>
+      <div class="callout"><p>The server holds your token, so anyone who can reach
+      <code>/mcp</code> acts as you. Always set <code>MCP_HTTP_AUTH</code>, stay on HTTPS, and
+      run one server instance per user.</p></div>
+
+      <h2>3 — Teach Claude the workflow (optional)</h2>
+      <p>The <a href="https://github.com/fulviodenza/selfnote/tree/main/skills/save-to-selfnote"><code>save-to-selfnote</code></a>
+      skill teaches Claude to summarize well, pick the right note, save, and report where it
+      landed. Copy the folder into <code>~/.claude/skills/</code> (Claude Code) or your
+      project's <code>.claude/skills/</code>.</p>
+
+      <h2>What Claude can do once connected</h2>
+      <ul>
+        <li><code>save_conversation</code> — file a Markdown summary of the current chat as a
+        note and return its link.</li>
+        <li><code>list_notes</code> — find the right note to target.</li>
+        <li><code>read_note</code>, <code>append_to_note</code>, <code>update_note</code> —
+        true in-place edits: the MCP reconstructs the Yjs doc, mutates it, and sends back an
+        incremental CRDT diff. Edits merge cleanly and sync live to open editors, exactly like
+        a human's keystrokes.</li>
+      </ul>
+      <p>That last part makes "living documents" work: keep a running note and say
+      <em>"add X to my Feature Summary note"</em> — Claude finds it, reads it, appends, and it
+      updates in place on every device.</p>
+
+    </article>
+  </div>
+</div>
+
+<footer class="site-foot">
+  <div class="wrap">
+    <span>Selfnote</span>
+    <a href="/docs/">Documentation</a>
+    <a href="/use-cases.html">Use cases</a>
+    <a href="/resources.html">Resources</a>
+    <span class="spacer"></span>
+    <a href="https://github.com/fulviodenza/selfnote">Source on GitHub</a>
+    <a href="https://github.com/fulviodenza/selfnote/blob/main/LICENSE">License</a>
+  </div>
+</footer>
+
+</body>
+</html>

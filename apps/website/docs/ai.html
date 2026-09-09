@@ -1,0 +1,136 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Enabling AI Assist — Selfnote</title>
+  <meta name="description" content="Turn on the Assist panel by giving your API server a provider: Claude CLI, the Anthropic API, or Ollama." />
+  <link rel="icon" type="image/png" href="/assets/favicon.png" />
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+  <link href="https://fonts.googleapis.com/css2?family=Source+Serif+4:opsz,wght@8..60,400..700&family=Inter+Tight:wght@400..700&display=swap" rel="stylesheet" />
+  <link rel="stylesheet" href="/assets/site.css" />
+</head>
+<body>
+
+<header class="site-head">
+  <div class="wrap">
+    <a class="brand" href="/"><img src="/assets/logo.png" alt="" />Selfnote</a>
+    <nav class="site-nav">
+      <a href="/docs/" aria-current="page">Docs</a>
+      <a href="/use-cases.html" class="hide-sm">Use cases</a>
+      <a href="/resources.html" class="hide-sm">Resources</a>
+      <a href="/download.html">Download</a>
+      <a href="https://github.com/fulviodenza/selfnote">GitHub</a>
+    </nav>
+  </div>
+</header>
+
+<div class="docs-shell">
+  <div class="wrap">
+    <nav class="docs-nav" aria-label="Documentation">
+      <h4>Getting started</h4>
+      <a href="/docs/">Overview &amp; quick start</a>
+      <a href="/docs/self-hosting.html">Self-hosting</a>
+      <a href="/docs/clients.html">The clients</a>
+      <h4>Guides</h4>
+      <a href="/docs/ai.html" aria-current="page">Enabling AI Assist</a>
+      <a href="/docs/mcp.html">Claude &amp; MCP</a>
+      <h4>Reference</h4>
+      <a href="/docs/architecture.html">Architecture</a>
+      <a href="/docs/roadmap.html">Feature briefs</a>
+    </nav>
+
+    <article class="prose">
+
+      <h1>Enabling AI Assist</h1>
+      <p class="subtitle">AI is off by default and server-owned. Give the API one provider
+      credential and the ✦ Assist panel appears on every client — no client updates.</p>
+
+      <h2>Pick a provider</h2>
+      <table>
+        <tr><th>Provider</th><th>You need</th><th>Notes</th></tr>
+        <tr><td><strong>Claude CLI</strong> (subscription)</td><td>a token from <code>claude setup-token</code></td>
+        <td>The <code>selfnote-api</code> image bundles the Claude Code CLI. Runs on your
+        server — document text never leaves your box. Uses your Claude plan; no per-request
+        billing.</td></tr>
+        <tr><td><strong>Anthropic API</strong></td><td><code>ANTHROPIC_API_KEY</code></td>
+        <td>Pay-per-use against <code>api.anthropic.com</code>.</td></tr>
+        <tr><td><strong>Ollama</strong></td><td>a reachable <code>OLLAMA_HOST</code></td>
+        <td>Local open-weights models; fully self-hosted.</td></tr>
+      </table>
+      <p>Detection order is <code>CLAUDE_CODE_OAUTH_TOKEN</code> →
+      <code>ANTHROPIC_API_KEY</code> → <code>OLLAMA_HOST</code>. Set exactly one.</p>
+
+      <h2>Claude CLI, step by step</h2>
+      <ol class="steps">
+        <li>On any machine where you're signed into Claude, generate a long-lived token
+        (valid about a year):
+<pre><code>claude setup-token</code></pre></li>
+        <li>Store it as a secret — paste at the silent prompt so it stays out of your shell
+        history:
+<pre><code>read -rs TOKEN && kubectl create secret generic selfnote-ai -n selfnote \
+  --from-literal=CLAUDE_CODE_OAUTH_TOKEN="$TOKEN" && unset TOKEN</code></pre></li>
+        <li>Wire it to the API and restart:
+<pre><code>kubectl set env deployment/selfnote-api -n selfnote --from=secret/selfnote-ai
+kubectl rollout restart deployment/selfnote-api -n selfnote</code></pre></li>
+      </ol>
+
+      <h2>Or let Helm wire it</h2>
+      <p>The chart's <code>ai:</code> block replaces the <code>kubectl</code> steps. Reference
+      a secret you created out-of-band, so the token never lives in your values file:</p>
+<pre><code># values.yaml
+ai:
+  enabled: true
+  provider: claude-cli        # claude-cli | anthropic | ollama
+  existingSecret: selfnote-ai # keys: CLAUDE_CODE_OAUTH_TOKEN or ANTHROPIC_API_KEY</code></pre>
+      <p>Ollama needs no secret — just a reachable host:</p>
+<pre><code>ai:
+  enabled: true
+  provider: ollama
+  ollamaHost: http://ollama.ollama.svc:11434
+  model: llama3</code></pre>
+
+      <h2>Verify</h2>
+<pre><code>curl -H "authorization: Bearer &lt;access-token&gt;" https://&lt;your-host&gt;/api/ai/status
+# → {"available":true,"provider":"claude-cli","model":"…","features":[…]}</code></pre>
+      <p>Once <code>available</code> is <code>true</code>, the ✦ Assist button appears in the
+      editor topbar on every client.</p>
+
+      <h2>What you get in the editor</h2>
+      <ul>
+        <li>A streaming chat sidebar grounded in the current note — answers drop straight into
+        the document.</li>
+        <li>Note-level actions: Summarize, Rewrite in my voice, Extract action items.</li>
+        <li>Staged AI edits: writes from AI arrive as proposals with a before/after diff, and
+        become real edits only when a human accepts them.</li>
+      </ul>
+
+      <h2>Security notes</h2>
+      <ul>
+        <li>All <code>/ai/*</code> endpoints require auth, and completions verify workspace
+        membership for the referenced document.</li>
+        <li>The CLI provider spawns a <code>claude -p</code> process per request with a 30s
+        timeout — rate-limit it if untrusted users can reach your instance.</li>
+        <li>Prefer the local CLI or Ollama if document text must never leave your
+        infrastructure.</li>
+      </ul>
+
+    </article>
+  </div>
+</div>
+
+<footer class="site-foot">
+  <div class="wrap">
+    <span>Selfnote</span>
+    <a href="/docs/">Documentation</a>
+    <a href="/use-cases.html">Use cases</a>
+    <a href="/resources.html">Resources</a>
+    <span class="spacer"></span>
+    <a href="https://github.com/fulviodenza/selfnote">Source on GitHub</a>
+    <a href="https://github.com/fulviodenza/selfnote/blob/main/LICENSE">License</a>
+  </div>
+</footer>
+
+</body>
+</html>

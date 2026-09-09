@@ -1,0 +1,142 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Architecture — Selfnote</title>
+  <meta name="description" content="Why Selfnote is built on CRDTs, and how documents, sync, and storage actually work." />
+  <link rel="icon" type="image/png" href="/assets/favicon.png" />
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+  <link href="https://fonts.googleapis.com/css2?family=Source+Serif+4:opsz,wght@8..60,400..700&family=Inter+Tight:wght@400..700&display=swap" rel="stylesheet" />
+  <link rel="stylesheet" href="/assets/site.css" />
+</head>
+<body>
+
+<header class="site-head">
+  <div class="wrap">
+    <a class="brand" href="/"><img src="/assets/logo.png" alt="" />Selfnote</a>
+    <nav class="site-nav">
+      <a href="/docs/" aria-current="page">Docs</a>
+      <a href="/use-cases.html" class="hide-sm">Use cases</a>
+      <a href="/resources.html" class="hide-sm">Resources</a>
+      <a href="/download.html">Download</a>
+      <a href="https://github.com/fulviodenza/selfnote">GitHub</a>
+    </nav>
+  </div>
+</header>
+
+<div class="docs-shell">
+  <div class="wrap">
+    <nav class="docs-nav" aria-label="Documentation">
+      <h4>Getting started</h4>
+      <a href="/docs/">Overview &amp; quick start</a>
+      <a href="/docs/self-hosting.html">Self-hosting</a>
+      <a href="/docs/clients.html">The clients</a>
+      <h4>Guides</h4>
+      <a href="/docs/ai.html">Enabling AI Assist</a>
+      <a href="/docs/mcp.html">Claude &amp; MCP</a>
+      <h4>Reference</h4>
+      <a href="/docs/architecture.html" aria-current="page">Architecture</a>
+      <a href="/docs/roadmap.html">Feature briefs</a>
+    </nav>
+
+    <article class="prose">
+
+      <h1>Architecture</h1>
+      <p class="subtitle">One decision shapes everything else: real-time multiplayer
+      <em>and</em> offline-first, together, mean the server can't resolve edits by
+      timestamp.</p>
+
+      <h2>Local-first + CRDT</h2>
+      <p>Two clients can diverge — one offline for a day — and must merge without losing data
+      or asking a human to pick a winner. That's a CRDT's job. Selfnote uses
+      <strong>Yjs</strong>: the most battle-tested implementation, with native rich-text types,
+      editor bindings, and a Rust port (<strong>yrs</strong>) that is wire-compatible — so JS
+      clients and the Rust server speak the same protocol without reimplementing anything.</p>
+      <p>The consequence worth internalizing: <em>a document is not rows in a table</em>. Each
+      page is a Yjs doc; Postgres stores metadata and the update log, not the block tree.</p>
+
+      <h2>Two services, one clear split</h2>
+<pre><code>clients (web / desktop / mobile — local-first, Yjs + IndexedDB/SQLite)
+    │ WebSocket (Yjs sync protocol)          │ HTTP
+    ▼                                        ▼
+sync server (Rust, yrs)                 api server (Rust, axum)
+  live rooms, presence,                   auth, workspaces, page tree,
+  update relay + persistence              permissions, room tokens, AI
+    │                                        │
+    └────────────► Postgres ◄────────────────┘
+         update log + snapshots + metadata
+                    │
+                    ▼
+              MinIO (files, snapshot backups, WAL archive)</code></pre>
+      <ul>
+        <li><strong>Sync server</strong> — the hot path. Holds live rooms in memory, relays
+        CRDT updates, tracks awareness (cursors, presence), persists the stream. Rust/yrs keeps
+        hundreds of rooms cheap.</li>
+        <li><strong>API server</strong> — the control plane. Stateless and horizontally
+        scalable. It decides <em>who may open which room</em> and issues short-lived room
+        tokens (JWTs scoped to a document and permission) that the sync server verifies before
+        admitting a WebSocket.</li>
+      </ul>
+
+      <h2>How a document is stored</h2>
+      <ul>
+        <li><code>doc_updates</code> — an append-only log of Yjs updates (doc, sequence,
+        author, bytes).</li>
+        <li><code>doc_snapshots</code> — every N updates or T seconds the log is compacted
+        into a snapshot and old updates pruned.</li>
+        <li>Loading a room replays latest snapshot + updates-since into yrs; snapshots are
+        also pushed to MinIO for backup.</li>
+        <li>The <em>page tree</em> (nesting, titles, archive state) lives in normal Postgres
+        tables, so navigation and search stay queryable; the <em>block tree within a page</em>
+        lives in the Yjs doc, where merges happen.</li>
+      </ul>
+
+      <h2>The client stack</h2>
+      <p><code>@selfnote/core</code> is framework-free TypeScript shared by all clients: Yjs
+      wiring, block operations, the sync client (reconnection, offline queue), a pluggable
+      persistence adapter (IndexedDB on web, SQLite on mobile/desktop), and the API client.
+      <code>@selfnote/editor</code> wraps BlockNote for collaborative editing. Desktop is
+      Tauri 2 loading the same React bundle; mobile is Expo with the editor in a WebView
+      bridged to native storage.</p>
+
+      <h2>Why these languages</h2>
+      <ul>
+        <li><strong>Rust</strong> for both servers: yrs is wire-compatible with Yjs and the
+        sync path is memory-sensitive; axum keeps the API in the same language with types
+        shared across services.</li>
+        <li><strong>TypeScript</strong> for everything the user touches, with one shared core
+        instead of three ports.</li>
+        <li><strong>Go</strong> for the operator, where the kubebuilder ecosystem outweighs
+        adding a third language to low-churn code.</li>
+      </ul>
+
+      <h2>Storage &amp; backups</h2>
+      <p>Postgres runs under <strong>CloudNativePG</strong> — HA, streaming replication, and
+      continuous WAL archiving to MinIO with point-in-time recovery. MinIO also holds file
+      uploads and versioned Yjs snapshots, so content is recoverable independently of the
+      database. The restore path is a tested script
+      (<code>deploy/restore-drill.sh</code>), not a hope.</p>
+
+      <p>The full design document, including the reasoning behind each trade-off, lives in the
+      repo as <a href="https://github.com/fulviodenza/selfnote/blob/main/ARCHITECTURE.md"><code>ARCHITECTURE.md</code></a>.</p>
+
+    </article>
+  </div>
+</div>
+
+<footer class="site-foot">
+  <div class="wrap">
+    <span>Selfnote</span>
+    <a href="/docs/">Documentation</a>
+    <a href="/use-cases.html">Use cases</a>
+    <a href="/resources.html">Resources</a>
+    <span class="spacer"></span>
+    <a href="https://github.com/fulviodenza/selfnote">Source on GitHub</a>
+    <a href="https://github.com/fulviodenza/selfnote/blob/main/LICENSE">License</a>
+  </div>
+</footer>
+
+</body>
+</html>

@@ -1,0 +1,78 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Download — Selfnote</title>
+  <meta name="description" content="Get the Selfnote Android APK, build the desktop app, or self-host the server." />
+  <link rel="icon" type="image/png" href="/assets/favicon.png" />
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+  <link href="https://fonts.googleapis.com/css2?family=Source+Serif+4:opsz,wght@8..60,400..700&family=Inter+Tight:wght@400..700&display=swap" rel="stylesheet" />
+  <link rel="stylesheet" href="/assets/site.css" />
+</head>
+<body>
+
+<header class="site-head">
+  <div class="wrap">
+    <a class="brand" href="/"><img src="/assets/logo.png" alt="" />Selfnote</a>
+    <nav class="site-nav">
+      <a href="/docs/">Docs</a>
+      <a href="/use-cases.html" class="hide-sm">Use cases</a>
+      <a href="/resources.html" class="hide-sm">Resources</a>
+      <a href="/download.html" aria-current="page">Download</a>
+      <a href="https://github.com/fulviodenza/selfnote">GitHub</a>
+    </nav>
+  </div>
+</header>
+
+<div class="docs-shell">
+  <div class="wrap" style="display:block">
+    <article class="prose">
+      <h1>Download</h1>
+      <p class="subtitle">The clients are free and connect to any Selfnote server — yours,
+      or one a friend hosts for you.</p>
+
+      <h2>Android</h2>
+      <p><a class="btn btn-terra" href="https://github.com/fulviodenza/selfnote/releases/download/v0.1.0/selfnote-0.1.0.apk">Download selfnote-0.1.0.apk</a></p>
+      <p>Direct APK install (sideload): allow "install unknown apps" for your browser or file
+      manager when Android asks. On first launch, enter your server address — the app
+      verifies it and remembers it. All releases, including newer builds, are on the
+      <a href="https://github.com/fulviodenza/selfnote/releases">releases page</a>.</p>
+
+      <h2>iOS</h2>
+      <p>No store build yet — run it from source with the Expo toolchain:
+      <code>cd apps/mobile && npm install && npm run ios</code> (needs Xcode).</p>
+
+      <h2>Desktop (macOS, Linux, Windows)</h2>
+      <p>Built from source with Tauri 2 — native app and installer land under
+      <code>src-tauri/target/release/bundle</code>:</p>
+<pre><code>cargo install tauri-cli --version "^2"
+cd apps/desktop && cargo tauri build</code></pre>
+
+      <h2>Web</h2>
+      <p>The web client ships with your server — whatever origin serves your instance
+      <em>is</em> the app. Nothing to download.</p>
+
+      <h2>The server</h2>
+      <p>The part that makes it yours. Start with the
+      <a href="/docs/self-hosting.html">self-hosting guide</a>: a Helm chart for Kubernetes,
+      or three processes and a Postgres on any box.</p>
+    </article>
+  </div>
+</div>
+
+<footer class="site-foot">
+  <div class="wrap">
+    <span>Selfnote</span>
+    <a href="/docs/">Documentation</a>
+    <a href="/use-cases.html">Use cases</a>
+    <a href="/resources.html">Resources</a>
+    <span class="spacer"></span>
+    <a href="https://github.com/fulviodenza/selfnote">Source on GitHub</a>
+    <a href="https://github.com/fulviodenza/selfnote/blob/main/LICENSE">License</a>
+  </div>
+</footer>
+
+</body>
+</html>

@@ -1,0 +1,114 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Feature briefs — Selfnote</title>
+  <meta name="description" content="Design briefs for Selfnote features: what shipped, what's specified, and how each works." />
+  <link rel="icon" type="image/png" href="/assets/favicon.png" />
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+  <link href="https://fonts.googleapis.com/css2?family=Source+Serif+4:opsz,wght@8..60,400..700&family=Inter+Tight:wght@400..700&display=swap" rel="stylesheet" />
+  <link rel="stylesheet" href="/assets/site.css" />
+</head>
+<body>
+
+<header class="site-head">
+  <div class="wrap">
+    <a class="brand" href="/"><img src="/assets/logo.png" alt="" />Selfnote</a>
+    <nav class="site-nav">
+      <a href="/docs/" aria-current="page">Docs</a>
+      <a href="/use-cases.html" class="hide-sm">Use cases</a>
+      <a href="/resources.html" class="hide-sm">Resources</a>
+      <a href="/download.html">Download</a>
+      <a href="https://github.com/fulviodenza/selfnote">GitHub</a>
+    </nav>
+  </div>
+</header>
+
+<div class="docs-shell">
+  <div class="wrap">
+    <nav class="docs-nav" aria-label="Documentation">
+      <h4>Getting started</h4>
+      <a href="/docs/">Overview &amp; quick start</a>
+      <a href="/docs/self-hosting.html">Self-hosting</a>
+      <a href="/docs/clients.html">The clients</a>
+      <h4>Guides</h4>
+      <a href="/docs/ai.html">Enabling AI Assist</a>
+      <a href="/docs/mcp.html">Claude &amp; MCP</a>
+      <h4>Reference</h4>
+      <a href="/docs/architecture.html">Architecture</a>
+      <a href="/docs/roadmap.html" aria-current="page">Feature briefs</a>
+    </nav>
+
+    <article class="prose">
+
+      <h1>Feature briefs</h1>
+      <p class="subtitle">Each substantial feature starts as a written design brief in the repo
+      — problem, data model, API, client behavior. The short versions:</p>
+
+      <h2>Backlinks &amp; graph view</h2>
+      <p>Note-to-note links, a "notes that link here" panel, and a graph over the workspace —
+      including an explorable 3D mode with an orbit camera. Because content lives in the CRDT
+      rather than a queryable column, the client that owns the editor extracts outgoing links
+      and reports them to the server.
+      <a href="https://github.com/fulviodenza/selfnote/blob/main/docs/features/backlinks-graph.md">Full brief</a></p>
+
+      <h2>Version history &amp; time-travel</h2>
+      <p>Named restore points along a timeline: browse, preview read-only, and restore any
+      past state — implemented as a <em>forward</em> CRDT update that turns the current state
+      back into the chosen one, so history is never destroyed and collaborators stay
+      consistent.
+      <a href="https://github.com/fulviodenza/selfnote/blob/main/docs/features/version-history.md">Full brief</a></p>
+
+      <h2>Calendar &amp; task sync</h2>
+      <p>Any document can be promoted to a task with due date, status, and priority; tasks
+      surface in an agenda view and publish as a read-only iCal feed for Google, Apple, or
+      Outlook. A task <em>is</em> a document — no parallel entity.
+      <a href="https://github.com/fulviodenza/selfnote/blob/main/docs/features/calendar-task-sync.md">Full brief</a></p>
+
+      <h2>Editor slash commands</h2>
+      <p>Type <code>/</code> to insert tables, links to other notes, or run AI actions without
+      leaving the keyboard — with strict parity across web, desktop, and mobile.
+      <a href="https://github.com/fulviodenza/selfnote/blob/main/docs/features/editor-slash-commands.md">Full brief</a></p>
+
+      <h2>Diff-preview for AI edits</h2>
+      <p>Any AI-originated write becomes a <em>proposal</em> — persisted but not applied, with
+      a human-readable before/after — and turns into a real Yjs update only when a person
+      accepts it. Especially important for remote MCP writes.
+      <a href="https://github.com/fulviodenza/selfnote/blob/main/docs/features/ai-edit-diff-preview.md">Full brief</a></p>
+
+      <h2>Note-level AI actions</h2>
+      <p>Summarize, Rewrite in my voice (with a persisted per-user voice profile), and Extract
+      action items — one tap on the current note or a selection, streaming a result you insert
+      or replace.
+      <a href="https://github.com/fulviodenza/selfnote/blob/main/docs/features/note-level-ai-actions.md">Full brief</a></p>
+
+      <h2>Multi-note context for chat</h2>
+      <p>The Assist chat can pull in linked and recently-viewed notes as extra grounding —
+      chosen client-side, authorized and rendered server-side.
+      <a href="https://github.com/fulviodenza/selfnote/blob/main/docs/features/multi-note-context.md">Full brief</a></p>
+
+      <h2>Share link analytics</h2>
+      <p>Every public share link records views; owners see total views and last-viewed, so
+      stale links get revoked with confidence.
+      <a href="https://github.com/fulviodenza/selfnote/blob/main/docs/features/share-analytics.md">Full brief</a></p>
+
+    </article>
+  </div>
+</div>
+
+<footer class="site-foot">
+  <div class="wrap">
+    <span>Selfnote</span>
+    <a href="/docs/">Documentation</a>
+    <a href="/use-cases.html">Use cases</a>
+    <a href="/resources.html">Resources</a>
+    <span class="spacer"></span>
+    <a href="https://github.com/fulviodenza/selfnote">Source on GitHub</a>
+    <a href="https://github.com/fulviodenza/selfnote/blob/main/LICENSE">License</a>
+  </div>
+</footer>
+
+</body>
+</html>

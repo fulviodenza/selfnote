@@ -1,0 +1,124 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Self-hosting — Selfnote</title>
+  <meta name="description" content="Deploy Selfnote on Kubernetes with the Helm chart or the operator, or on a single box." />
+  <link rel="icon" type="image/png" href="/assets/favicon.png" />
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+  <link href="https://fonts.googleapis.com/css2?family=Source+Serif+4:opsz,wght@8..60,400..700&family=Inter+Tight:wght@400..700&display=swap" rel="stylesheet" />
+  <link rel="stylesheet" href="/assets/site.css" />
+</head>
+<body>
+
+<header class="site-head">
+  <div class="wrap">
+    <a class="brand" href="/"><img src="/assets/logo.png" alt="" />Selfnote</a>
+    <nav class="site-nav">
+      <a href="/docs/" aria-current="page">Docs</a>
+      <a href="/use-cases.html" class="hide-sm">Use cases</a>
+      <a href="/resources.html" class="hide-sm">Resources</a>
+      <a href="/download.html">Download</a>
+      <a href="https://github.com/fulviodenza/selfnote">GitHub</a>
+    </nav>
+  </div>
+</header>
+
+<div class="docs-shell">
+  <div class="wrap">
+    <nav class="docs-nav" aria-label="Documentation">
+      <h4>Getting started</h4>
+      <a href="/docs/">Overview &amp; quick start</a>
+      <a href="/docs/self-hosting.html" aria-current="page">Self-hosting</a>
+      <a href="/docs/clients.html">The clients</a>
+      <h4>Guides</h4>
+      <a href="/docs/ai.html">Enabling AI Assist</a>
+      <a href="/docs/mcp.html">Claude &amp; MCP</a>
+      <h4>Reference</h4>
+      <a href="/docs/architecture.html">Architecture</a>
+      <a href="/docs/roadmap.html">Feature briefs</a>
+    </nav>
+
+    <article class="prose">
+
+      <h1>Self-hosting</h1>
+      <p class="subtitle">Everything talks to two services and a Postgres. Put those three
+      things somewhere you trust and every client follows.</p>
+
+      <h2>The shape of a deployment</h2>
+      <p>The browser and native clients all talk to <code>api</code> (port 4445) and
+      <code>sync</code> (port 4444) plus Postgres. The web client is static files served by an
+      nginx that also proxies <code>/api</code> and <code>/ws</code> to the two services — one
+      origin serves the whole app, and the client resolves its server from the page origin, so
+      the same build works on any domain with nothing baked in.</p>
+
+      <h2>Helm (recommended)</h2>
+      <p>The chart at <a href="https://github.com/fulviodenza/selfnote/tree/main/deploy/helm/selfnote"><code>deploy/helm/selfnote</code></a>
+      deploys the api, sync, and web workloads, a WebSocket-aware Ingress, in-cluster MinIO for
+      files and backups, and a CloudNativePG Postgres cluster with WAL archiving.</p>
+<pre><code>helm install selfnote deploy/helm/selfnote \
+  --namespace selfnote --create-namespace \
+  --values my-values.yaml</code></pre>
+      <p>In your values, set at minimum:</p>
+      <ul>
+        <li>your image registry and tags,</li>
+        <li>the ingress host (e.g. <code>notes.example.com</code>),</li>
+        <li>real secrets — <code>jwtSecret</code>, <code>roomSecret</code>, and the MinIO
+        credentials. Change every <code>change-me-*</code> placeholder before exposing the
+        instance.</li>
+      </ul>
+      <div class="callout"><p>The chart also has a first-class <code>ai:</code> block — see
+      <a href="/docs/ai.html">Enabling AI Assist</a> — so AI provider credentials are wired
+      without any manual <code>kubectl set env</code>.</p></div>
+
+      <h2>The operator</h2>
+      <p>For one-command installs and gated upgrades, the Go operator under
+      <a href="https://github.com/fulviodenza/selfnote/tree/main/operator"><code>operator/</code></a>
+      provides a <code>Selfnote</code> CRD (<code>kubectl get sn</code>) whose reconciler owns
+      the workloads and composes a Postgres cluster. It's the later-phase path; the Helm chart
+      is the pragmatic first deploy while the operator matures.</p>
+
+      <h2>A single box, without Kubernetes</h2>
+      <p>Nothing requires Kubernetes: run Postgres, <code>selfnote-api</code>, and
+      <code>selfnote-sync</code> as processes or containers, and serve
+      <code>apps/web/dist</code> behind any reverse proxy that routes <code>/api</code> and
+      <code>/ws</code>. <a href="https://github.com/fulviodenza/selfnote/blob/main/apps/web/nginx.conf"><code>apps/web/nginx.conf</code></a>
+      is the reference proxy config, and <code>docker-compose.dev.yml</code> shows the
+      supporting services.</p>
+
+      <h2>Backups you can trust</h2>
+      <ul>
+        <li>CloudNativePG does continuous WAL archiving plus daily base backups to MinIO,
+        giving point-in-time recovery.</li>
+        <li>Yjs snapshots are also pushed to MinIO (versioned), so document content is
+        independently recoverable.</li>
+        <li><a href="https://github.com/fulviodenza/selfnote/blob/main/deploy/restore-drill.sh"><code>deploy/restore-drill.sh</code></a>
+        verifies the whole path — backup, then restore into a fresh cluster. Run it; a backup
+        you've never restored is a hope, not a backup.</li>
+      </ul>
+
+      <h2>Exposing it to the internet</h2>
+      <p>Any ingress or tunnel works as long as WebSockets pass through. A Cloudflare Tunnel
+      pointed at the web Service is a good zero-open-ports option for a homelab. Terminate TLS
+      at your edge; room tokens and personal access tokens travel in headers.</p>
+
+    </article>
+  </div>
+</div>
+
+<footer class="site-foot">
+  <div class="wrap">
+    <span>Selfnote</span>
+    <a href="/docs/">Documentation</a>
+    <a href="/use-cases.html">Use cases</a>
+    <a href="/resources.html">Resources</a>
+    <span class="spacer"></span>
+    <a href="https://github.com/fulviodenza/selfnote">Source on GitHub</a>
+    <a href="https://github.com/fulviodenza/selfnote/blob/main/LICENSE">License</a>
+  </div>
+</footer>
+
+</body>
+</html>
