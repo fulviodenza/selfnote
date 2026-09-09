@@ -17,7 +17,7 @@ spec:
       imagePullSecrets: [{ name: harbor }]
       containers:
         - name: web
-          image: registry.fulvio.dev/selfnote/selfnote-website:0.1.0
+          image: registry.fulvio.dev/selfnote/selfnote-website:0.1.1
           ports: [{ containerPort: 80 }]
           resources:
             requests: { cpu: 10m, memory: 16Mi }

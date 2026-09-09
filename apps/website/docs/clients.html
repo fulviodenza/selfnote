@@ -3,7 +3,7 @@
 <head>
   <meta charset="utf-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1" />
-  <title>The clients — Selfnote</title>
+  <title>The clients | Selfnote</title>
   <meta name="description" content="Install and connect the web, desktop (Tauri), and mobile (Expo) Selfnote clients." />
   <link rel="icon" type="image/png" href="/assets/favicon.png" />
   <link rel="preconnect" href="https://fonts.googleapis.com" />
@@ -45,12 +45,12 @@
 
       <h1>The clients</h1>
       <p class="subtitle">One editor, one sync core, three shells. Every client asks
-      <em>which</em> Selfnote to talk to — no hardcoded servers anywhere.</p>
+      <em>which</em> Selfnote to talk to; no hardcoded servers anywhere.</p>
 
       <h2>Web</h2>
 <pre><code>pnpm --filter @selfnote/web build     # → apps/web/dist (static SPA)</code></pre>
-      <p>The browser client resolves its server from the page origin — <code>/api</code> for
-      HTTP and <code>wss://&lt;host&gt;/ws</code> for sync — so a single build runs on any
+      <p>The browser client resolves its server from the page origin (<code>/api</code> for
+      HTTP and <code>wss://&lt;host&gt;/ws</code> for sync), so a single build runs on any
       domain. Serve <code>dist/</code> behind the reference nginx and you're done. Offline
       persistence is IndexedDB.</p>
 
@@ -58,26 +58,25 @@
 <pre><code>cargo install tauri-cli --version "^2"      # once
 cd apps/desktop && cargo tauri build        # native app + installer
 cd apps/desktop && cargo tauri dev          # dev with hot reload</code></pre>
-      <p>The desktop app bundles the web frontend in a Tauri 2 shell — about a tenth the size
+      <p>The desktop app bundles the web frontend in a Tauri 2 shell, about a tenth the size
       of an Electron equivalent. On first launch it asks which instance to connect to, since it
       has no serving origin of its own. Release bundles are unsigned unless you provide signing
       keys.</p>
 
       <h2>Mobile (Android / iOS)</h2>
       <p>Grab the Android APK from the <a href="/download.html">download page</a>, or build
-      from source — the mobile app is a standalone Expo project with its own
+      from source; the mobile app is a standalone Expo project with its own
       <code>node_modules</code>:</p>
 <pre><code>cd apps/mobile
 npm install
 npm run android         # or: npm run ios</code></pre>
       <p>On first launch the app asks for your server address (e.g.
       <code>notes.example.com</code>), derives <code>/api</code> and <code>/ws</code>, verifies
-      the server, and saves it — changeable later in Settings. The editor runs the same
+      the server, and saves it, changeable later in Settings. The editor runs the same
       BlockNote web editor in a WebView bridged to a native SQLite-backed Yjs store, so offline
       editing works the same as everywhere else.</p>
 
-      <div class="callout"><p>All three clients share <code>@selfnote/core</code> —
-      framework-free Yjs wiring, the sync client with reconnection and offline queueing, and a
+      <div class="callout"><p>All three clients share <code>@selfnote/core</code>: framework-free Yjs wiring, the sync client with reconnection and offline queueing, and a
       pluggable persistence interface. A feature added to the core lands on every platform.</p></div>
 
     </article>

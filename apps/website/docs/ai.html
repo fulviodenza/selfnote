@@ -3,7 +3,7 @@
 <head>
   <meta charset="utf-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1" />
-  <title>Enabling AI Assist — Selfnote</title>
+  <title>Enabling AI Assist | Selfnote</title>
   <meta name="description" content="Turn on the Assist panel by giving your API server a provider: Claude CLI, the Anthropic API, or Ollama." />
   <link rel="icon" type="image/png" href="/assets/favicon.png" />
   <link rel="preconnect" href="https://fonts.googleapis.com" />
@@ -45,14 +45,14 @@
 
       <h1>Enabling AI Assist</h1>
       <p class="subtitle">AI is off by default and server-owned. Give the API one provider
-      credential and the ✦ Assist panel appears on every client — no client updates.</p>
+      credential and the ✦ Assist panel appears on every client, with no client updates.</p>
 
       <h2>Pick a provider</h2>
       <table>
         <tr><th>Provider</th><th>You need</th><th>Notes</th></tr>
         <tr><td><strong>Claude CLI</strong> (subscription)</td><td>a token from <code>claude setup-token</code></td>
         <td>The <code>selfnote-api</code> image bundles the Claude Code CLI. Runs on your
-        server — document text never leaves your box. Uses your Claude plan; no per-request
+        server, so document text never leaves your box. Uses your Claude plan; no per-request
         billing.</td></tr>
         <tr><td><strong>Anthropic API</strong></td><td><code>ANTHROPIC_API_KEY</code></td>
         <td>Pay-per-use against <code>api.anthropic.com</code>.</td></tr>
@@ -67,7 +67,7 @@
         <li>On any machine where you're signed into Claude, generate a long-lived token
         (valid about a year):
 <pre><code>claude setup-token</code></pre></li>
-        <li>Store it as a secret — paste at the silent prompt so it stays out of your shell
+        <li>Store it as a secret, pasting at the silent prompt so it stays out of your shell
         history:
 <pre><code>read -rs TOKEN && kubectl create secret generic selfnote-ai -n selfnote \
   --from-literal=CLAUDE_CODE_OAUTH_TOKEN="$TOKEN" && unset TOKEN</code></pre></li>
@@ -84,7 +84,7 @@ ai:
   enabled: true
   provider: claude-cli        # claude-cli | anthropic | ollama
   existingSecret: selfnote-ai # keys: CLAUDE_CODE_OAUTH_TOKEN or ANTHROPIC_API_KEY</code></pre>
-      <p>Ollama needs no secret — just a reachable host:</p>
+      <p>Ollama needs no secret, just a reachable host:</p>
 <pre><code>ai:
   enabled: true
   provider: ollama
@@ -99,7 +99,7 @@ ai:
 
       <h2>What you get in the editor</h2>
       <ul>
-        <li>A streaming chat sidebar grounded in the current note — answers drop straight into
+        <li>A streaming chat sidebar grounded in the current note; answers drop straight into
         the document.</li>
         <li>Note-level actions: Summarize, Rewrite in my voice, Extract action items.</li>
         <li>Staged AI edits: writes from AI arrive as proposals with a before/after diff, and
@@ -111,7 +111,7 @@ ai:
         <li>All <code>/ai/*</code> endpoints require auth, and completions verify workspace
         membership for the referenced document.</li>
         <li>The CLI provider spawns a <code>claude -p</code> process per request with a 30s
-        timeout — rate-limit it if untrusted users can reach your instance.</li>
+        timeout; rate-limit it if untrusted users can reach your instance.</li>
         <li>Prefer the local CLI or Ollama if document text must never leave your
         infrastructure.</li>
       </ul>

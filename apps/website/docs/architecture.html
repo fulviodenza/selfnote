@@ -3,7 +3,7 @@
 <head>
   <meta charset="utf-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1" />
-  <title>Architecture — Selfnote</title>
+  <title>Architecture | Selfnote</title>
   <meta name="description" content="Why Selfnote is built on CRDTs, and how documents, sync, and storage actually work." />
   <link rel="icon" type="image/png" href="/assets/favicon.png" />
   <link rel="preconnect" href="https://fonts.googleapis.com" />
@@ -49,16 +49,16 @@
       timestamp.</p>
 
       <h2>Local-first + CRDT</h2>
-      <p>Two clients can diverge — one offline for a day — and must merge without losing data
+      <p>Two clients can diverge (one offline for a day) and must merge without losing data
       or asking a human to pick a winner. That's a CRDT's job. Selfnote uses
       <strong>Yjs</strong>: the most battle-tested implementation, with native rich-text types,
-      editor bindings, and a Rust port (<strong>yrs</strong>) that is wire-compatible — so JS
+      editor bindings, and a Rust port (<strong>yrs</strong>) that is wire-compatible, so JS
       clients and the Rust server speak the same protocol without reimplementing anything.</p>
       <p>The consequence worth internalizing: <em>a document is not rows in a table</em>. Each
       page is a Yjs doc; Postgres stores metadata and the update log, not the block tree.</p>
 
       <h2>Two services, one clear split</h2>
-<pre><code>clients (web / desktop / mobile — local-first, Yjs + IndexedDB/SQLite)
+<pre><code>clients (web / desktop / mobile: local-first, Yjs + IndexedDB/SQLite)
     │ WebSocket (Yjs sync protocol)          │ HTTP
     ▼                                        ▼
 sync server (Rust, yrs)                 api server (Rust, axum)
@@ -71,10 +71,10 @@ sync server (Rust, yrs)                 api server (Rust, axum)
                     ▼
               MinIO (files, snapshot backups, WAL archive)</code></pre>
       <ul>
-        <li><strong>Sync server</strong> — the hot path. Holds live rooms in memory, relays
+        <li><strong>Sync server</strong>: the hot path. Holds live rooms in memory, relays
         CRDT updates, tracks awareness (cursors, presence), persists the stream. Rust/yrs keeps
         hundreds of rooms cheap.</li>
-        <li><strong>API server</strong> — the control plane. Stateless and horizontally
+        <li><strong>API server</strong>: the control plane. Stateless and horizontally
         scalable. It decides <em>who may open which room</em> and issues short-lived room
         tokens (JWTs scoped to a document and permission) that the sync server verifies before
         admitting a WebSocket.</li>
@@ -82,9 +82,9 @@ sync server (Rust, yrs)                 api server (Rust, axum)
 
       <h2>How a document is stored</h2>
       <ul>
-        <li><code>doc_updates</code> — an append-only log of Yjs updates (doc, sequence,
+        <li><code>doc_updates</code>: an append-only log of Yjs updates (doc, sequence,
         author, bytes).</li>
-        <li><code>doc_snapshots</code> — every N updates or T seconds the log is compacted
+        <li><code>doc_snapshots</code>: every N updates or T seconds the log is compacted
         into a snapshot and old updates pruned.</li>
         <li>Loading a room replays latest snapshot + updates-since into yrs; snapshots are
         also pushed to MinIO for backup.</li>
@@ -113,7 +113,7 @@ sync server (Rust, yrs)                 api server (Rust, axum)
       </ul>
 
       <h2>Storage &amp; backups</h2>
-      <p>Postgres runs under <strong>CloudNativePG</strong> — HA, streaming replication, and
+      <p>Postgres runs under <strong>CloudNativePG</strong>: HA, streaming replication, and
       continuous WAL archiving to MinIO with point-in-time recovery. MinIO also holds file
       uploads and versioned Yjs snapshots, so content is recoverable independently of the
       database. The restore path is a tested script

@@ -3,7 +3,7 @@
 <head>
   <meta charset="utf-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1" />
-  <title>Documentation — Selfnote</title>
+  <title>Documentation | Selfnote</title>
   <meta name="description" content="What Selfnote is, how it fits together, and how to run it on your laptop in three commands." />
   <link rel="icon" type="image/png" href="/assets/favicon.png" />
   <link rel="preconnect" href="https://fonts.googleapis.com" />
@@ -49,15 +49,15 @@
       <h2>What you're running</h2>
       <p>Selfnote is a small system with a clear split:</p>
       <ul>
-        <li><strong>API server</strong> (Rust, axum) — the control plane: accounts, workspaces,
+        <li><strong>API server</strong> (Rust, axum): the control plane for accounts, workspaces,
         the page tree, permissions, room-token issuance, and the optional AI endpoints.
         Listens on <code>:4445</code>.</li>
-        <li><strong>Sync server</strong> (Rust, yrs) — a WebSocket hub speaking the Yjs sync
+        <li><strong>Sync server</strong> (Rust, yrs): a WebSocket hub speaking the Yjs sync
         protocol. It relays edits between connected clients, tracks presence, and persists the
         update stream to Postgres. Listens on <code>:4444</code>.</li>
-        <li><strong>Postgres</strong> — metadata, the append-only document update log, and
+        <li><strong>Postgres</strong>: metadata, the append-only document update log, and
         compacted snapshots.</li>
-        <li><strong>Clients</strong> — web (React + Vite), desktop (Tauri, bundling the web
+        <li><strong>Clients</strong>: web (React + Vite), desktop (Tauri, bundling the web
         app), and mobile (Expo). All share <code>@selfnote/core</code> for sync and
         persistence, and the same BlockNote editor.</li>
       </ul>
@@ -83,20 +83,20 @@ DATABASE_URL=postgres://selfnote:selfnote@localhost:5432/selfnote \
 <pre><code>pnpm --filter @selfnote/web dev</code></pre></li>
       </ol>
       <p>Register an account and start editing. To see the point of the whole thing: open the
-      same note in a second browser and type in both — then use <em>Simulate offline</em> in
+      same note in a second browser and type in both, then use <em>Simulate offline</em> in
       one, keep typing, and reconnect to watch the edits merge.</p>
 
       <h2>Where to go next</h2>
       <ul>
-        <li><a href="/docs/self-hosting.html">Self-hosting</a> — put it on a real server with
+        <li><a href="/docs/self-hosting.html">Self-hosting</a>: put it on a real server with
         the Helm chart or the operator.</li>
-        <li><a href="/docs/clients.html">The clients</a> — build the desktop app, install the
+        <li><a href="/docs/clients.html">The clients</a>: build the desktop app, install the
         Android app, connect them to your instance.</li>
-        <li><a href="/docs/ai.html">Enabling AI Assist</a> — wire up Claude CLI, the Anthropic
+        <li><a href="/docs/ai.html">Enabling AI Assist</a>: wire up Claude CLI, the Anthropic
         API, or Ollama.</li>
-        <li><a href="/docs/mcp.html">Claude &amp; MCP</a> — let any Claude save conversations
+        <li><a href="/docs/mcp.html">Claude &amp; MCP</a>: let any Claude save conversations
         into your notes.</li>
-        <li><a href="/docs/architecture.html">Architecture</a> — why CRDTs, and how a document
+        <li><a href="/docs/architecture.html">Architecture</a>: why CRDTs, and how a document
         actually lives in Postgres.</li>
       </ul>
 

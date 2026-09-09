@@ -3,7 +3,7 @@
 <head>
   <meta charset="utf-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1" />
-  <title>Feature briefs — Selfnote</title>
+  <title>Feature briefs | Selfnote</title>
   <meta name="description" content="Design briefs for Selfnote features: what shipped, what's specified, and how each works." />
   <link rel="icon" type="image/png" href="/assets/favicon.png" />
   <link rel="preconnect" href="https://fonts.googleapis.com" />
@@ -44,11 +44,11 @@
     <article class="prose">
 
       <h1>Feature briefs</h1>
-      <p class="subtitle">Each substantial feature starts as a written design brief in the repo
-      — problem, data model, API, client behavior. The short versions:</p>
+      <p class="subtitle">Each substantial feature starts as a written design brief in the repo:
+      problem, data model, API, client behavior. The short versions:</p>
 
       <h2>Backlinks &amp; graph view</h2>
-      <p>Note-to-note links, a "notes that link here" panel, and a graph over the workspace —
+      <p>Note-to-note links, a "notes that link here" panel, and a graph over the workspace,
       including an explorable 3D mode with an orbit camera. Because content lives in the CRDT
       rather than a queryable column, the client that owns the editor extracts outgoing links
       and reports them to the server.
@@ -56,7 +56,7 @@
 
       <h2>Version history &amp; time-travel</h2>
       <p>Named restore points along a timeline: browse, preview read-only, and restore any
-      past state — implemented as a <em>forward</em> CRDT update that turns the current state
+      past state, implemented as a <em>forward</em> CRDT update that turns the current state
       back into the chosen one, so history is never destroyed and collaborators stay
       consistent.
       <a href="https://github.com/fulviodenza/selfnote/blob/main/docs/features/version-history.md">Full brief</a></p>
@@ -64,28 +64,28 @@
       <h2>Calendar &amp; task sync</h2>
       <p>Any document can be promoted to a task with due date, status, and priority; tasks
       surface in an agenda view and publish as a read-only iCal feed for Google, Apple, or
-      Outlook. A task <em>is</em> a document — no parallel entity.
+      Outlook. A task <em>is</em> a document; there is no parallel entity.
       <a href="https://github.com/fulviodenza/selfnote/blob/main/docs/features/calendar-task-sync.md">Full brief</a></p>
 
       <h2>Editor slash commands</h2>
       <p>Type <code>/</code> to insert tables, links to other notes, or run AI actions without
-      leaving the keyboard — with strict parity across web, desktop, and mobile.
+      leaving the keyboard, with strict parity across web, desktop, and mobile.
       <a href="https://github.com/fulviodenza/selfnote/blob/main/docs/features/editor-slash-commands.md">Full brief</a></p>
 
       <h2>Diff-preview for AI edits</h2>
-      <p>Any AI-originated write becomes a <em>proposal</em> — persisted but not applied, with
-      a human-readable before/after — and turns into a real Yjs update only when a person
+      <p>Any AI-originated write becomes a <em>proposal</em>: persisted but not applied, with
+      a human-readable before/after, and it turns into a real Yjs update only when a person
       accepts it. Especially important for remote MCP writes.
       <a href="https://github.com/fulviodenza/selfnote/blob/main/docs/features/ai-edit-diff-preview.md">Full brief</a></p>
 
       <h2>Note-level AI actions</h2>
       <p>Summarize, Rewrite in my voice (with a persisted per-user voice profile), and Extract
-      action items — one tap on the current note or a selection, streaming a result you insert
+      action items: one tap on the current note or a selection, streaming a result you insert
       or replace.
       <a href="https://github.com/fulviodenza/selfnote/blob/main/docs/features/note-level-ai-actions.md">Full brief</a></p>
 
       <h2>Multi-note context for chat</h2>
-      <p>The Assist chat can pull in linked and recently-viewed notes as extra grounding —
+      <p>The Assist chat can pull in linked and recently-viewed notes as extra grounding,
       chosen client-side, authorized and rendered server-side.
       <a href="https://github.com/fulviodenza/selfnote/blob/main/docs/features/multi-note-context.md">Full brief</a></p>
 

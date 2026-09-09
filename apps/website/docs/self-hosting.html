@@ -3,7 +3,7 @@
 <head>
   <meta charset="utf-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1" />
-  <title>Self-hosting — Selfnote</title>
+  <title>Self-hosting | Selfnote</title>
   <meta name="description" content="Deploy Selfnote on Kubernetes with the Helm chart or the operator, or on a single box." />
   <link rel="icon" type="image/png" href="/assets/favicon.png" />
   <link rel="preconnect" href="https://fonts.googleapis.com" />
@@ -50,7 +50,7 @@
       <h2>The shape of a deployment</h2>
       <p>The browser and native clients all talk to <code>api</code> (port 4445) and
       <code>sync</code> (port 4444) plus Postgres. The web client is static files served by an
-      nginx that also proxies <code>/api</code> and <code>/ws</code> to the two services — one
+      nginx that also proxies <code>/api</code> and <code>/ws</code> to the two services, so one
       origin serves the whole app, and the client resolves its server from the page origin, so
       the same build works on any domain with nothing baked in.</p>
 
@@ -65,12 +65,12 @@
       <ul>
         <li>your image registry and tags,</li>
         <li>the ingress host (e.g. <code>notes.example.com</code>),</li>
-        <li>real secrets — <code>jwtSecret</code>, <code>roomSecret</code>, and the MinIO
+        <li>real secrets: <code>jwtSecret</code>, <code>roomSecret</code>, and the MinIO
         credentials. Change every <code>change-me-*</code> placeholder before exposing the
         instance.</li>
       </ul>
-      <div class="callout"><p>The chart also has a first-class <code>ai:</code> block — see
-      <a href="/docs/ai.html">Enabling AI Assist</a> — so AI provider credentials are wired
+      <div class="callout"><p>The chart also has a first-class <code>ai:</code> block (see
+      <a href="/docs/ai.html">Enabling AI Assist</a>), so AI provider credentials are wired
       without any manual <code>kubectl set env</code>.</p></div>
 
       <h2>The operator</h2>
@@ -95,7 +95,7 @@
         <li>Yjs snapshots are also pushed to MinIO (versioned), so document content is
         independently recoverable.</li>
         <li><a href="https://github.com/fulviodenza/selfnote/blob/main/deploy/restore-drill.sh"><code>deploy/restore-drill.sh</code></a>
-        verifies the whole path — backup, then restore into a fresh cluster. Run it; a backup
+        verifies the whole path: backup, then restore into a fresh cluster. Run it; a backup
         you've never restored is a hope, not a backup.</li>
       </ul>
 
