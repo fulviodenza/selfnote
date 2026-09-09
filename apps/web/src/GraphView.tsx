@@ -220,9 +220,12 @@ function GraphCanvas({
       ctx.translate(tx, ty);
       ctx.scale(scale, scale);
 
-      const edgeColor = token("--border", "#e2e1dc");
-      const linkColor = token("--muted", "#606670");
+      // Edge colors must stay clearly visible on the grey canvas: links use
+      // the crisp accent, tree edges a solid mid-grey — never the near
+      // -invisible border hairline.
+      const edgeColor = token("--muted", "#606670");
       const accent = token("--accent", "#2b44c7");
+      const linkColor = accent;
       const nodeColor = token("--faint", "#9a9ea6");
       const labelColor = token("--fg", "#1b1d22");
 
@@ -237,11 +240,11 @@ function GraphCanvas({
         if (e.kind === "tree") {
           ctx.setLineDash([4, 4]);
           ctx.strokeStyle = edgeColor;
-          ctx.lineWidth = 1;
+          ctx.lineWidth = 1.25;
         } else {
           ctx.setLineDash([]);
           ctx.strokeStyle = linkColor;
-          ctx.lineWidth = 1.25;
+          ctx.lineWidth = 1.75;
         }
         ctx.stroke();
       }

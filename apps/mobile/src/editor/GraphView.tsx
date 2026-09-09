@@ -242,9 +242,9 @@ export function GraphView({
                     y1={s.y}
                     x2={t.x}
                     y2={t.y}
-                    stroke={l.kind === "tree" ? colors.inkFaint : colors.accent}
-                    strokeWidth={l.kind === "tree" ? 1 : 1.5}
-                    strokeOpacity={l.kind === "tree" ? 0.5 : 0.8}
+                    stroke={l.kind === "tree" ? colors.inkSoft : colors.accent}
+                    strokeWidth={l.kind === "tree" ? 1.25 : 2}
+                    strokeOpacity={l.kind === "tree" ? 0.7 : 1}
                     strokeDasharray={l.kind === "tree" ? "4 4" : undefined}
                   />
                 );
