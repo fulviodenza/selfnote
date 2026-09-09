@@ -1,4 +1,8 @@
-# Selfnote
+<p align="center">
+  <img src="docs/brand/logo.png" alt="Selfnote logo" width="160" />
+</p>
+
+<h1 align="center">Selfnote</h1>
 
 A **self-hosted, Notion-like workspace** — real-time multiplayer editing, offline-first,
 with **web, desktop, and mobile** clients that all talk to your own server. Optional
