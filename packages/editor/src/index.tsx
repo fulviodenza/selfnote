@@ -29,6 +29,7 @@ import { schema } from "./schema";
 import { CALLOUT_KINDS, ensureCalloutStyles, type CalloutKind } from "./callout";
 import { registerCalloutInputRule } from "./calloutInputRule";
 import { registerSelectAllShortcut } from "./selectAll";
+import { registerUndoShortcut } from "./undoShortcut";
 import {
   blocksToMarkdownWithCallouts,
   markdownToBlocksWithCallouts,
@@ -231,14 +232,16 @@ export function CollaborativeEditor({
     }),
   );
 
-  // Inject the callout CSS once, attach the `[!kind] ` input rule, and the
-  // Ctrl/Cmd+A progressive select-all.
+  // Inject the callout CSS once, attach the `[!kind] ` input rule, the
+  // Ctrl/Cmd+A progressive select-all, and the global Ctrl/Cmd+Z undo (works
+  // even when focus is outside the editor — toolbar clicks, panels, …).
   useEffect(() => {
     ensureCalloutStyles();
     registerCalloutInputRule(editor as unknown as Parameters<typeof registerCalloutInputRule>[0]);
     registerSelectAllShortcut(
       editor as unknown as Parameters<typeof registerSelectAllShortcut>[0],
     );
+    return registerUndoShortcut(editor as unknown as Parameters<typeof registerUndoShortcut>[0]);
   }, [editor]);
 
   // Anchored `/link-note` picker; null when closed. Coordinates come from the
