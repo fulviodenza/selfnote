@@ -543,7 +543,7 @@ pub async fn ics_feed(
     let tasks: Vec<IcsTask> = sqlx::query_as(
         "select t.doc_id, d.title, t.status, t.priority, t.due_at, t.due_all_day, t.updated_at \
          from document_tasks t join documents d on d.id = t.doc_id \
-         where t.workspace_id = $1 and not d.archived and t.due_at is not null \
+         where t.workspace_id = $1 and not d.archived and not d.trashed and t.due_at is not null \
          order by t.due_at",
     )
     .bind(workspace_id)

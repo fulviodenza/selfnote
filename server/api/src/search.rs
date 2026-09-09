@@ -86,7 +86,7 @@ pub async fn search(
     // Pages: FTS rank first, then substring matches FTS missed (prefix typing).
     let pages: Vec<PageHit> = sqlx::query_as(
         "select id, title, icon, parent_id from documents \
-         where workspace_id = $1 and not archived \
+         where workspace_id = $1 and not archived and not trashed \
            and (to_tsvector('english', title) @@ websearch_to_tsquery('english', $2) \
                 or title ilike $3) \
          order by ts_rank(to_tsvector('english', title), websearch_to_tsquery('english', $2)) desc, \
@@ -118,7 +118,7 @@ pub async fn search(
                             'StartSel=<mark>, StopSel=</mark>, MaxWords=18, MinWords=8') as snippet \
          from document_texts t \
          join documents d on d.id = t.document_id \
-         where t.workspace_id = $1 and not d.archived and d.id <> all($3) \
+         where t.workspace_id = $1 and not d.archived and not d.trashed and d.id <> all($3) \
            and to_tsvector('english', t.text) @@ websearch_to_tsquery('english', $2) \
          order by ts_rank(to_tsvector('english', t.text), websearch_to_tsquery('english', $2)) desc \
          limit 10",
@@ -171,7 +171,7 @@ async fn warm_texts(state: &AppState, workspace_id: Uuid) -> ApiResult<()> {
         let stale: Vec<(Uuid,)> = sqlx::query_as(
             "select d.id from documents d \
              left join document_texts t on t.document_id = d.id \
-             where d.workspace_id = $1 and not d.archived \
+             where d.workspace_id = $1 and not d.archived and not d.trashed \
                and (t.document_id is null or t.rendered_at < d.updated_at) \
              order by d.updated_at desc limit $2",
         )

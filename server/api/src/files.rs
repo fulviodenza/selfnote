@@ -36,6 +36,20 @@ pub async fn upload(
     if member_role(&state, q.workspace_id, user.id).await?.is_none() {
         return Err(AppError::Forbidden);
     }
+    // A claimed owning page must live in the same workspace the caller is
+    // uploading into; otherwise a member of workspace A could tie a file to a
+    // page in workspace B (and to that page's trash/delete lifecycle).
+    if let Some(doc_id) = q.doc_id {
+        let row: Option<(Uuid,)> =
+            sqlx::query_as("select workspace_id from documents where id = $1")
+                .bind(doc_id)
+                .fetch_optional(&state.pool)
+                .await?;
+        match row {
+            Some((ws,)) if ws == q.workspace_id => {}
+            _ => return Err(AppError::BadRequest("doc_id is not in this workspace".into())),
+        }
+    }
 
     while let Some(field) = multipart
         .next_field()
@@ -46,6 +60,7 @@ pub async fn upload(
             .content_type()
             .map(|s| s.to_string())
             .unwrap_or_else(|| "application/octet-stream".to_string());
+        let name = field.file_name().map(|s| s.to_string());
         let data = field
             .bytes()
             .await
@@ -53,14 +68,15 @@ pub async fn upload(
         let size = data.len() as i64;
 
         let row: (Uuid,) = sqlx::query_as(
-            "insert into files (workspace_id, doc_id, mime, size, data) \
-             values ($1, $2, $3, $4, $5) returning id",
+            "insert into files (workspace_id, doc_id, mime, size, data, name) \
+             values ($1, $2, $3, $4, $5, $6) returning id",
         )
         .bind(q.workspace_id)
         .bind(q.doc_id)
         .bind(&mime)
         .bind(size)
         .bind(&data[..])
+        .bind(&name)
         .fetch_one(&state.pool)
         .await?;
 
@@ -71,6 +87,63 @@ pub async fn upload(
     }
 
     Err(AppError::BadRequest("no file field in upload".into()))
+}
+
+#[derive(Debug, Serialize, sqlx::FromRow)]
+pub struct FileMeta {
+    pub id: Uuid,
+    pub doc_id: Option<Uuid>,
+    pub name: Option<String>,
+    pub mime: String,
+    pub size: i64,
+    pub created_at: chrono::DateTime<chrono::Utc>,
+}
+
+/// `GET /workspaces/:id/files` — the workspace's uploaded assets (metadata only),
+/// newest first. Files owned by a trashed page are hidden (they come back if the
+/// page is restored, and disappear for good when it is deleted forever).
+pub async fn list(
+    State(state): State<AppState>,
+    user: AuthUser,
+    Path(workspace_id): Path<Uuid>,
+) -> ApiResult<Json<Vec<FileMeta>>> {
+    if member_role(&state, workspace_id, user.id).await?.is_none() {
+        return Err(AppError::Forbidden);
+    }
+    let rows: Vec<FileMeta> = sqlx::query_as(
+        "select f.id, f.doc_id, f.name, f.mime, f.size, f.created_at from files f \
+         left join documents d on d.id = f.doc_id \
+         where f.workspace_id = $1 and (f.doc_id is null or not d.trashed) \
+         order by f.created_at desc",
+    )
+    .bind(workspace_id)
+    .fetch_all(&state.pool)
+    .await?;
+    Ok(Json(rows))
+}
+
+/// `DELETE /files/:id` — permanently delete one uploaded asset (editor+). Lets
+/// the Assets view clean up files no page references (e.g. pre-association
+/// uploads whose page is long gone).
+pub async fn delete(
+    State(state): State<AppState>,
+    user: AuthUser,
+    Path(id): Path<Uuid>,
+) -> ApiResult<axum::http::StatusCode> {
+    let row: Option<(Uuid,)> = sqlx::query_as("select workspace_id from files where id = $1")
+        .bind(id)
+        .fetch_optional(&state.pool)
+        .await?;
+    let (workspace_id,) = row.ok_or(AppError::NotFound)?;
+    match member_role(&state, workspace_id, user.id).await? {
+        Some(r) if r != "viewer" => {}
+        _ => return Err(AppError::Forbidden),
+    }
+    sqlx::query("delete from files where id = $1")
+        .bind(id)
+        .execute(&state.pool)
+        .await?;
+    Ok(axum::http::StatusCode::NO_CONTENT)
 }
 
 pub async fn download(State(state): State<AppState>, Path(id): Path<Uuid>) -> ApiResult<Response> {

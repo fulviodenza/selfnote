@@ -471,6 +471,7 @@ export const api = {
   uploadFileUri: async (
     workspaceId: string,
     file: { uri: string; name: string; mimeType?: string | null },
+    docId?: string,
   ): Promise<string> => {
     const fd = new FormData();
     // RN's FormData accepts a {uri, name, type} descriptor for file parts.
@@ -480,7 +481,10 @@ export const api = {
       type: file.mimeType || "application/octet-stream",
     } as unknown as Blob);
     const base = getSettings().apiUrl;
-    const res = await fetch(`${base}/files?workspace_id=${encodeURIComponent(workspaceId)}`, {
+    const qs =
+      `workspace_id=${encodeURIComponent(workspaceId)}` +
+      (docId ? `&doc_id=${encodeURIComponent(docId)}` : "");
+    const res = await fetch(`${base}/files?${qs}`, {
       method: "POST",
       headers: accessToken ? { authorization: `Bearer ${accessToken}` } : {},
       body: fd,

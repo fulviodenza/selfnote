@@ -173,7 +173,7 @@ pub async fn links(
         "select d.id, d.title, d.icon, d.parent_id, l.label \
          from document_links l \
          join documents d on d.id = l.target_id \
-         where l.source_id = $1 and not d.archived \
+         where l.source_id = $1 and not d.archived and not d.trashed \
          order by d.title asc",
     )
     .bind(doc_id)
@@ -221,7 +221,7 @@ pub async fn backlinks(
         "select d.id, d.title, d.icon, d.parent_id, l.label \
          from document_links l \
          join documents d on d.id = l.source_id \
-         where l.target_id = $1 and not d.archived \
+         where l.target_id = $1 and not d.archived and not d.trashed \
          order by d.title asc",
     )
     .bind(doc_id)
@@ -288,7 +288,7 @@ pub async fn graph(
     }
     let node_rows: Vec<NodeRow> = sqlx::query_as(
         "select id, title, icon, parent_id from documents \
-         where workspace_id = $1 and not archived",
+         where workspace_id = $1 and not archived and not trashed",
     )
     .bind(workspace_id)
     .fetch_all(&state.pool)
@@ -373,7 +373,7 @@ pub async fn link_search(
 
     let results: Vec<DocumentRef> = sqlx::query_as(
         "select id, title, icon, parent_id from documents \
-         where workspace_id = $1 and not archived and ($3::uuid is null or id <> $3) \
+         where workspace_id = $1 and not archived and not trashed and ($3::uuid is null or id <> $3) \
            and to_tsvector('english', title) @@ websearch_to_tsquery('english', $2) \
          order by ts_rank(to_tsvector('english', title), websearch_to_tsquery('english', $2)) desc, \
                   title asc \

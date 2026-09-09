@@ -68,12 +68,47 @@ function calloutLabel(kind: CalloutKind): string {
   return kind.toUpperCase();
 }
 
-/** Parse a `[!kind]` marker (case-insensitive) into a known kind, else null. */
+/**
+ * Obsidian's wider callout vocabulary folded onto our five kinds (mirrors
+ * packages/editor/src/callout.tsx CALLOUT_ALIASES — keep in sync).
+ */
+const CALLOUT_ALIASES: Record<string, CalloutKind> = {
+  info: "note",
+  todo: "note",
+  abstract: "note",
+  summary: "note",
+  tldr: "note",
+  quote: "note",
+  cite: "note",
+  example: "note",
+  hint: "tip",
+  success: "tip",
+  check: "tip",
+  done: "tip",
+  attention: "warning",
+  question: "warning",
+  help: "warning",
+  faq: "warning",
+  danger: "caution",
+  error: "caution",
+  failure: "caution",
+  fail: "caution",
+  missing: "caution",
+  bug: "caution",
+};
+
+/**
+ * Parse a `[!kind]` marker (case-insensitive, Obsidian fold suffix tolerated)
+ * into a known kind — directly or via CALLOUT_ALIASES — else null.
+ */
 function parseMarker(raw: string): CalloutKind | null {
-  const m = /^\s*(?:>\s*)?\[!(\w+)\]/i.exec(raw);
+  const m = /^\s*(?:>\s*)?\[!(\w+)\][+-]?/i.exec(raw);
   if (!m) return null;
   const k = m[1].toLowerCase();
-  return (CALLOUT_KINDS as readonly string[]).includes(k) ? (k as CalloutKind) : null;
+  if ((CALLOUT_KINDS as readonly string[]).includes(k)) return k as CalloutKind;
+  // Own-property check: a bare index would walk the prototype chain, so
+  // "[!constructor]" would resolve to Object's constructor function.
+  return Object.prototype.hasOwnProperty.call(CALLOUT_ALIASES, k) ? CALLOUT_ALIASES[k] : null;
 }
 
 /** Structural subset of the (server) BlockNote editor the round-trip needs. */
@@ -147,7 +182,8 @@ function markerLine(line: string): { kind: CalloutKind; rest: string } | null {
   const inner = line.replace(/^\s*>\s?/, "");
   const kind = parseMarker(inner);
   if (!kind) return null;
-  const m = new RegExp(`^\\s*\\[!${calloutLabel(kind)}\\]\\s*(.*)$`, "i").exec(inner);
+  // Match the raw marker token (aliases + fold suffix), not the canonical label.
+  const m = /^\s*\[!\w+\][+-]?\s*(.*)$/.exec(inner);
   if (!m) return null;
   return { kind, rest: m[1].trim() };
 }

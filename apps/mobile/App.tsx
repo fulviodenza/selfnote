@@ -901,7 +901,7 @@ function ConnectedEditor({
       }),
     [doc.id, token],
   );
-  const { colors, type } = useTheme();
+  const { colors, type, isDark } = useTheme();
   const styles = useMemo(() => makeStyles(colors, type), [colors, type]);
   const [status, setStatus] = useState<ConnectionStatus>(connection.status());
   const [ai, setAi] = useState<AiStatus | null>(null);
@@ -927,11 +927,15 @@ function ConnectedEditor({
       if (picked.canceled || !picked.assets?.length) return;
       const asset = picked.assets[0];
       toast("Uploading…");
-      const url = await api.uploadFileUri(doc.workspace_id, {
-        uri: asset.uri,
-        name: asset.name ?? "file",
-        mimeType: asset.mimeType,
-      });
+      const url = await api.uploadFileUri(
+        doc.workspace_id,
+        {
+          uri: asset.uri,
+          name: asset.name ?? "file",
+          mimeType: asset.mimeType,
+        },
+        doc.id,
+      );
       editorRef.current?.insertFile({ url, name: asset.name ?? "file", mime: asset.mimeType });
       toast("Attached.");
     } catch {
@@ -1096,6 +1100,7 @@ function ConnectedEditor({
         user={USER}
         docId={doc.id}
         workspaceId={doc.workspace_id}
+        theme={isDark ? "dark" : "light"}
         aiAvailable={ai?.available ?? false}
         aiFeatures={ai?.features ?? []}
         onNavigateToDoc={onNavigateToDoc}

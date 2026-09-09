@@ -10,13 +10,13 @@
  * document as markdown and insert a suggestion — which flows through Yjs to the
  * server like any other edit.
  */
-import { forwardRef, useEffect, useImperativeHandle, useRef } from "react";
+import { forwardRef, useEffect, useImperativeHandle, useMemo, useRef } from "react";
 import { WebView, type WebViewMessageEvent } from "react-native-webview";
 import * as Y from "yjs";
 import { fromBase64, toBase64 } from "lib0/buffer";
 import type { DocConnection } from "@selfnote/core";
 import { api, type DocumentRef, type OutgoingLinkInput } from "../api";
-import { EDITOR_HTML } from "./editorHtml";
+import { editorHtml } from "./editorHtml";
 
 export interface EditorUser {
   name: string;
@@ -65,6 +65,8 @@ export interface WebViewEditorProps {
   workspaceId: string;
   /** When false, the editor (and its slash commands) is read-only. */
   editable?: boolean;
+  /** Ink & Paper palette for the page corpus; follows the app theme. */
+  theme?: "light" | "dark";
   /** Whether the server has an AI provider (gates /ai-summarize). */
   aiAvailable?: boolean;
   /** AI feature flags from GET /ai/status (must include "summarize"). */
@@ -93,6 +95,7 @@ export const WebViewEditor = forwardRef<EditorHandle, WebViewEditorProps>(
       docId,
       workspaceId,
       editable = true,
+      theme = "light",
       aiAvailable = false,
       aiFeatures = [],
       onNavigateToDoc,
@@ -198,11 +201,12 @@ export const WebViewEditor = forwardRef<EditorHandle, WebViewEditorProps>(
     }, [connection]);
 
     // AI status resolves after the WebView's initial `init`, so push the
-    // slash-command gating whenever it changes (harmless before `ready`).
+    // slash-command gating (and any live theme change) whenever it changes
+    // (harmless before `ready`).
     useEffect(() => {
-      post({ type: "config", editable, aiAvailable, aiFeatures });
+      post({ type: "config", editable, theme, aiAvailable, aiFeatures });
       // eslint-disable-next-line react-hooks/exhaustive-deps
-    }, [editable, aiAvailable, JSON.stringify(aiFeatures)]);
+    }, [editable, theme, aiAvailable, JSON.stringify(aiFeatures)]);
 
     const onMessage = (e: WebViewMessageEvent) => {
       let msg: {
@@ -229,6 +233,7 @@ export const WebViewEditor = forwardRef<EditorHandle, WebViewEditorProps>(
           state: toBase64(Y.encodeStateAsUpdate(connection.doc)),
           user,
           editable,
+          theme,
           aiAvailable,
           aiFeatures,
         });
@@ -317,11 +322,18 @@ export const WebViewEditor = forwardRef<EditorHandle, WebViewEditorProps>(
       }
     };
 
+    // Bake the mount-time theme into the document so the first paint matches
+    // (no white flash in dark mode). Deliberately NOT re-generated on theme
+    // change — a new source would reload the WebView; live switches instead
+    // arrive via the "config" message above.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    const html = useMemo(() => editorHtml(theme), []);
+
     return (
       <WebView
         ref={ref}
         originWhitelist={["*"]}
-        source={{ html: EDITOR_HTML }}
+        source={{ html }}
         onMessage={onMessage}
         webviewDebuggingEnabled
         style={{ flex: 1 }}

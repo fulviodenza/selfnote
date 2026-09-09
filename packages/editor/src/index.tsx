@@ -24,7 +24,12 @@ import { SelfnoteFormattingToolbar } from "./formattingToolbar";
 import { FRAGMENT_NAME, type DocConnection } from "@selfnote/core";
 import * as Y from "yjs";
 import { fromBase64, toBase64 } from "lib0/buffer";
-import { LinkNotePopover, type LinkNoteDoc, type LinkNoteProvider } from "./LinkNotePopover";
+import {
+  externalPageHref,
+  LinkNotePopover,
+  type LinkNoteDoc,
+  type LinkNoteProvider,
+} from "./LinkNotePopover";
 import { schema } from "./schema";
 import { CALLOUT_KINDS, ensureCalloutStyles, type CalloutKind } from "./callout";
 import { registerCalloutInputRule } from "./calloutInputRule";
@@ -36,6 +41,7 @@ import {
   type MarkdownEditor,
 } from "./calloutMarkdown";
 
+export { externalPageHref } from "./LinkNotePopover";
 export type { LinkNoteDoc, LinkNoteProvider } from "./LinkNotePopover";
 export {
   CALLOUT_KINDS,
@@ -86,6 +92,11 @@ export interface CollaborativeEditorProps {
    * `PUT /documents/:id/links`. See {@link extractDocLinks}.
    */
   onLinksChange?: (links: ExtractedLink[]) => void;
+  /**
+   * Fired with the document's media/file blocks whenever content changes, so
+   * the host can show an attachments indicator. See {@link extractAttachments}.
+   */
+  onAttachmentsChange?: (attachments: ExtractedAttachment[]) => void;
   /**
    * AI feature flags from `GET /ai/status` — `/ai-summarize` only appears when
    * this includes `"summarize"` and `summarize` is provided.
@@ -167,6 +178,44 @@ export interface ExtractedLink {
   label: string | null;
 }
 
+/** A media/file block found in the document (for the attachments panel). */
+export interface ExtractedAttachment {
+  url: string;
+  name: string;
+  kind: "image" | "video" | "audio" | "file";
+}
+
+const ATTACHMENT_KINDS = new Set(["image", "video", "audio", "file"]);
+
+/**
+ * Scan a BlockNote document for media/file blocks with an uploaded (or linked)
+ * URL. Hosts surface these as the page's attachments. Recurses into children.
+ */
+export function extractAttachments(blocks: unknown): ExtractedAttachment[] {
+  const out: ExtractedAttachment[] = [];
+  const walk = (list: unknown) => {
+    if (!Array.isArray(list)) return;
+    for (const block of list as Array<Record<string, unknown>>) {
+      const kind = block?.type as string | undefined;
+      if (kind && ATTACHMENT_KINDS.has(kind)) {
+        const props = (block.props ?? {}) as Record<string, unknown>;
+        const url = typeof props.url === "string" ? props.url : "";
+        if (url) {
+          const name =
+            (typeof props.name === "string" && props.name) ||
+            (typeof props.caption === "string" && props.caption) ||
+            url.split("/").pop() ||
+            "file";
+          out.push({ url, name, kind: kind as ExtractedAttachment["kind"] });
+        }
+      }
+      if (Array.isArray(block?.children)) walk(block.children);
+    }
+  };
+  walk(blocks);
+  return out;
+}
+
 /**
  * Scan a BlockNote document for inline note-reference links (href
  * `selfnote:<id>`) and return the deduped outgoing set. `label` is the anchor
@@ -220,6 +269,7 @@ export function CollaborativeEditor({
   linkNoteProvider,
   onNavigateToDoc,
   onLinksChange,
+  onAttachmentsChange,
   aiFeatures,
   summarize,
   onError,
@@ -273,6 +323,7 @@ export function CollaborativeEditor({
     // Report the current outgoing note-reference set; the host debounces and
     // persists it via `PUT /documents/:id/links`.
     onLinksChange?.(extractDocLinks(editor.document));
+    onAttachmentsChange?.(extractAttachments(editor.document));
   };
 
   const aiSummarizeEnabled = !!summarize && !!aiFeatures?.includes("summarize");
@@ -380,9 +431,21 @@ export function CollaborativeEditor({
     [editor, onLinksChange],
   );
 
+  // Insert a plain external link (URL / Notion page) at the caret. Unlike note
+  // references it keeps its real href, so activating it opens outside the app.
+  const insertExternalLink = useCallback(
+    (href: string, label: string) => {
+      editor.insertInlineContent([{ type: "link", href, content: label || href }, " "]);
+      setLinkPicker(null);
+      editor.focus();
+    },
+    [editor],
+  );
+
   // `[[` / `@` trigger: a native BlockNote suggestion menu backed by the note
   // picker's workspace search (wired by the host to `GET /documents/link-search`).
-  // Selecting a result inserts the same inline `selfnote:<id>` link.
+  // Selecting a result inserts the same inline `selfnote:<id>` link. A query
+  // that reads as a URL or Notion page id also offers an external-page row.
   const getLinkItems = useCallback(
     async (query: string): Promise<DefaultReactSuggestionItem[]> => {
       if (!linkNoteProvider) return [];
@@ -395,26 +458,42 @@ export function CollaborativeEditor({
       } catch {
         docs = [];
       }
-      return docs.map((d) => ({
+      const items: DefaultReactSuggestionItem[] = docs.map((d) => ({
         title: d.title || "Untitled",
         icon: d.icon ? <span>{d.icon}</span> : <FileGlyph />,
         onItemClick: () => insertLink(d),
       }));
+      const external = externalPageHref(q);
+      if (external) {
+        items.unshift({
+          title: `Link external page — ${external.label}`,
+          onItemClick: () => insertExternalLink(external.href, external.label),
+        });
+      }
+      return items;
     },
-    [linkNoteProvider, insertLink],
+    [linkNoteProvider, insertLink, insertExternalLink],
   );
 
   // Activating an inserted note link navigates in-app instead of following the
   // `selfnote:<id>` href (which the OS/Tauri shell would otherwise try to open).
-  // Hosts that also intercept these clicks converge on the same route.
+  // Hosts that also intercept these clicks converge on the same route. External
+  // http(s) links open in a new tab — inside a contenteditable a plain click
+  // would otherwise do nothing (or navigate the SPA away).
   const onLinkClick = useCallback(
     (e: React.MouseEvent) => {
-      if (!onNavigateToDoc) return;
       const anchor = (e.target as HTMLElement).closest("a");
-      const id = docIdFromHref(anchor?.getAttribute("href"));
+      const href = anchor?.getAttribute("href");
+      const id = docIdFromHref(href);
       if (id) {
+        if (!onNavigateToDoc) return;
         e.preventDefault();
         onNavigateToDoc(id);
+        return;
+      }
+      if (href && /^https?:\/\//i.test(href)) {
+        e.preventDefault();
+        window.open(href, "_blank", "noopener");
       }
     },
     [onNavigateToDoc],
@@ -450,6 +529,7 @@ export function CollaborativeEditor({
           provider={linkNoteProvider}
           anchor={linkPicker}
           onSelect={insertLink}
+          onSelectExternal={insertExternalLink}
           onClose={() => setLinkPicker(null)}
         />
       )}

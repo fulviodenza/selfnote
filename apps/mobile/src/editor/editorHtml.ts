@@ -8,8 +8,14 @@
  * importing from a CDN. Kept as an ESM/CDN document here so the bridge is readable
  * and self-contained; swap the imports for a bundled build (vite) when packaging.
  */
-export const EDITOR_HTML = /* html */ `<!doctype html>
-<html>
+/**
+ * Build the editor document for a theme. The initial theme is baked into
+ * \`data-theme\` so the first paint is already correct (no white flash in dark
+ * mode); later "config" messages can swap it live without a reload.
+ */
+export function editorHtml(theme: "light" | "dark"): string {
+  return /* html */ `<!doctype html>
+<html data-theme="${theme}">
   <head>
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1" />
@@ -26,16 +32,56 @@ export const EDITOR_HTML = /* html */ `<!doctype html>
     { "imports": { "yjs": "https://esm.sh/yjs@13.6.32" } }
     </script>
     <style>
+      /*
+        Ink & Paper tokens (mirrors apps/mobile/src/theme.ts colors/darkColors).
+        data-theme on <html> selects the palette; the RN side bakes the initial
+        value into the document and can swap it live via a "config" message.
+        The --bn-colors-* vars feed BlockNote's own stylesheet so the editor
+        text/menus follow the theme too.
+      */
+      :root {
+        --paper: #F3F3F0;
+        --surface: #FFFFFF;
+        --ink: #1B1D22;
+        --ink-soft: #606670;
+        --ink-faint: #9A9EA6;
+        --hairline: #E2E1DC;
+        --accent: #2B44C7;
+        --accent-wash: #EAEDFB;
+        --quote-wash: rgba(27, 29, 34, 0.04);
+        --bn-colors-editor-text: var(--ink);
+        --bn-colors-menu-background: var(--surface);
+        --bn-colors-menu-text: var(--ink);
+        --bn-colors-hovered-background: var(--accent-wash);
+        --bn-colors-side-menu: var(--ink-faint);
+        color-scheme: light;
+      }
+      :root[data-theme="dark"] {
+        --paper: #17181C;
+        --surface: #202228;
+        --ink: #ECECEA;
+        --ink-soft: #A2A7B0;
+        --ink-faint: #6B7078;
+        --hairline: #2E3037;
+        --accent: #7C8CF8;
+        --accent-wash: #23263A;
+        --quote-wash: rgba(236, 236, 234, 0.05);
+        color-scheme: dark;
+      }
       html, body, #root { margin: 0; height: 100%; }
-      body { font-family: -apple-system, system-ui, sans-serif; }
+      body {
+        font-family: -apple-system, system-ui, sans-serif;
+        background: var(--surface); color: var(--ink);
+      }
+      .bn-editor { background: var(--surface); color: var(--ink); }
       #fallback {
         position: fixed; inset: 0; display: flex; flex-direction: column;
         align-items: center; justify-content: center; gap: 14px; padding: 24px;
-        text-align: center; color: #606670; background: #fff;
+        text-align: center; color: var(--ink-soft); background: var(--surface);
       }
       #fallback button {
         min-height: 48px; padding: 12px 20px; font-size: 16px; font-weight: 600;
-        border: 1px solid #E2E1DC; border-radius: 12px; background: #fff; color: #2B44C7;
+        border: 1px solid var(--hairline); border-radius: 12px; background: var(--surface); color: var(--accent);
       }
       /*
         Slash menu + link-note picker (mobile parity for docs/features/
@@ -43,8 +89,8 @@ export const EDITOR_HTML = /* html */ `<!doctype html>
       */
       #slash {
         position: absolute; z-index: 20; min-width: 220px; max-width: 320px;
-        max-height: 280px; overflow-y: auto; background: #fff; color: #1B1D22;
-        border: 1px solid #E2E1DC; border-radius: 12px; padding: 6px;
+        max-height: 280px; overflow-y: auto; background: var(--surface); color: var(--ink);
+        border: 1px solid var(--hairline); border-radius: 12px; padding: 6px;
         box-shadow: 0 2px 12px rgba(20,22,28,0.14);
         -webkit-overflow-scrolling: touch;
       }
@@ -53,45 +99,45 @@ export const EDITOR_HTML = /* html */ `<!doctype html>
         min-height: 48px; padding: 8px 12px; border-radius: 8px; cursor: pointer;
         font-size: 16px; box-sizing: border-box;
       }
-      #slash .item.active, #slash .item:active { background: #EAEDFB; }
+      #slash .item.active, #slash .item:active { background: var(--accent-wash); }
       #slash .item .title { flex: 1; }
-      #slash .item .sub { color: #9A9EA6; font-size: 13px; }
-      #slash .group { padding: 8px 12px 4px; font-size: 13px; color: #9A9EA6; }
-      #slash .empty { padding: 12px; color: #9A9EA6; font-size: 15px; }
+      #slash .item .sub { color: var(--ink-faint); font-size: 13px; }
+      #slash .group { padding: 8px 12px 4px; font-size: 13px; color: var(--ink-faint); }
+      #slash .empty { padding: 12px; color: var(--ink-faint); font-size: 15px; }
       /* Link-note picker as a bottom sheet, mirroring the RN Sheet. */
       #linkpick-scrim { position: fixed; inset: 0; z-index: 30; background: rgba(20,22,28,0.45); }
       #linkpick {
         position: fixed; left: 0; right: 0; bottom: 0; z-index: 31;
-        background: #fff; color: #1B1D22; border-top-left-radius: 20px;
+        background: var(--surface); color: var(--ink); border-top-left-radius: 20px;
         border-top-right-radius: 20px; padding: 20px; padding-bottom: 32px;
         max-height: 70%; display: flex; flex-direction: column; gap: 12px;
         box-shadow: 0 2px 12px rgba(20,22,28,0.14);
       }
-      #linkpick .grabber { align-self: center; width: 40px; height: 4px; border-radius: 999px; background: #E2E1DC; margin-bottom: 4px; }
+      #linkpick .grabber { align-self: center; width: 40px; height: 4px; border-radius: 999px; background: var(--hairline); margin-bottom: 4px; }
       #linkpick .head { font-family: Georgia, serif; font-size: 20px; font-weight: 600; }
       #linkpick input {
-        min-height: 48px; border: 1px solid #E2E1DC; border-radius: 12px;
-        padding: 8px 12px; font-size: 16px; color: #1B1D22; background: #fff;
+        min-height: 48px; border: 1px solid var(--hairline); border-radius: 12px;
+        padding: 8px 12px; font-size: 16px; color: var(--ink); background: var(--surface);
         box-sizing: border-box; width: 100%;
       }
       #linkpick .list { overflow-y: auto; -webkit-overflow-scrolling: touch; }
-      #linkpick .lbl { font-size: 14px; font-weight: 500; color: #606670; margin: 4px 0; }
+      #linkpick .lbl { font-size: 14px; font-weight: 500; color: var(--ink-soft); margin: 4px 0; }
       #linkpick .row {
         display: flex; align-items: center; gap: 8px; min-height: 48px;
         padding: 8px; border-radius: 8px; cursor: pointer; font-size: 16px;
       }
-      #linkpick .row:active { background: #EAEDFB; }
-      #linkpick .row .ricon { width: 22px; text-align: center; color: #606670; }
+      #linkpick .row:active { background: var(--accent-wash); }
+      #linkpick .row .ricon { width: 22px; text-align: center; color: var(--ink-soft); }
       #linkpick .row .ricon svg { vertical-align: middle; }
       #linkpick .row .rtitle { flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-      #linkpick .state { padding: 12px 4px; color: #9A9EA6; font-size: 15px; }
+      #linkpick .state { padding: 12px 4px; color: var(--ink-faint); font-size: 15px; }
       /*
         Read-only version-history preview (docs/features/version-history.md §5).
         A full-cover overlay hosting a throwaway BlockNote editor bound to the
         checkpoint's state; it never touches the live doc/fragment underneath.
       */
       #preview {
-        position: fixed; inset: 0; z-index: 40; background: #fff; overflow-y: auto;
+        position: fixed; inset: 0; z-index: 40; background: var(--surface); overflow-y: auto;
         -webkit-overflow-scrolling: touch;
       }
       #preview-root { min-height: 100%; }
@@ -99,30 +145,34 @@ export const EDITOR_HTML = /* html */ `<!doctype html>
       #preview .bn-side-menu, #preview [data-content-type] .bn-drag-handle { display: none !important; }
 
       /*
-        Callout block (Notion/GitHub-alert). Mirrors packages/editor CALLOUT_CSS,
-        using literal Ink & Paper colors (the WebView has no CSS vars from the RN
-        theme). Config parity with web is what matters for CRDT sync; styling is
-        per-platform.
+        Callout block (Notion/GitHub-alert). Mirrors packages/editor CALLOUT_CSS
+        against this document's own token block (the WebView has no CSS vars from
+        the RN theme). Config parity with web is what matters for CRDT sync;
+        styling is per-platform.
       */
       .callout {
         display: flex; gap: 10px; align-items: flex-start;
         margin: 6px 0; padding: 12px 14px;
-        border: 1px solid var(--callout-accent, #2B44C7);
+        border: 1px solid var(--callout-accent, var(--accent));
         border-left-width: 4px; border-radius: 12px;
-        background: var(--callout-wash, #EAEDFB); color: #1B1D22;
+        background: var(--callout-wash, var(--accent-wash)); color: var(--ink);
       }
       .callout .callout-icon-wrap {
         flex: none; display: flex; align-items: center; justify-content: center;
-        height: 24px; color: var(--callout-accent, #2B44C7); user-select: none;
+        height: 24px; color: var(--callout-accent, var(--accent)); user-select: none;
       }
       .callout .callout-icon { display: block; }
       .callout .callout-body { flex: 1; min-width: 0; }
       .callout .callout-body > * { margin: 0; }
-      .callout-note { --callout-accent: #2B44C7; --callout-wash: #EAEDFB; }
+      .callout-note { --callout-accent: var(--accent); --callout-wash: var(--accent-wash); }
       .callout-tip { --callout-accent: #1F9E6A; --callout-wash: #E4F4EE; }
       .callout-warning { --callout-accent: #C1841E; --callout-wash: #F7EEDD; }
       .callout-important { --callout-accent: #8B5CF6; --callout-wash: #EEE8FB; }
       .callout-caution { --callout-accent: #C4392B; --callout-wash: #F8E7E4; }
+      :root[data-theme="dark"] .callout-tip { --callout-accent: #3FBF8A; --callout-wash: rgba(63, 191, 138, 0.14); }
+      :root[data-theme="dark"] .callout-warning { --callout-accent: #D79A3A; --callout-wash: rgba(215, 154, 58, 0.16); }
+      :root[data-theme="dark"] .callout-important { --callout-accent: #A78BFA; --callout-wash: rgba(167, 139, 250, 0.16); }
+      :root[data-theme="dark"] .callout-caution { --callout-accent: #E06456; --callout-wash: rgba(224, 100, 86, 0.14); }
 
       /* Selection action bar (mobile stand-in for the web formatting toolbar). */
       #selbar {
@@ -133,9 +183,9 @@ export const EDITOR_HTML = /* html */ `<!doctype html>
         display: none;
         gap: 4px;
         padding: 6px;
-        border: 1px solid #E2E1DC;
+        border: 1px solid var(--hairline);
         border-radius: 14px;
-        background: #FFFFFF;
+        background: var(--surface);
         box-shadow: 0 6px 24px rgba(0, 0, 0, 0.16);
         z-index: 40;
       }
@@ -143,23 +193,23 @@ export const EDITOR_HTML = /* html */ `<!doctype html>
       #selbar button {
         border: none;
         background: none;
-        color: #1B1D22;
+        color: var(--ink);
         font-size: 13px;
         font-weight: 600;
         padding: 8px 10px;
         border-radius: 10px;
       }
-      #selbar button:active { background: #EAEDFB; }
+      #selbar button:active { background: var(--accent-wash); }
 
       /* Quote blocks as a soft card — no "citation" left bar (mirrors web). */
       .bn-editor [data-content-type="quote"],
       .bn-editor blockquote {
         border-left: none;
         padding: 10px 14px;
-        border: 1px solid #E2E1DC;
+        border: 1px solid var(--hairline);
         border-radius: 10px;
-        background: rgba(27, 29, 34, 0.04);
-        color: #606670;
+        background: var(--quote-wash);
+        color: var(--ink-soft);
         font-style: italic;
       }
     </style>
@@ -245,14 +295,24 @@ export const EDITOR_HTML = /* html */ `<!doctype html>
         blockSpecs: { ...defaultBlockSpecs, callout: calloutBlockFactory() },
       });
 
-      // GitHub-alert marker helpers, mirroring callout.tsx parseCalloutMarker.
-      const CALLOUT_MARKER_RE = new RegExp(
-        "^(?:>\\\\s*)?\\\\[!(" + CALLOUT_KINDS.join("|") + ")\\\\]\\\\s$", "i");
+      // GitHub-alert marker helpers, mirroring callout.tsx parseCalloutMarker
+      // (including the Obsidian alias vocabulary and fold suffix tolerance).
+      const CALLOUT_ALIASES = {
+        info: "note", todo: "note", abstract: "note", summary: "note",
+        tldr: "note", quote: "note", cite: "note", example: "note",
+        hint: "tip", success: "tip", check: "tip", done: "tip",
+        attention: "warning", question: "warning", help: "warning", faq: "warning",
+        danger: "caution", error: "caution", failure: "caution", fail: "caution",
+        missing: "caution", bug: "caution",
+      };
+      const CALLOUT_MARKER_RE = /^(?:>\\s*)?\\[!(\\w+)\\][+-]?\\s$/i;
       function calloutKindFromText(text) {
         const m = CALLOUT_MARKER_RE.exec(text);
         if (!m) return null;
         const k = m[1].toLowerCase();
-        return CALLOUT_KINDS.indexOf(k) !== -1 ? k : null;
+        if (CALLOUT_KINDS.indexOf(k) !== -1) return k;
+        // Own-property check so "[!constructor]" can't walk the prototype chain.
+        return Object.prototype.hasOwnProperty.call(CALLOUT_ALIASES, k) ? CALLOUT_ALIASES[k] : null;
       }
 
       // Input rule: on the trailing space after "[!kind]" at the start of an
@@ -464,9 +524,10 @@ export const EDITOR_HTML = /* html */ `<!doctype html>
         const alertMarker = (line) => {
           if (!/^\\s*>/.test(line)) return null;
           const inner = line.replace(/^\\s*>\\s?/, "").trim();
-          const k = calloutKindFromText(inner + " ");
+          const k = calloutKindFromText(inner.replace(/^(\\[!\\w+\\][+-]?).*/s, "$1 "));
           if (!k) return null;
-          const m = new RegExp("^\\\\[!" + calloutLabel(k) + "\\\\]\\\\s*(.*)$", "i").exec(inner);
+          // Match the raw marker token (aliases + fold suffix), not the label.
+          const m = /^\\[!\\w+\\][+-]?\\s*(.*)$/.exec(inner);
           if (!m) return null;
           return { kind: k, rest: m[1].trim() };
         };
@@ -517,6 +578,13 @@ export const EDITOR_HTML = /* html */ `<!doctype html>
 
       const RN = window.ReactNativeWebView;
       const send = (o) => RN && RN.postMessage(JSON.stringify(o));
+
+      // Swap the Ink & Paper palette live (RN sends theme in init/config).
+      function applyTheme(theme) {
+        if (theme === "light" || theme === "dark") {
+          document.documentElement.setAttribute("data-theme", theme);
+        }
+      }
 
       // Forward the WebView's console + uncaught errors to the RN side, which
       // logs them — the WebView's JS console is otherwise invisible in release.
@@ -618,6 +686,7 @@ export const EDITOR_HTML = /* html */ `<!doctype html>
           editable = msg.editable !== false;
           aiAvailable = !!msg.aiAvailable;
           aiFeatures = Array.isArray(msg.aiFeatures) ? msg.aiFeatures : [];
+          applyTheme(msg.theme);
           // Mount the editor FIRST (on the empty doc), THEN apply the server's
           // state as a remote update. BlockNote's Yjs binding renders content
           // that arrives after mount; mounting onto an already-populated fragment
@@ -630,6 +699,7 @@ export const EDITOR_HTML = /* html */ `<!doctype html>
           editable = msg.editable !== false;
           aiAvailable = !!msg.aiAvailable;
           aiFeatures = Array.isArray(msg.aiFeatures) ? msg.aiFeatures : [];
+          applyTheme(msg.theme);
         } else if (msg.type === "linkNoteResults" || msg.type === "aiSummarizeResult" || msg.type === "aiSummarizeError") {
           // A reply to a WebView-initiated bridge call (link search / summarize).
           const fn = bridgePending.get(msg.requestId);
@@ -1138,3 +1208,4 @@ export const EDITOR_HTML = /* html */ `<!doctype html>
     </script>
   </body>
 </html>`;
+}
