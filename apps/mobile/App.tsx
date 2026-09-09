@@ -34,6 +34,7 @@ import {
   type Checkpoint,
   type Document,
   type AiStatus,
+  type Label,
 } from "./src/api";
 import {
   getSettings,
@@ -424,6 +425,10 @@ function DocListScreen({
   const [query, setQuery] = useState("");
   const [actionsDoc, setActionsDoc] = useState<Document | null>(null);
   const [renameDoc, setRenameDoc] = useState<Document | null>(null);
+  // Workspace labels + doc→labels map for row dots and the label filter.
+  const [wsLabels, setWsLabels] = useState<Label[]>([]);
+  const [docLabelIds, setDocLabelIds] = useState<Map<string, string[]>>(new Map());
+  const [filterLabel, setFilterLabel] = useState<string | null>(null);
 
   // Load persisted collapse state once.
   useEffect(() => {
@@ -446,6 +451,23 @@ function DocListScreen({
       onWorkspace(ws);
       const list = await api.listDocuments(ws);
       setDocs(list.filter((d) => !d.archived));
+      // Labels are decoration — fetch them best-effort alongside the tree.
+      try {
+        const [labels, assignments] = await Promise.all([
+          api.listLabels(ws),
+          api.listDocumentLabels(ws),
+        ]);
+        setWsLabels(labels);
+        const map = new Map<string, string[]>();
+        for (const a of assignments) {
+          const l = map.get(a.document_id) ?? [];
+          l.push(a.label_id);
+          map.set(a.document_id, l);
+        }
+        setDocLabelIds(map);
+      } catch {
+        /* older server — no labels UI */
+      }
     } catch (e) {
       setError(friendly(e));
       setDocs([]);
@@ -507,15 +529,24 @@ function DocListScreen({
     }
   };
 
-  // Search shows a flat, filtered list; otherwise the collapsible tree.
+  // Search / label filter show a flat list; otherwise the collapsible tree.
   const q = query.trim().toLowerCase();
+  const labelById = new Map(wsLabels.map((l) => [l.id, l]));
+  const dotsFor = (docId: string): string[] =>
+    (docLabelIds.get(docId) ?? [])
+      .map((id) => labelById.get(id)?.color)
+      .filter((c): c is string => !!c);
   const rows: TreeRow[] = !docs
     ? []
-    : q
+    : filterLabel
       ? docs
-          .filter((d) => (d.title || "untitled").toLowerCase().includes(q))
+          .filter((d) => (docLabelIds.get(d.id) ?? []).includes(filterLabel))
           .map((doc) => ({ doc, depth: 0, hasChildren: false }))
-      : flattenTree(docs, collapsed);
+      : q
+        ? docs
+            .filter((d) => (d.title || "untitled").toLowerCase().includes(q))
+            .map((doc) => ({ doc, depth: 0, hasChildren: false }))
+        : flattenTree(docs, collapsed);
 
   return (
     <View style={styles.flex}>
@@ -535,6 +566,38 @@ function DocListScreen({
 
       {workspaceId && docs && docs.length > 0 ? (
         <BulkLabelButton workspaceId={workspaceId} onError={(m) => toast(m)} />
+      ) : null}
+
+      {wsLabels.length > 0 ? (
+        <ScrollView
+          horizontal
+          showsHorizontalScrollIndicator={false}
+          style={styles.labelFilterRow}
+          contentContainerStyle={styles.labelFilterContent}
+        >
+          {wsLabels.map((l) => {
+            const on = filterLabel === l.id;
+            return (
+              <Pressable
+                key={l.id}
+                onPress={() => setFilterLabel((cur) => (cur === l.id ? null : l.id))}
+                style={[
+                  styles.labelFilterChip,
+                  { borderColor: l.color },
+                  on && { backgroundColor: `${l.color}22` },
+                ]}
+                accessibilityRole="button"
+                accessibilityState={{ selected: on }}
+                accessibilityLabel={`Filter by label ${l.name}`}
+              >
+                <View style={[styles.labelFilterDot, { backgroundColor: l.color }]} />
+                <Text style={[styles.labelFilterText, on && { color: colors.ink, fontWeight: "600" }]}>
+                  {l.name}
+                </Text>
+              </Pressable>
+            );
+          })}
+        </ScrollView>
       ) : null}
 
       {error ? <Text style={[styles.error, styles.pad]}>{error}</Text> : null}
@@ -590,6 +653,11 @@ function DocListScreen({
                 <Text style={[type.docTitle, styles.flex]} numberOfLines={1}>
                   {item.doc.title || "Untitled"}
                 </Text>
+                {dotsFor(item.doc.id)
+                  .slice(0, 3)
+                  .map((c, i) => (
+                    <View key={i} style={[styles.rowLabelDot, { backgroundColor: c }]} />
+                  ))}
               </View>
             </Row>
           )}
@@ -1168,6 +1236,25 @@ const makeStyles = (colors: Palette, type: TypeRoles) =>
   searchWrap: { paddingHorizontal: spacing.gutter, paddingVertical: spacing.md },
   segment: { flexDirection: "row", gap: spacing.sm },
   rowInner: { flexDirection: "row", alignItems: "center", gap: spacing.sm },
+  rowLabelDot: { width: 6, height: 6, borderRadius: 3, marginLeft: 2 },
+  labelFilterRow: { flexGrow: 0 },
+  labelFilterContent: {
+    gap: spacing.xs,
+    paddingHorizontal: spacing.md,
+    paddingBottom: spacing.xs,
+    alignItems: "center",
+  },
+  labelFilterChip: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 5,
+    paddingHorizontal: 8,
+    paddingVertical: 3,
+    borderRadius: 999,
+    borderWidth: 1,
+  },
+  labelFilterDot: { width: 7, height: 7, borderRadius: 4 },
+  labelFilterText: { fontSize: 12, color: colors.inkSoft },
   chevron: { width: 28, height: 28, alignItems: "center", justifyContent: "center" },
   error: { ...type.body, color: colors.danger },
   listPad: { paddingBottom: 96 },

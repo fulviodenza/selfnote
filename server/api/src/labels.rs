@@ -392,6 +392,40 @@ pub async fn suggest_names(
     Ok(parse_label_reply(&reply))
 }
 
+/* ----------------------------------- GET /workspaces/:id/document-labels --- */
+
+#[derive(Debug, Serialize, FromRow)]
+pub struct LabelAssignment {
+    pub document_id: Uuid,
+    pub label_id: Uuid,
+}
+
+#[derive(Debug, Serialize)]
+pub struct AssignmentList {
+    pub assignments: Vec<LabelAssignment>,
+}
+
+/// Every document↔label assignment in the workspace (non-archived documents),
+/// so clients can decorate the page tree and filter by label without N+1
+/// requests. Any member reads.
+pub async fn assignments(
+    State(state): State<AppState>,
+    user: AuthUser,
+    Path(workspace_id): Path<Uuid>,
+) -> ApiResult<Json<AssignmentList>> {
+    require_member(&state, workspace_id, user.id).await?;
+    let assignments: Vec<LabelAssignment> = sqlx::query_as(
+        "select dl.document_id, dl.label_id \
+         from document_labels dl \
+         join documents d on d.id = dl.document_id \
+         where d.workspace_id = $1 and not d.archived",
+    )
+    .bind(workspace_id)
+    .fetch_all(&state.pool)
+    .await?;
+    Ok(Json(AssignmentList { assignments }))
+}
+
 /* ------------------------------------------- bulk "label everything" ------- */
 
 /// Progress of a workspace's bulk-label job (kept in process memory — a homelab

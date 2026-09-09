@@ -1540,23 +1540,105 @@ button.toggle.on {
 .label-pop-item {
   display: flex;
   align-items: center;
-  gap: 8px;
-  padding: 6px 8px;
+  gap: 4px;
   border: none;
   border-radius: 8px;
   background: none;
   color: var(--fg);
   font-size: 13px;
   text-align: left;
-  cursor: pointer;
 }
 .label-pop-item:hover { background: color-mix(in srgb, var(--fg) 6%, transparent); }
 .label-pop-item.on { font-weight: 600; }
-.label-pop-item.create { color: var(--accent); }
+.label-pop-item.create {
+  color: var(--accent);
+  padding: 6px 8px;
+  cursor: pointer;
+}
+.label-pop-main {
+  flex: 1;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 6px 8px;
+  border: none;
+  background: none;
+  color: inherit;
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
+  min-width: 0;
+}
+.label-pop-edit {
+  display: none;
+  border: none;
+  background: none;
+  color: var(--muted);
+  padding: 6px;
+  cursor: pointer;
+}
+.label-pop-item:hover .label-pop-edit { display: inline-flex; }
+.label-pop-edit:hover { color: var(--fg); }
+.label-edit { display: flex; flex-direction: column; gap: 8px; padding-top: 8px; }
+.label-swatches { display: flex; gap: 6px; flex-wrap: wrap; }
+.label-swatch {
+  width: 20px;
+  height: 20px;
+  border-radius: 50%;
+  border: 2px solid transparent;
+  background: var(--chip);
+  cursor: pointer;
+}
+.label-swatch.on { border-color: var(--fg); }
+.label-edit-actions { display: flex; gap: 6px; justify-content: flex-end; }
+.label-edit-actions button {
+  padding: 4px 10px;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  background: none;
+  color: var(--fg);
+  font-size: 12px;
+  cursor: pointer;
+}
+.label-edit-save { background: var(--accent) !important; color: #fff !important; border-color: var(--accent) !important; }
+.label-edit-delete { color: var(--danger) !important; margin-right: auto; }
 .label-pop-name { flex: 1; overflow: hidden; text-overflow: ellipsis; }
 .label-pop-empty { padding: 8px; color: var(--muted); font-size: 12px; }
 .label-suggestions { display: inline-flex; align-items: center; gap: 6px; }
 .label-error { color: var(--danger); font-size: 12px; }
+
+/* Sidebar: label filter chips + per-row label dots. */
+.label-filter {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px;
+  padding: 4px 10px 6px;
+  border-bottom: 1px solid var(--border);
+}
+.label-chip.filter {
+  cursor: pointer;
+  font-size: 11px;
+  padding: 1px 7px;
+  background: transparent;
+  color: var(--muted);
+}
+.label-chip.filter.on {
+  background: color-mix(in srgb, var(--chip, var(--accent)) 14%, transparent);
+  color: var(--fg);
+  font-weight: 600;
+}
+.row-label-dots {
+  display: inline-flex;
+  gap: 3px;
+  margin-left: 6px;
+  flex: none;
+  align-items: center;
+}
+.row-label-dot {
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+}
 
 /* ---------------- callouts (editor block + AI chat) ----------------
  * Notion/GitHub-alert style tinted box. The editor also injects these rules at
