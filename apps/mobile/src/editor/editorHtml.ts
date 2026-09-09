@@ -123,6 +123,18 @@ export const EDITOR_HTML = /* html */ `<!doctype html>
       .callout-warning { --callout-accent: #C1841E; --callout-wash: #F7EEDD; }
       .callout-important { --callout-accent: #8B5CF6; --callout-wash: #EEE8FB; }
       .callout-caution { --callout-accent: #C4392B; --callout-wash: #F8E7E4; }
+
+      /* Quote blocks as a soft card — no "citation" left bar (mirrors web). */
+      .bn-editor [data-content-type="quote"],
+      .bn-editor blockquote {
+        border-left: none;
+        padding: 10px 14px;
+        border: 1px solid #E2E1DC;
+        border-radius: 10px;
+        background: rgba(27, 29, 34, 0.04);
+        color: #606670;
+        font-style: italic;
+      }
     </style>
   </head>
   <body>
@@ -248,10 +260,13 @@ export const EDITOR_HTML = /* html */ `<!doctype html>
       // blocks are swapped for a sentinel paragraph so BlockNote lays them out in
       // order; each sentinel is then replaced with the rendered alert. Mirrors
       // packages/editor/src/calloutMarkdown.ts.
+      // Sentinel free of markdown-escapable chars (underscore came back as
+      // "CALLOUT\\_0" from the serializer, so the replace never matched).
+      const calloutSentinel = (i) => "@@CALLOUT-" + i + "@@";
+
       async function calloutBlocksToMarkdown(editor, blocks) {
         const list = blocks || editor.document || [];
         const alerts = [];
-        const sentinel = (i) => " CALLOUT_" + i + " ";
         const patched = [];
         for (const block of list) {
           if (block && block.type === "callout") {
@@ -267,52 +282,79 @@ export const EDITOR_HTML = /* html */ `<!doctype html>
             const lines = body.length ? body.split("\\n") : [""];
             const quoted = lines.map((l) => (l ? "> " + l : ">")).join("\\n");
             alerts.push("> [!" + calloutLabel(kind) + "]\\n" + quoted);
-            patched.push({ type: "paragraph", content: [{ type: "text", text: sentinel(i), styles: {} }] });
+            patched.push({ type: "paragraph", content: [{ type: "text", text: calloutSentinel(i), styles: {} }] });
           } else {
             patched.push(block);
           }
         }
         let md = await editor.blocksToMarkdownLossy(patched);
-        for (let i = 0; i < alerts.length; i++) md = md.replace(sentinel(i), () => alerts[i]);
+        for (let i = 0; i < alerts.length; i++) {
+          // Tolerate serializer escaping around the sentinel characters.
+          md = md.replace(new RegExp("\\\\\\\\?@\\\\\\\\?@CALLOUT-" + i + "\\\\\\\\?@\\\\\\\\?@"), () => alerts[i]);
+        }
         return md;
       }
 
+      // Flatten a multi-line alert body into ONE markdown paragraph joined by
+      // hard line breaks, so the whole body fits the callout's inline content.
+      function calloutBodyAsParagraph(body) {
+        const lines = [];
+        for (const raw of String(body).split("\\n")) {
+          let l = raw.trim();
+          if (!l) continue;
+          const h = /^#{1,6}\\s+(.*)$/.exec(l);
+          if (h) l = "**" + h[1] + "**";
+          else l = l.replace(/^[-*+]\\s+/, "• ");
+          lines.push(l);
+        }
+        return lines.join("  \\n");
+      }
+
       // Parse markdown into blocks, converting "> [!kind]" alerts into callouts.
+      // The WHOLE alert body lands inside the callout; a bodyless marker
+      // produces nothing (no empty box). Mirrors calloutMarkdown.ts.
       async function calloutMarkdownToBlocks(editor, markdown) {
         const lines = String(markdown || "").split("\\n");
         const out = [];
         const alerts = [];
-        const sentinel = (i) => " CALLOUT_" + i + " ";
-        const alertKind = (line) => {
+        // Marker line, optionally with trailing text ("> [!NOTE] Title …").
+        const alertMarker = (line) => {
           if (!/^\\s*>/.test(line)) return null;
           const inner = line.replace(/^\\s*>\\s?/, "").trim();
           const k = calloutKindFromText(inner + " ");
-          if (k && new RegExp("^\\\\[!" + calloutLabel(k) + "\\\\]\\\\s*$", "i").test(inner)) return k;
-          return null;
+          if (!k) return null;
+          const m = new RegExp("^\\\\[!" + calloutLabel(k) + "\\\\]\\\\s*(.*)$", "i").exec(inner);
+          if (!m) return null;
+          return { kind: k, rest: m[1].trim() };
         };
         for (let i = 0; i < lines.length; i++) {
-          const kind = alertKind(lines[i]);
-          if (!kind) { out.push(lines[i]); continue; }
-          const body = [];
+          const marker = alertMarker(lines[i]);
+          if (!marker) { out.push(lines[i]); continue; }
+          const body = marker.rest ? [marker.rest] : [];
           let j = i + 1;
           for (; j < lines.length; j++) {
             const l = lines[j];
             if (/^\\s*>/.test(l)) body.push(l.replace(/^\\s*>\\s?/, ""));
             else break;
           }
-          out.push(sentinel(alerts.length));
-          alerts.push({ kind: kind, body: body.join("\\n").trim() });
+          const joined = body.join("\\n").trim();
+          if (joined) {
+            out.push("", calloutSentinel(alerts.length), "");
+            alerts.push({ kind: marker.kind, body: joined });
+          }
           i = j - 1;
         }
         const blocks = await editor.tryParseMarkdownToBlocks(out.join("\\n"));
         if (alerts.length === 0) return blocks;
-        // Pre-parse each alert body for inline content.
+        // Parse each flattened body for inline content (styling survives).
         const bodyContent = [];
         for (const a of alerts) {
           let content = [{ type: "text", text: a.body, styles: {} }];
           try {
-            const parsed = await editor.tryParseMarkdownToBlocks(a.body || "");
-            if (parsed[0] && parsed[0].content) content = parsed[0].content;
+            const parsed = await editor.tryParseMarkdownToBlocks(calloutBodyAsParagraph(a.body));
+            if (parsed[0] && Array.isArray(parsed[0].content) && parsed[0].content.length) {
+              content = parsed[0].content;
+            }
           } catch {}
           bodyContent.push(content);
         }
@@ -322,7 +364,7 @@ export const EDITOR_HTML = /* html */ `<!doctype html>
           if (!Array.isArray(c) || c.length !== 1) return block;
           const t = (c[0] && c[0].text ? c[0].text : "").trim();
           for (let i = 0; i < alerts.length; i++) {
-            if (t === sentinel(i).trim()) {
+            if (t === calloutSentinel(i)) {
               return { type: "callout", props: { kind: alerts[i].kind }, content: bodyContent[i] };
             }
           }

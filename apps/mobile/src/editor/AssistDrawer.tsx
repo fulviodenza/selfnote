@@ -88,6 +88,18 @@ function stripInsertMarkers(md: string): string {
     .trim();
 }
 
+/**
+ * Normalize `> [!kind] trailing text` (marker + body on one line) so the marker
+ * sits in its own quoted paragraph — the blockquote rule can then always drop
+ * that first paragraph and keep the whole remaining body inside the callout box.
+ */
+function normalizeAlertMarkers(md: string): string {
+  return md.replace(
+    /^([ \t]*>[ \t]*)\[!(\w+)\][ \t]+(\S.*)$/gm,
+    (_m, pre: string, kind: string, rest: string) => `${pre}[!${kind}]\n${pre}\n${pre}${rest}`,
+  );
+}
+
 const SUGGESTIONS: { label: string; prompt: string; send?: boolean }[] = [
   { label: "Continue writing", prompt: "Continue writing this note from where it leaves off.", send: true },
   { label: "Summarize this page", prompt: "Summarize this note as a few concise bullet points.", send: true },
@@ -329,7 +341,7 @@ export function AssistDrawer({
                   {m.role === "assistant" && !m.error ? (
                     m.content ? (
                       <Markdown style={mdStyles} rules={mdRules}>
-                        {stripInsertMarkers(m.content)}
+                        {normalizeAlertMarkers(stripInsertMarkers(m.content))}
                       </Markdown>
                     ) : m.streaming ? (
                       <Text style={type.body}>…</Text>
@@ -641,12 +653,14 @@ const makeMarkdownStyles = (colors: Palette) => ({
   ordered_list: { marginBottom: 4 },
   list_item: { marginVertical: 2 },
   link: { color: colors.accent, textDecorationLine: "underline" as const },
+  // Quotes as a soft card — no "citation" left bar.
   blockquote: {
     backgroundColor: colors.accentWash,
-    borderLeftColor: colors.accent,
-    borderLeftWidth: 3,
-    paddingHorizontal: 10,
-    paddingVertical: 4,
+    borderColor: colors.hairline,
+    borderWidth: 1,
+    borderRadius: 10,
+    paddingHorizontal: 12,
+    paddingVertical: 8,
     marginBottom: 8,
   },
   code_inline: {
@@ -719,8 +733,16 @@ function makeMarkdownRules(colors: Palette) {
         );
       }
       const { accent, wash } = calloutColors(colors, kind);
-      // Drop the first child (the `[!kind]` marker paragraph) from the body.
-      const kids = Array.isArray(children) ? children.slice(1) : children;
+      // Drop the marker paragraph from the body — but only when it really is
+      // the marker alone; the reply markdown is pre-normalized so it always is.
+      const arr = Array.isArray(children) ? children : [children];
+      const kids = /^\s*\[!\w+\]\s*$/i.test(
+        astText((node.children?.[0] ?? undefined) as { content?: string; children?: unknown[] }),
+      )
+        ? arr.slice(1)
+        : arr;
+      // Marker with no body: render nothing rather than an empty box.
+      if (kids.length === 0) return null;
       return (
         <View
           key={node.key}

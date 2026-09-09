@@ -10,14 +10,33 @@
 import * as Y from "yjs";
 import { ServerBlockNoteEditor } from "@blocknote/server-util";
 import { updateYFragment } from "y-prosemirror";
+import {
+  blocksToMarkdownWithCallouts,
+  calloutSchema,
+  markdownToBlocksWithCallouts,
+} from "./callouts.js";
 
 const FRAGMENT_NAME = "document-store";
 
 /* eslint-disable @typescript-eslint/no-explicit-any */
 let editorSingleton: any = null;
 function editor(): any {
-  if (!editorSingleton) editorSingleton = (ServerBlockNoteEditor as any).create();
+  // The schema MUST include the clients' custom `callout` block, or notes that
+  // contain one can't round-trip through the server (see callouts.ts).
+  if (!editorSingleton) {
+    editorSingleton = (ServerBlockNoteEditor as any).create({ schema: calloutSchema });
+  }
   return editorSingleton;
+}
+
+/** Markdown → blocks, converting `> [!kind]` alerts into callout blocks. */
+function parseMarkdown(ed: any, markdown: string): Promise<any[]> {
+  return markdownToBlocksWithCallouts(ed, markdown) as Promise<any[]>;
+}
+
+/** Blocks → Markdown, rendering callout blocks as `> [!KIND]` alerts. */
+function renderMarkdown(ed: any, blocks: any[]): Promise<string> {
+  return blocksToMarkdownWithCallouts(ed, blocks);
 }
 
 /** Rebuild a Y.Doc from the ordered base64 updates returned by GET content. */
@@ -48,11 +67,11 @@ export function stateVectorBase64(updatesBase64: string[]): string {
   return Buffer.from(Y.encodeStateVector(doc)).toString("base64");
 }
 
-/** Current note body as Markdown. */
+/** Current note body as Markdown (callouts render as GitHub alerts). */
 export async function docToMarkdown(updatesBase64: string[]): Promise<string> {
   const doc = loadDoc(updatesBase64);
   const blocks = editor().yDocToBlocks(doc, FRAGMENT_NAME);
-  return editor().blocksToMarkdownLossy(blocks);
+  return renderMarkdown(editor(), blocks);
 }
 
 /** Diff that appends `markdown`'s blocks after the note's existing content. */
@@ -62,7 +81,7 @@ export async function appendMarkdownDiff(
 ): Promise<string> {
   const doc = loadDoc(updatesBase64);
   const existing = editor().yDocToBlocks(doc, FRAGMENT_NAME);
-  const added = await editor().tryParseMarkdownToBlocks(markdown);
+  const added = await parseMarkdown(editor(), markdown);
   return diffToBlocks(doc, [...existing, ...added]);
 }
 
@@ -72,7 +91,7 @@ export async function replaceMarkdownDiff(
   markdown: string,
 ): Promise<string> {
   const doc = loadDoc(updatesBase64);
-  const blocks = await editor().tryParseMarkdownToBlocks(markdown);
+  const blocks = await parseMarkdown(editor(), markdown);
   return diffToBlocks(doc, blocks);
 }
 
@@ -104,15 +123,15 @@ export async function computeProposal(
   const base_sv = Buffer.from(Y.encodeStateVector(doc)).toString("base64");
 
   const existing = ed.yDocToBlocks(doc, FRAGMENT_NAME);
-  const before_md: string = await ed.blocksToMarkdownLossy(existing);
+  const before_md: string = await renderMarkdown(ed, existing);
 
-  const added = await ed.tryParseMarkdownToBlocks(markdown);
+  const added = await parseMarkdown(ed, markdown);
   const newBlocks = op === "append" ? [...existing, ...added] : added;
 
   // diffToBlocks mutates `doc` in place, so compute after_md from the same doc
   // once the fragment reflects the new blocks.
   const diff_base64 = diffToBlocks(doc, newBlocks);
-  const after_md: string = await ed.blocksToMarkdownLossy(ed.yDocToBlocks(doc, FRAGMENT_NAME));
+  const after_md: string = await renderMarkdown(ed, ed.yDocToBlocks(doc, FRAGMENT_NAME));
 
   return { before_md, after_md, diff_base64, base_sv };
 }
@@ -145,7 +164,7 @@ export function restoreUpdateBase64(updatesBase64: string[], target: string): st
 /** Fresh-doc seed update for a brand-new (empty) note. */
 export async function markdownToUpdateBase64(markdown: string): Promise<string> {
   const ed = editor();
-  const blocks = await ed.tryParseMarkdownToBlocks(markdown);
+  const blocks = await parseMarkdown(ed, markdown);
   const ydoc = ed.blocksToYDoc(blocks, FRAGMENT_NAME);
   return Buffer.from(Y.encodeStateAsUpdate(ydoc)).toString("base64");
 }
