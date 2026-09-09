@@ -3116,6 +3116,27 @@ button.toggle.danger:hover {
   font-size: 13px;
 }
 
+/* 2D/3D mode switch in the graph bar. */
+.graph-mode {
+  display: inline-flex;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  overflow: hidden;
+}
+.graph-mode-btn {
+  border: none;
+  background: none;
+  color: var(--muted);
+  font-size: 12px;
+  font-weight: 600;
+  padding: 4px 10px;
+  cursor: pointer;
+}
+.graph-mode-btn.on {
+  background: var(--accent);
+  color: #fff;
+}
+
 .graph-canvas-wrap {
   flex: 1;
   min-height: 0;
