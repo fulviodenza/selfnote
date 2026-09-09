@@ -579,7 +579,9 @@ function DocListScreen({
   return (
     <View style={styles.flex}>
       <View style={styles.topbar}>
-        <Text style={[type.docTitle, styles.flex]}>Documents</Text>
+        <Text style={[type.docTitle, styles.flex]} numberOfLines={1} adjustsFontSizeToFit>
+          Documents
+        </Text>
         <IconButton icon="check-square" label="Tasks" onPress={onTasks} />
         <IconButton icon="git-branch" label="Graph" onPress={onGraph} />
         <IconButton icon="settings" label="Settings" onPress={onSettings} />
@@ -1283,7 +1285,7 @@ function SettingsScreen({
   };
 
   return (
-    <Sheet title="Server" onClose={onClose}>
+    <Sheet title="Settings" onClose={onClose}>
       <Text style={[type.body, { color: colors.inkSoft }]}>
         Point the app at your self-hosted Selfnote instance.
       </Text>
@@ -1365,7 +1367,9 @@ const makeStyles = (colors: Palette, type: TypeRoles) =>
   segment: { flexDirection: "row", gap: spacing.sm },
   rowInner: { flexDirection: "row", alignItems: "center", gap: spacing.sm },
   rowLabelDot: { width: 6, height: 6, borderRadius: 3, marginLeft: 2 },
-  labelFilterRow: { flexGrow: 0 },
+  // flexShrink: 0 — when the page list below grows (e.g. expanding a subtree),
+  // the flex column would otherwise compress this row and clip the chips.
+  labelFilterRow: { flexGrow: 0, flexShrink: 0 },
   labelFilterContent: {
     gap: spacing.xs,
     paddingHorizontal: spacing.md,

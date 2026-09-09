@@ -7,7 +7,7 @@
  * See docs/features/calendar-task-sync.md §5.
  */
 import { useCallback, useEffect, useMemo, useState } from "react";
-import { ActivityIndicator, Linking, Pressable, StyleSheet, Text, View } from "react-native";
+import { ActivityIndicator, Linking, Platform, Pressable, StyleSheet, Text, View } from "react-native";
 import * as Clipboard from "expo-clipboard";
 import { api, type CalendarFeedInfo } from "../api";
 import { getSettings } from "../settings";
@@ -93,11 +93,20 @@ export function CalendarFeedSection({ workspaceId }: { workspaceId: string }) {
 
   const addToCalendar = async () => {
     if (!displayUrl) return;
-    const url = webcalUrl(displayUrl);
+    // webcal:// is an Apple convention; Android calendar apps (Google Calendar
+    // included) register no handler for it, so route through Google Calendar's
+    // subscribe-by-URL flow there.
+    const url =
+      Platform.OS === "android"
+        ? `https://calendar.google.com/calendar/r/settings/addbyurl?cid=${encodeURIComponent(
+            webcalUrl(displayUrl),
+          )}`
+        : webcalUrl(displayUrl);
     try {
       await Linking.openURL(url);
     } catch {
-      toast("No calendar app could open the feed.");
+      await Clipboard.setStringAsync(absoluteUrl(displayUrl));
+      toast("Couldn't open a calendar app. Feed URL copied; add it via your calendar's “from URL” option.");
     }
   };
 

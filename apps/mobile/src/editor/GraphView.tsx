@@ -147,6 +147,10 @@ export function GraphView({
     simNodes.current = sn;
     simLinks.current = sl;
 
+    // Run the simulation in coarse chunks instead of re-rendering per tick:
+    // a tick-driven render pushes the whole SVG tree over the bridge ~60×/s,
+    // which is what made the graph unusable on device. ~24 ticks per frame
+    // settles a typical workspace in a dozen renders.
     const sim = forceSimulation<SimNode, SimLink>(sn, mode === "3d" ? 3 : 2)
       .force(
         "link",
@@ -157,9 +161,24 @@ export function GraphView({
       )
       .force("charge", forceManyBody<SimNode>().strength(-160))
       .force("center", forceCenter(0, 0, 0))
-      .on("tick", () => setTick((t) => (t + 1) % 1000000));
+      .stop();
     simRef.current = sim;
+
+    const totalTicks = Math.ceil(
+      Math.log(sim.alphaMin()) / Math.log(1 - sim.alphaDecay()),
+    );
+    let done = 0;
+    let raf = 0;
+    const step = () => {
+      const n = Math.min(24, totalTicks - done);
+      sim.tick(n);
+      done += n;
+      setTick((t) => (t + 1) % 1000000);
+      if (done < totalTicks) raf = requestAnimationFrame(step);
+    };
+    raf = requestAnimationFrame(step);
     return () => {
+      cancelAnimationFrame(raf);
       sim.stop();
     };
   }, [nodes, edges, mode]);
@@ -191,6 +210,30 @@ export function GraphView({
   };
 
   // One finger: orbit (3D) / pan (2D). Two fingers: dolly (3D) / zoom (2D).
+  // Move events fire faster than frames; committing camera state through one
+  // rAF-coalesced setState per frame (instead of per event) keeps the gesture
+  // from flooding renders. Labels hide while a gesture is live (interacting):
+  // SVG text is the most expensive part of the scene on RN.
+  const [interacting, setInteracting] = useState(false);
+  const pendingCommit = useRef<(() => void) | null>(null);
+  const commitFrame = useRef<number | null>(null);
+  const schedule = (commit: () => void) => {
+    pendingCommit.current = commit;
+    if (commitFrame.current == null) {
+      commitFrame.current = requestAnimationFrame(() => {
+        commitFrame.current = null;
+        pendingCommit.current?.();
+        pendingCommit.current = null;
+      });
+    }
+  };
+  useEffect(
+    () => () => {
+      if (commitFrame.current != null) cancelAnimationFrame(commitFrame.current);
+    },
+    [],
+  );
+
   const gesture = useRef({ startView: view, startCamera: camera, startDist: 0 });
   const panResponder = useMemo(
     () =>
@@ -202,6 +245,7 @@ export function GraphView({
           gesture.current.startView = viewRef.current;
           gesture.current.startCamera = cameraRef.current;
           gesture.current.startDist = 0;
+          setInteracting(true);
         },
         onPanResponderMove: (e, g) => {
           const touches = e.nativeEvent.touches;
@@ -217,23 +261,27 @@ export function GraphView({
             const ratio = dist / gesture.current.startDist;
             if (modeRef.current === "3d") {
               const cam = clamp(gesture.current.startCamera.cam / ratio, MIN_CAM, MAX_CAM);
-              setCamera({ ...gesture.current.startCamera, cam });
+              schedule(() => setCamera({ ...gesture.current.startCamera, cam }));
             } else {
               const k = clamp(gesture.current.startView.k * ratio, 0.3, 3);
-              setView({ ...gesture.current.startView, k });
+              schedule(() => setView({ ...gesture.current.startView, k }));
             }
           } else if (modeRef.current === "3d") {
             const start = gesture.current.startCamera;
-            setCamera({
-              cam: start.cam,
-              yaw: start.yaw + g.dx * 0.008,
-              pitch: clamp(start.pitch + g.dy * 0.008, -1.4, 1.4),
-            });
+            schedule(() =>
+              setCamera({
+                cam: start.cam,
+                yaw: start.yaw + g.dx * 0.008,
+                pitch: clamp(start.pitch + g.dy * 0.008, -1.4, 1.4),
+              }),
+            );
           } else {
             const start = gesture.current.startView;
-            setView({ ...start, x: start.x + g.dx, y: start.y + g.dy });
+            schedule(() => setView({ ...start, x: start.x + g.dx, y: start.y + g.dy }));
           }
         },
+        onPanResponderRelease: () => setInteracting(false),
+        onPanResponderTerminate: () => setInteracting(false),
       }),
     [],
   );
@@ -331,11 +379,14 @@ export function GraphView({
                 />
               );
             })}
-            {drawNodes.map(({ n, p }) => {
+            {drawNodes.map(({ n, p }, i) => {
               const isActive = n.id === activeId;
               const r = Math.max(2, (isActive ? ACTIVE_R : NODE_R) * p.k);
               const alpha = isActive ? 1 : depthAlpha(p.depth);
               const fontPx = 11 * p.k;
+              // Labels only for the ~40 nearest nodes, and never mid-gesture.
+              const showLabel =
+                isActive || (!interacting && fontPx >= 6 && i >= drawNodes.length - 40);
               return (
                 <G key={n.id} x={p.px} y={p.py} opacity={alpha}>
                   <Circle
@@ -344,7 +395,7 @@ export function GraphView({
                     stroke={isActive ? colors.accentPressed : colors.inkSoft}
                     strokeWidth={isActive ? 2 : 1.5}
                   />
-                  {fontPx >= 6 || isActive ? (
+                  {showLabel ? (
                     <SvgText
                       x={0}
                       y={r + 12}

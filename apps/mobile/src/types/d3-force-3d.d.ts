@@ -29,7 +29,10 @@ declare module "d3-force-3d" {
     on(name: string, listener: () => void): this;
     stop(): this;
     restart(): this;
+    tick(iterations?: number): this;
     alpha(a?: number): this;
+    alphaMin(): number;
+    alphaDecay(): number;
   }
 
   export function forceSimulation<N extends SimulationNodeDatum, L = undefined>(
