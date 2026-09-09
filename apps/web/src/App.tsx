@@ -1300,6 +1300,7 @@ function EditorPaneInner({
             aiFeatures={ai?.features}
             summarize={ai?.available ? summarize : undefined}
             onError={showToast}
+            uploadFile={(f) => api.uploadFile(doc.workspace_id, f)}
             onAskAi={
               ai?.available
                 ? (selection) => {
