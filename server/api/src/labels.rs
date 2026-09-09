@@ -392,6 +392,166 @@ pub async fn suggest_names(
     Ok(parse_label_reply(&reply))
 }
 
+/* ------------------------------------------- bulk "label everything" ------- */
+
+/// Progress of a workspace's bulk-label job (kept in process memory — a homelab
+/// instance runs one API process; a restart simply lets the job be re-run,
+/// which is safe because only unlabeled notes are ever touched).
+#[derive(Debug, Clone, Serialize, Default)]
+pub struct BulkStatus {
+    pub running: bool,
+    pub total: usize,
+    pub done: usize,
+    pub labeled: usize,
+    pub failed: usize,
+}
+
+type BulkJobs = std::sync::Mutex<std::collections::HashMap<Uuid, BulkStatus>>;
+
+fn bulk_jobs() -> &'static BulkJobs {
+    static JOBS: std::sync::OnceLock<BulkJobs> = std::sync::OnceLock::new();
+    JOBS.get_or_init(Default::default)
+}
+
+/// `GET /workspaces/:id/labels/bulk` — the job's progress (zeroed when never run).
+pub async fn bulk_status(
+    State(state): State<AppState>,
+    user: AuthUser,
+    Path(workspace_id): Path<Uuid>,
+) -> ApiResult<Json<BulkStatus>> {
+    require_member(&state, workspace_id, user.id).await?;
+    let status = bulk_jobs()
+        .lock()
+        .unwrap()
+        .get(&workspace_id)
+        .cloned()
+        .unwrap_or_default();
+    Ok(Json(status))
+}
+
+/// `POST /workspaces/:id/labels/bulk` — label every unlabeled, non-archived note
+/// in the workspace with the AI suggester (editor+). Returns the initial status;
+/// `409` when a job is already running or no AI provider is configured.
+/// Idempotent by construction: re-running only touches still-unlabeled notes.
+pub async fn bulk_start(
+    State(state): State<AppState>,
+    user: AuthUser,
+    Path(workspace_id): Path<Uuid>,
+) -> ApiResult<Json<BulkStatus>> {
+    let role = require_member(&state, workspace_id, user.id).await?;
+    require_writer(&role)?;
+    if !crate::ai::available() {
+        return Err(AppError::Conflict("no AI provider configured".to_string()));
+    }
+
+    let docs: Vec<(Uuid, String)> = sqlx::query_as(
+        "select d.id, d.title from documents d \
+         where d.workspace_id = $1 and not d.archived \
+           and not exists (select 1 from document_labels dl where dl.document_id = d.id) \
+         order by d.updated_at desc",
+    )
+    .bind(workspace_id)
+    .fetch_all(&state.pool)
+    .await?;
+
+    let status = {
+        let mut jobs = bulk_jobs().lock().unwrap();
+        if jobs.get(&workspace_id).map(|s| s.running).unwrap_or(false) {
+            return Err(AppError::Conflict("a bulk labeling job is already running".into()));
+        }
+        let status = BulkStatus {
+            running: !docs.is_empty(),
+            total: docs.len(),
+            ..Default::default()
+        };
+        jobs.insert(workspace_id, status.clone());
+        status
+    };
+
+    if !docs.is_empty() {
+        tokio::spawn(run_bulk(state, workspace_id, docs));
+    }
+    Ok(Json(status))
+}
+
+/// The background job: render each note's text through the Node diff helper,
+/// ask the AI for labels, attach them. Failures skip the note and continue.
+async fn run_bulk(state: AppState, workspace_id: Uuid, docs: Vec<(Uuid, String)>) {
+    #[derive(serde::Deserialize)]
+    struct Rendered {
+        markdown: String,
+    }
+
+    for (doc_id, title) in docs {
+        let mut labeled = false;
+        let result: ApiResult<()> = async {
+            let updates = crate::documents::load_content_updates(&state, doc_id).await?;
+            let text = if updates.is_empty() {
+                String::new()
+            } else {
+                let r: Rendered = crate::proposals::run_diff_cli(serde_json::json!({
+                    "mode": "render",
+                    "updates": updates,
+                }))
+                .await?;
+                r.markdown
+            };
+            // A note with no meaningful content isn't worth a model call.
+            if text.trim().len() < 10 && title.trim().is_empty() {
+                return Ok(());
+            }
+
+            // Refresh the vocabulary each note so later notes reuse labels the
+            // earlier ones created.
+            let existing: Vec<Label> = sqlx::query_as(
+                "select id, workspace_id, name, color from labels \
+                 where workspace_id = $1 order by lower(name) asc limit 200",
+            )
+            .bind(workspace_id)
+            .fetch_all(&state.pool)
+            .await?;
+
+            let names = suggest_names(&title, &text, &existing).await?;
+            if names.is_empty() {
+                return Ok(());
+            }
+            let mut ids: Vec<Uuid> = Vec::new();
+            for name in &names {
+                ids.push(create_or_get(&state, workspace_id, name, None).await?.id);
+            }
+            for id in ids {
+                sqlx::query(
+                    "insert into document_labels (document_id, label_id) values ($1, $2) \
+                     on conflict do nothing",
+                )
+                .bind(doc_id)
+                .bind(id)
+                .execute(&state.pool)
+                .await?;
+            }
+            labeled = true;
+            Ok(())
+        }
+        .await;
+
+        let mut jobs = bulk_jobs().lock().unwrap();
+        if let Some(s) = jobs.get_mut(&workspace_id) {
+            s.done += 1;
+            if labeled {
+                s.labeled += 1;
+            }
+            if result.is_err() {
+                s.failed += 1;
+            }
+        }
+    }
+
+    let mut jobs = bulk_jobs().lock().unwrap();
+    if let Some(s) = jobs.get_mut(&workspace_id) {
+        s.running = false;
+    }
+}
+
 /// Extract label names from the model reply: JSON array preferred, line/comma
 /// fallback otherwise. Deduped case-insensitively, max 3, each ≤60 chars.
 fn parse_label_reply(reply: &str) -> Vec<String> {

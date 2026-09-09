@@ -21,7 +21,7 @@ import {
 import { AssistPanel, type AiEditor } from "./AssistPanel";
 import { HistoryPanel } from "./components/history/HistoryPanel";
 import { NoteAiActions, type ActionEditor } from "./NoteAiActions";
-import { LabelBar } from "./LabelBar";
+import { BulkLabelButton, LabelBar } from "./LabelBar";
 import { AiProposalBanner, AiDiffPreview } from "./AiProposals";
 import { BacklinksPanel } from "./BacklinksPanel";
 import { GraphView } from "./GraphView";
@@ -531,6 +531,7 @@ function Sidebar({
         <button className="foot-btn" onClick={onImport}>
           <Icon name="download" size={16} /> Import Obsidian vault
         </button>
+        {workspaceId && <BulkLabelButton workspaceId={workspaceId} />}
         <button className="foot-btn" onClick={() => setShowConnections(true)}>
           <Icon name="settings" size={16} /> Connections
         </button>

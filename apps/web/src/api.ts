@@ -355,6 +355,15 @@ export interface LabelSuggestion {
   color: string | null;
 }
 
+/** Progress of a workspace's bulk "label everything" job. */
+export interface BulkLabelStatus {
+  running: boolean;
+  total: number;
+  done: number;
+  labeled: number;
+  failed: number;
+}
+
 async function tryRefresh(): Promise<boolean> {
   const refresh_token = localStorage.getItem(REFRESH_KEY);
   if (!refresh_token) return false;
@@ -511,6 +520,14 @@ export const api = {
       method: "PUT",
       body: JSON.stringify({ label_ids: labelIds }),
     }).then((r) => r.labels),
+
+  /** Start the bulk "label everything" job (labels only unlabeled notes). */
+  bulkLabelStart: (workspaceId: string) =>
+    req<BulkLabelStatus>(`/workspaces/${workspaceId}/labels/bulk`, { method: "POST" }),
+
+  /** Progress of the workspace's bulk-label job (zeroed when never run). */
+  bulkLabelStatus: (workspaceId: string) =>
+    req<BulkLabelStatus>(`/workspaces/${workspaceId}/labels/bulk`),
 
   /** AI label suggestions for a note (409 when no provider is configured). */
   suggestLabels: (docId: string, text: string) =>

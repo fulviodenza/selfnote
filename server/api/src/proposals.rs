@@ -72,7 +72,7 @@ struct Reapplied {
 /// Run the Node diff helper with a JSON job on stdin, parse its JSON stdout into
 /// `T`. `SELFNOTE_EDIT_DIFF_CMD` overrides the command (default: `selfnote-edit-diff`,
 /// the bin the MCP package installs); the helper is expected on PATH in the image.
-async fn run_diff_cli<T: for<'de> Deserialize<'de>>(job: serde_json::Value) -> ApiResult<T> {
+pub(crate) async fn run_diff_cli<T: for<'de> Deserialize<'de>>(job: serde_json::Value) -> ApiResult<T> {
     use tokio::io::AsyncWriteExt;
     use tokio::process::Command;
 

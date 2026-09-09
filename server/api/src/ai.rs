@@ -186,6 +186,11 @@ pub async fn complete(
     Ok(Json(CompleteResp { text }))
 }
 
+/// Whether any AI provider is configured (cheap, cached).
+pub(crate) fn available() -> bool {
+    !matches!(provider(), Provider::None)
+}
+
 /// One-shot prompt → trimmed reply on whichever provider is configured.
 /// `409` when none is. Shared by `/ai/complete` and the label suggester.
 pub(crate) async fn run_text(prompt: &str) -> ApiResult<String> {

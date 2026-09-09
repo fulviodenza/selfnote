@@ -15,12 +15,16 @@
  *     checkpoint snapshot). Input {updates}. Output {snapshot, size_bytes}.
  *   - "restore": forward update that turns the note's current state into a target
  *     checkpoint state. Input {updates, target}. Output {update, size_bytes}.
+ *   - "render": the note body as Markdown (callouts as GitHub alerts). Input
+ *     {updates}. Output {markdown}. Used by the AI bulk labeler, which needs
+ *     each note's text server-side.
  *
  * Errors are reported as {error: "…"} on stdout with a non-zero exit code, so the
  * caller can surface a clean 409 instead of a stack trace.
  */
 import {
   computeProposal,
+  docToMarkdown,
   mergeUpdatesBase64,
   replaceMarkdownDiff,
   restoreUpdateBase64,
@@ -50,6 +54,9 @@ async function run(job: any): Promise<unknown> {
     case "merge": {
       const snapshot = mergeUpdatesBase64(updates);
       return { snapshot, size_bytes: Buffer.from(snapshot, "base64").length };
+    }
+    case "render": {
+      return { markdown: await docToMarkdown(updates) };
     }
     case "restore": {
       if (typeof job.target !== "string") throw new Error("target must be a string");

@@ -5,8 +5,69 @@
  * one. Suggestions are never persisted until accepted.
  */
 import { useCallback, useEffect, useRef, useState } from "react";
-import { api, type Label, type LabelSuggestion } from "./api";
+import { api, type BulkLabelStatus, type Label, type LabelSuggestion } from "./api";
 import { Icon } from "./Icon";
+
+/**
+ * Sidebar entry point for the bulk "label everything" job — useful right after
+ * importing a vault. Starts the server job and polls progress while it runs.
+ */
+export function BulkLabelButton({ workspaceId }: { workspaceId: string }) {
+  const [status, setStatus] = useState<BulkLabelStatus | null>(null);
+  const [error, setError] = useState<string | null>(null);
+
+  // Poll while a job is running (also picks up a job started elsewhere).
+  useEffect(() => {
+    let alive = true;
+    let timer: ReturnType<typeof setTimeout>;
+    const tick = async () => {
+      try {
+        const s = await api.bulkLabelStatus(workspaceId);
+        if (!alive) return;
+        setStatus(s);
+        if (s.running) timer = setTimeout(tick, 2000);
+      } catch {
+        /* older server / offline — leave idle */
+      }
+    };
+    void tick();
+    return () => {
+      alive = false;
+      clearTimeout(timer);
+    };
+  }, [workspaceId, status?.running]);
+
+  const start = async () => {
+    setError(null);
+    try {
+      setStatus(await api.bulkLabelStart(workspaceId));
+    } catch (e) {
+      setError(
+        e instanceof Error && /no ai provider/i.test(e.message)
+          ? "No AI provider configured."
+          : e instanceof Error && /already running/i.test(e.message)
+            ? "Already running."
+            : "Couldn’t start bulk labeling.",
+      );
+    }
+  };
+
+  if (status?.running) {
+    return (
+      <button className="foot-btn" disabled>
+        <Icon name="sparkles" size={16} /> Labeling {status.done}/{status.total}…
+      </button>
+    );
+  }
+  return (
+    <button className="foot-btn" onClick={() => void start()} title={error ?? undefined}>
+      <Icon name="sparkles" size={16} />
+      {error ? error : status && status.total > 0 && status.done === status.total
+        ? `Labeled ${status.labeled} notes`
+        : "Label all notes (AI)"}
+    </button>
+  );
+}
 
 /** Minimal view of the editor we need to hand the note text to the AI. */
 interface TextSource {
