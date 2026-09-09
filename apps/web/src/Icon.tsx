@@ -35,7 +35,16 @@ export type IconName =
   | "share-2"
   | "list"
   | "git-branch"
-  | "corner-up-left";
+  | "corner-up-left"
+  | "paperclip"
+  | "archive"
+  | "trash-2"
+  | "help-circle"
+  | "image"
+  | "film"
+  | "music"
+  | "log-out"
+  | "chevrons-down-up";
 
 const PATHS: Record<IconName, ReactNode> = {
   x: <path d="M18 6 6 18M6 6l12 12" />,
@@ -138,6 +147,54 @@ const PATHS: Record<IconName, ReactNode> = {
     </>
   ),
   "corner-up-left": <path d="M9 14 4 9l5-5M4 9h11a4 4 0 0 1 4 4v7" />,
+  paperclip: (
+    <path d="m21.44 11.05-9.19 9.19a6 6 0 0 1-8.49-8.49l8.57-8.57A4 4 0 1 1 18 8.84l-8.59 8.57a2 2 0 0 1-2.83-2.83l8.49-8.48" />
+  ),
+  archive: (
+    <>
+      <path d="M21 8v13H3V8" />
+      <path d="M1 3h22v5H1zM10 12h4" />
+    </>
+  ),
+  "trash-2": (
+    <>
+      <path d="M3 6h18M8 6V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6" />
+      <path d="M10 11v6M14 11v6" />
+    </>
+  ),
+  "help-circle": (
+    <>
+      <circle cx="12" cy="12" r="10" />
+      <path d="M9.09 9a3 3 0 0 1 5.83 1c0 2-3 3-3 3M12 17h.01" />
+    </>
+  ),
+  image: (
+    <>
+      <rect x="3" y="3" width="18" height="18" rx="2" ry="2" />
+      <circle cx="8.5" cy="8.5" r="1.5" />
+      <path d="m21 15-5-5L5 21" />
+    </>
+  ),
+  film: (
+    <>
+      <rect x="2" y="2" width="20" height="20" rx="2.18" ry="2.18" />
+      <path d="M7 2v20M17 2v20M2 12h20M2 7h5M2 17h5M17 17h5M17 7h5" />
+    </>
+  ),
+  music: (
+    <>
+      <path d="M9 18V5l12-2v13" />
+      <circle cx="6" cy="18" r="3" />
+      <circle cx="18" cy="16" r="3" />
+    </>
+  ),
+  "log-out": (
+    <>
+      <path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4" />
+      <path d="m16 17 5-5-5-5M21 12H9" />
+    </>
+  ),
+  "chevrons-down-up": <path d="m7 20 5-5 5 5M7 4l5 5 5-5" />,
 };
 
 export function Icon({

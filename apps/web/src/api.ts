@@ -32,8 +32,19 @@ export interface Document {
   title: string;
   icon: string | null;
   archived: boolean;
+  trashed: boolean;
   created_at: string;
   updated_at: string;
+}
+
+/** An uploaded asset's metadata (GET /workspaces/:id/files; no blob data). */
+export interface FileAsset {
+  id: string;
+  doc_id: string | null;
+  name: string | null;
+  mime: string;
+  size: number;
+  created_at: string;
 }
 
 export interface RoomToken {
@@ -428,8 +439,10 @@ export const api = {
   createWorkspace: (name: string) =>
     req<Workspace>("/workspaces", { method: "POST", body: JSON.stringify({ name }) }),
 
-  listDocuments: (workspaceId: string) =>
-    req<Document[]>(`/documents?workspace_id=${encodeURIComponent(workspaceId)}`),
+  listDocuments: (workspaceId: string, state?: "active" | "archived" | "trashed") =>
+    req<Document[]>(
+      `/documents?workspace_id=${encodeURIComponent(workspaceId)}${state ? `&state=${state}` : ""}`,
+    ),
   /** Full-text search over document titles within a workspace. */
   searchDocuments: (workspaceId: string, q: string) =>
     req<Document[]>(
@@ -442,8 +455,17 @@ export const api = {
     }),
   updateDocument: (
     id: string,
-    patch: Partial<{ title: string; parent_id: string | null; archived: boolean }>,
+    patch: Partial<{ title: string; parent_id: string | null; archived: boolean; trashed: boolean }>,
   ) => req<Document>(`/documents/${id}`, { method: "PATCH", body: JSON.stringify(patch) }),
+  /** Permanently delete a page (Trash → "Delete forever"). */
+  deleteDocument: (id: string) =>
+    req<void>(`/documents/${id}`, { method: "DELETE" }),
+  /** The workspace's uploaded assets (metadata only), newest first. */
+  listFiles: (workspaceId: string) => req<FileAsset[]>(`/workspaces/${workspaceId}/files`),
+  /** Permanently delete one uploaded asset (Assets view cleanup). */
+  deleteFile: (id: string) => req<void>(`/files/${id}`, { method: "DELETE" }),
+  /** Served URL for an uploaded asset id (origin-relative or absolute base). */
+  fileUrl: (id: string) => `${API_BASE}/files/${id}`,
 
   roomToken: (docId: string) =>
     req<RoomToken>(`/documents/${docId}/room-token`, { method: "POST" }),
@@ -568,11 +590,18 @@ export const api = {
       body: JSON.stringify({ doc_id: docId, text }),
     }).then((r) => r.suggestions),
 
-  /** Upload a file (multipart); returns its served URL. */
-  uploadFile: async (workspaceId: string, file: File): Promise<string> => {
+  /**
+   * Upload a file (multipart); returns its served URL. Pass `docId` so the
+   * asset is owned by that page — it then follows the page through trash and
+   * permanent deletion instead of lingering in the Assets view.
+   */
+  uploadFile: async (workspaceId: string, file: File, docId?: string): Promise<string> => {
     const fd = new FormData();
     fd.append("file", file);
-    const res = await fetch(`${API_BASE}/files?workspace_id=${encodeURIComponent(workspaceId)}`, {
+    const qs =
+      `workspace_id=${encodeURIComponent(workspaceId)}` +
+      (docId ? `&doc_id=${encodeURIComponent(docId)}` : "");
+    const res = await fetch(`${API_BASE}/files?${qs}`, {
       method: "POST",
       headers: accessToken ? { authorization: `Bearer ${accessToken}` } : {},
       body: fd,

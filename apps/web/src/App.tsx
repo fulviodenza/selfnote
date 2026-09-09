@@ -1,9 +1,15 @@
 import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from "react";
-import { applyUpdateBase64, createDocConnection, type ConnectionStatus } from "@selfnote/core";
+import {
+  applyUpdateBase64,
+  createDocConnection,
+  type ConnectionStatus,
+  type DocConnection,
+} from "@selfnote/core";
 import {
   CollaborativeEditor,
   createImporter,
   type EditorUser,
+  type ExtractedAttachment,
   type ExtractedLink,
   type LinkNoteDoc,
   type LinkNoteProvider,
@@ -13,6 +19,7 @@ import {
   ensureWorkspace,
   isAuthed,
   type Document,
+  type FileAsset,
   type ResolvedShare,
   type ShareAnalytics,
   type AiStatus,
@@ -37,6 +44,7 @@ import { TaskControls } from "./TaskControls";
 import { Icon } from "./Icon";
 import type { Task } from "./api";
 import { syncUrl, needsOnboarding, saveServer, deriveFromBase } from "./server";
+import { closeDesktopWindow } from "./desktop";
 
 // Derived from the page origin in the browser; absolute when a server is configured.
 const SYNC_URL = syncUrl();
@@ -120,10 +128,50 @@ function AppRoot() {
   const [workspaceId, setWorkspaceId] = useState<string | null>(null);
   const [docs, setDocs] = useState<Document[]>([]);
   const [activeId, setActiveId] = useState<string | null>(null);
-  // Which surface fills the main pane: the editor for a page, the agenda, or
-  // the workspace graph.
-  const [view, setView] = useState<"editor" | "tasks" | "graph">("editor");
+  // Browser-style tabs: the ordered set of open page ids. Every "open a page"
+  // path goes through openDoc so the page joins the strip; persisted so the
+  // open set survives reloads.
+  const [tabs, setTabs] = useState<string[]>(() => {
+    try {
+      const raw = localStorage.getItem("selfnote_tabs");
+      return raw ? (JSON.parse(raw) as string[]) : [];
+    } catch {
+      return [];
+    }
+  });
+  useEffect(() => {
+    try {
+      localStorage.setItem("selfnote_tabs", JSON.stringify(tabs));
+    } catch {
+      /* storage unavailable — keep in-memory only */
+    }
+  }, [tabs]);
+  // Which surface fills the main pane: the editor for a page, the agenda, the
+  // workspace graph, or one of the System shelves (assets / archive / trash).
+  const [view, setView] = useState<
+    "editor" | "tasks" | "graph" | "assets" | "archive" | "trash"
+  >("editor");
   const [error, setError] = useState<string | null>(null);
+  // Import-vault modal (hosts the picker trigger + the AI bulk-label action).
+  const [showImport, setShowImport] = useState(false);
+
+  const openDoc = useCallback((id: string) => {
+    setView("editor");
+    setTabs((cur) => (cur.includes(id) ? cur : [...cur, id]));
+    setActiveId(id);
+  }, []);
+
+  const closeTab = useCallback((id: string) => {
+    setTabs((cur) => {
+      const idx = cur.indexOf(id);
+      const next = cur.filter((t) => t !== id);
+      // Closing the active tab activates its right neighbor (or the new last).
+      setActiveId((active) =>
+        active === id ? next[Math.min(idx, next.length - 1)] ?? null : active,
+      );
+      return next;
+    });
+  }, []);
 
   const reload = useCallback(async (wsId: string) => {
     const list = await api.listDocuments(wsId);
@@ -139,10 +187,24 @@ function AppRoot() {
       setWorkspaceId(wsId);
       const list = await reload(wsId);
       // Honor a #doc-<id> deep link (e.g. the location a saved conversation
-      // reports), otherwise fall back to the current or first page.
+      // reports), otherwise fall back to the current page, the restored tabs,
+      // or the first page. Tabs pointing at deleted docs are pruned.
       const deepLink = window.location.hash.match(/#doc-([\w-]+)/)?.[1];
       const target = deepLink && list.some((d) => d.id === deepLink) ? deepLink : null;
-      setActiveId((cur) => target ?? cur ?? list[0]?.id ?? null);
+      setTabs((cur) => {
+        const kept = cur.filter((id) => list.some((d) => d.id === id));
+        setActiveId((active) => {
+          const fallback =
+            (active && list.some((d) => d.id === active) ? active : null) ??
+            kept[0] ??
+            list[0]?.id ??
+            null;
+          const next = target ?? fallback;
+          if (next && !kept.includes(next)) kept.push(next);
+          return next;
+        });
+        return kept;
+      });
       setAuthed(true);
     } catch (e) {
       if ((e as { status?: number }).status === 401) setAuthed(false);
@@ -163,8 +225,7 @@ function AppRoot() {
     if (!workspaceId) return;
     const doc = await api.createDocument(workspaceId, parentId, "Untitled");
     await reload(workspaceId);
-    setView("editor");
-    setActiveId(doc.id);
+    openDoc(doc.id);
   };
   const rename = async (id: string, title: string) => {
     await api.updateDocument(id, { title: title.trim() || "Untitled" });
@@ -172,16 +233,20 @@ function AppRoot() {
   };
   const archive = async (id: string) => {
     await api.updateDocument(id, { archived: true });
-    if (workspaceId) {
-      const list = await reload(workspaceId);
-      if (activeId === id) setActiveId(list[0]?.id ?? null);
-    }
+    closeTab(id);
+    if (workspaceId) await reload(workspaceId);
+  };
+  const trash = async (id: string) => {
+    await api.updateDocument(id, { trashed: true });
+    closeTab(id);
+    if (workspaceId) await reload(workspaceId);
   };
   const logout = () => {
     api.logout();
     setAuthed(false);
     setDocs([]);
     setActiveId(null);
+    setTabs([]);
     setWorkspaceId(null);
   };
 
@@ -227,6 +292,30 @@ function AppRoot() {
     window.addEventListener("keydown", onKey);
     return () => window.removeEventListener("keydown", onKey);
   }, []);
+
+  // Tab / app shortcuts. In the desktop shell nothing is browser-reserved, so
+  // Ctrl/Cmd+W closes the active page tab and Ctrl/Cmd+Q closes the app (the
+  // macOS menu also binds Quit natively). Browsers keep both combos for
+  // themselves and never hand them to the page, so Alt+W is the browser
+  // alias for closing the tab. e.code identifies the physical key — on macOS
+  // Alt+W's e.key is "∑".
+  useEffect(() => {
+    const onKey = (e: KeyboardEvent) => {
+      const mod = e.metaKey || e.ctrlKey;
+      if (
+        e.code === "KeyW" &&
+        !e.shiftKey &&
+        ((mod && !e.altKey) || (e.altKey && !mod))
+      ) {
+        e.preventDefault();
+        if (view === "editor" && activeId) closeTab(activeId);
+      } else if (e.code === "KeyQ" && mod && !e.shiftKey && !e.altKey) {
+        if (closeDesktopWindow()) e.preventDefault();
+      }
+    };
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, [view, activeId, closeTab]);
 
   const handleAutoTitle = async (title: string) => {
     const d = docs.find((x) => x.id === activeId);
@@ -279,51 +368,62 @@ function AppRoot() {
         docs={docs}
         activeId={activeId}
         workspaceId={workspaceId}
-        tasksActive={view === "tasks"}
-        graphActive={view === "graph"}
+        view={view}
         theme={theme}
         onToggleTheme={toggleTheme}
-        onOpen={(id) => {
-          setView("editor");
-          setActiveId(id);
-        }}
-        onOpenTasks={() => setView("tasks")}
-        onOpenGraph={() => setView("graph")}
+        onOpen={openDoc}
+        onOpenView={setView}
         onCreate={createPage}
         onRename={rename}
         onArchive={archive}
+        onTrash={trash}
         onLogout={logout}
-        onImport={() => fileInputRef.current?.click()}
+        onOpenImport={() => setShowImport(true)}
         onOpenSearch={() => setShowSearch(true)}
       />
+      {showImport && workspaceId && (
+        <ImportVaultModal
+          workspaceId={workspaceId}
+          onPickVault={() => {
+            setShowImport(false);
+            fileInputRef.current?.click();
+          }}
+          onClose={() => setShowImport(false)}
+        />
+      )}
       {showSearch && workspaceId && (
         <SearchModal
           workspaceId={workspaceId}
-          onOpenPage={(id) => {
-            setView("editor");
-            setActiveId(id);
-          }}
+          onOpenPage={openDoc}
           onClose={() => setShowSearch(false)}
         />
       )}
       <main className="main">
+        <TabStrip
+          tabs={tabs}
+          docs={docs}
+          activeId={view === "editor" ? activeId : null}
+          onSelect={openDoc}
+          onClose={closeTab}
+          onNew={() => createPage(null)}
+        />
         {view === "graph" && workspaceId ? (
           <GraphView
             workspaceId={workspaceId}
             activeId={activeId}
-            onOpen={(id) => {
-              setView("editor");
-              setActiveId(id);
-            }}
+            onOpen={openDoc}
             onClose={() => setView("editor")}
           />
         ) : view === "tasks" && workspaceId ? (
-          <TaskView
+          <TaskView workspaceId={workspaceId} onOpen={openDoc} />
+        ) : view === "assets" && workspaceId ? (
+          <AssetsView workspaceId={workspaceId} onOpenPage={openDoc} />
+        ) : (view === "archive" || view === "trash") && workspaceId ? (
+          <ShelfView
+            key={view}
+            shelf={view}
             workspaceId={workspaceId}
-            onOpen={(id) => {
-              setView("editor");
-              setActiveId(id);
-            }}
+            onChanged={() => reload(workspaceId)}
           />
         ) : activeId && activeDoc ? (
           <EditorPane
@@ -332,16 +432,15 @@ function AppRoot() {
             user={user}
             theme={theme}
             childPages={childPages}
-            onOpenPage={(id) => {
-              setView("editor");
-              setActiveId(id);
-            }}
+            onOpenPage={openDoc}
             onAutoTitle={handleAutoTitle}
           />
         ) : (
           <div className="empty">
-            <p>No page selected.</p>
-            <button onClick={() => createPage(null)}>Create your first page</button>
+            <p>No page open.</p>
+            <button onClick={() => createPage(null)}>
+              {docs.length === 0 ? "Create your first page" : "New page"}
+            </button>
           </div>
         )}
       </main>
@@ -428,47 +527,477 @@ function LoginScreen({
   );
 }
 
+/* ============================= tab strip ============================= */
+
+/**
+ * Browser-style tabs over the main pane: one tab per open page. The active tab
+ * "connects" to the editor surface below (same background, open bottom edge).
+ * Middle-click closes, like a browser. Hidden while nothing is open.
+ */
+function TabStrip({
+  tabs,
+  docs,
+  activeId,
+  onSelect,
+  onClose,
+  onNew,
+}: {
+  tabs: string[];
+  docs: Document[];
+  /** null when a non-editor view (tasks/graph) fills the pane — no tab lit. */
+  activeId: string | null;
+  onSelect: (id: string) => void;
+  onClose: (id: string) => void;
+  onNew: () => void;
+}) {
+  const byId = useMemo(() => new Map(docs.map((d) => [d.id, d])), [docs]);
+  const open = tabs.filter((id) => byId.has(id));
+  if (open.length === 0) return null;
+
+  return (
+    <div className="tabstrip" role="tablist">
+      <div className="tabstrip-scroll">
+        {open.map((id) => {
+          const active = id === activeId;
+          return (
+            <div
+              key={id}
+              role="tab"
+              aria-selected={active}
+              className={active ? "tab active" : "tab"}
+              title={byId.get(id)?.title || "Untitled"}
+              onClick={() => onSelect(id)}
+              onAuxClick={(e) => {
+                if (e.button === 1) onClose(id);
+              }}
+            >
+              <span className="tab-title">{byId.get(id)?.title || "Untitled"}</span>
+              <button
+                className="tab-close"
+                aria-label="Close tab"
+                onClick={(e) => {
+                  e.stopPropagation();
+                  onClose(id);
+                }}
+              >
+                <Icon name="x" size={13} />
+              </button>
+            </div>
+          );
+        })}
+      </div>
+      <button className="tab-new" title="New page" onClick={onNew}>
+        <Icon name="plus" size={15} />
+      </button>
+    </div>
+  );
+}
+
+/* ======================= files: preview + shelves ======================= */
+
+type PreviewKind = "image" | "video" | "audio" | "pdf" | "other";
+
+/** What an asset can be shown as, from its mime type and/or filename. */
+function previewKind(mime: string | null, name: string): PreviewKind {
+  if (mime) {
+    if (mime.startsWith("image/")) return "image";
+    if (mime.startsWith("video/")) return "video";
+    if (mime.startsWith("audio/")) return "audio";
+    if (mime === "application/pdf") return "pdf";
+  }
+  if (/\.pdf$/i.test(name)) return "pdf";
+  return "other";
+}
+
+/** Kind of an editor attachment block, refined by filename for `file` blocks. */
+function attachmentPreviewKind(a: ExtractedAttachment): PreviewKind {
+  if (a.kind === "image" || a.kind === "video" || a.kind === "audio") return a.kind;
+  return /\.pdf($|\?)/i.test(a.url) || /\.pdf$/i.test(a.name) ? "pdf" : "other";
+}
+
+const ATTACH_ICON: Record<PreviewKind, Parameters<typeof Icon>[0]["name"]> = {
+  image: "image",
+  video: "film",
+  audio: "music",
+  pdf: "file-text",
+  other: "paperclip",
+};
+
+function humanSize(bytes: number): string {
+  if (bytes < 1024) return `${bytes} B`;
+  if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(0)} KB`;
+  return `${(bytes / (1024 * 1024)).toFixed(1)} MB`;
+}
+
+/** Inline viewer for images, video, audio, and PDFs; a link for the rest. */
+function FilePreviewModal({
+  url,
+  name,
+  kind,
+  onClose,
+}: {
+  url: string;
+  name: string;
+  kind: PreviewKind;
+  onClose: () => void;
+}) {
+  return (
+    <div className="preview-overlay" onClick={onClose}>
+      <div className="preview-card" onClick={(e) => e.stopPropagation()}>
+        <div className="preview-head">
+          <span className="preview-name" title={name}>
+            <Icon name={ATTACH_ICON[kind]} size={16} /> {name}
+          </span>
+          <div className="preview-head-actions">
+            <a className="preview-open" href={url} target="_blank" rel="noreferrer">
+              Open
+            </a>
+            <button className="icon-btn" aria-label="Close preview" onClick={onClose}>
+              <Icon name="x" size={16} />
+            </button>
+          </div>
+        </div>
+        <div className="preview-body">
+          {kind === "image" ? (
+            <img src={url} alt={name} />
+          ) : kind === "video" ? (
+            <video src={url} controls />
+          ) : kind === "audio" ? (
+            <audio src={url} controls />
+          ) : kind === "pdf" ? (
+            <iframe src={url} title={name} />
+          ) : (
+            <div className="preview-none">
+              No inline preview for this file type.{" "}
+              <a href={url} target="_blank" rel="noreferrer">
+                Open it in a new tab
+              </a>
+              .
+            </div>
+          )}
+        </div>
+      </div>
+    </div>
+  );
+}
+
+/** The workspace's uploaded files (System → Assets). Click to preview. */
+function AssetsView({
+  workspaceId,
+  onOpenPage,
+}: {
+  workspaceId: string;
+  onOpenPage: (id: string) => void;
+}) {
+  const [assets, setAssets] = useState<FileAsset[] | null>(null);
+  const [err, setErr] = useState<string | null>(null);
+  const [preview, setPreview] = useState<FileAsset | null>(null);
+  // Two-step delete: first click arms the row, the second deletes for good.
+  const [armed, setArmed] = useState<string | null>(null);
+
+  useEffect(() => {
+    let alive = true;
+    api
+      .listFiles(workspaceId)
+      .then((a) => alive && setAssets(a))
+      .catch(() => alive && setErr("Couldn’t load the workspace files."));
+    return () => {
+      alive = false;
+    };
+  }, [workspaceId]);
+
+  const removeAsset = async (id: string) => {
+    setArmed(null);
+    try {
+      await api.deleteFile(id);
+      setAssets((cur) => (cur ? cur.filter((a) => a.id !== id) : cur));
+    } catch {
+      setErr("Couldn’t delete that file.");
+    }
+  };
+
+  const nameOf = (a: FileAsset) => a.name || `${a.mime.split("/")[1] ?? "file"}-${a.id.slice(0, 8)}`;
+
+  return (
+    <div className="shelf">
+      <div className="shelf-head">
+        <h1 className="shelf-title">Assets</h1>
+        <span className="shelf-sub">
+          {assets ? `${assets.length} file${assets.length === 1 ? "" : "s"}` : "Loading…"}
+        </span>
+      </div>
+      <div className="shelf-body">
+        {err && <div className="shelf-empty">{err}</div>}
+        {assets && assets.length === 0 && (
+          <div className="shelf-empty">
+            No files yet. Drop an image or file into a page and it shows up here.
+          </div>
+        )}
+        {assets?.map((a) => {
+          const kind = previewKind(a.mime, nameOf(a));
+          return (
+            <div key={a.id} className="asset-row" onClick={() => setPreview(a)}>
+              <span className="asset-icon">
+                <Icon name={ATTACH_ICON[kind]} size={17} />
+              </span>
+              <span className="asset-name" title={nameOf(a)}>
+                {nameOf(a)}
+              </span>
+              <span className="asset-meta">{humanSize(a.size)}</span>
+              <span className="asset-meta">{new Date(a.created_at).toLocaleDateString()}</span>
+              {a.doc_id && (
+                <button
+                  className="asset-open-page"
+                  title="Open the page this file lives in"
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    onOpenPage(a.doc_id!);
+                  }}
+                >
+                  <Icon name="file-text" size={14} /> Page
+                </button>
+              )}
+              <button
+                className={armed === a.id ? "asset-open-page danger armed" : "asset-open-page danger"}
+                title="Delete this file permanently"
+                onClick={(e) => {
+                  e.stopPropagation();
+                  if (armed === a.id) void removeAsset(a.id);
+                  else setArmed(a.id);
+                }}
+              >
+                <Icon name="trash-2" size={14} /> {armed === a.id ? "Really delete?" : "Delete"}
+              </button>
+            </div>
+          );
+        })}
+      </div>
+      {preview && (
+        <FilePreviewModal
+          url={api.fileUrl(preview.id)}
+          name={nameOf(preview)}
+          kind={previewKind(preview.mime, nameOf(preview))}
+          onClose={() => setPreview(null)}
+        />
+      )}
+    </div>
+  );
+}
+
+/** Archived or trashed pages (System → Archive / Trash), with restore actions. */
+function ShelfView({
+  shelf,
+  workspaceId,
+  onChanged,
+}: {
+  shelf: "archive" | "trash";
+  workspaceId: string;
+  onChanged: () => void;
+}) {
+  const [docs, setDocs] = useState<Document[] | null>(null);
+  const [err, setErr] = useState<string | null>(null);
+  // Two-step "Delete forever": the first click arms the row, the second deletes.
+  const [armed, setArmed] = useState<string | null>(null);
+
+  const load = useCallback(() => {
+    api
+      .listDocuments(workspaceId, shelf === "archive" ? "archived" : "trashed")
+      .then(setDocs)
+      .catch(() => setErr("Couldn’t load this list."));
+  }, [workspaceId, shelf]);
+  useEffect(load, [load]);
+
+  const run = async (op: Promise<unknown>) => {
+    await op.catch(() => setErr("That didn’t work — try again."));
+    load();
+    onChanged();
+  };
+
+  return (
+    <div className="shelf">
+      <div className="shelf-head">
+        <h1 className="shelf-title">{shelf === "archive" ? "Archive" : "Trash"}</h1>
+        <span className="shelf-sub">
+          {docs
+            ? `${docs.length} page${docs.length === 1 ? "" : "s"}`
+            : "Loading…"}
+        </span>
+      </div>
+      <div className="shelf-body">
+        {err && <div className="shelf-empty">{err}</div>}
+        {docs && docs.length === 0 && (
+          <div className="shelf-empty">
+            {shelf === "archive" ? "Nothing archived." : "The trash is empty."}
+          </div>
+        )}
+        {docs?.map((d) => (
+          <div key={d.id} className="asset-row static">
+            <span className="asset-icon">
+              <Icon name="file-text" size={17} />
+            </span>
+            <span className="asset-name" title={d.title || "Untitled"}>
+              {d.title || "Untitled"}
+            </span>
+            <span className="asset-meta">{new Date(d.updated_at).toLocaleDateString()}</span>
+            <button
+              className="asset-open-page"
+              onClick={() =>
+                run(api.updateDocument(d.id, { archived: false, trashed: false }))
+              }
+            >
+              <Icon name="rotate-ccw" size={14} /> Restore
+            </button>
+            {shelf === "archive" ? (
+              <button
+                className="asset-open-page"
+                title="Move to trash"
+                onClick={() => run(api.updateDocument(d.id, { trashed: true }))}
+              >
+                <Icon name="trash-2" size={14} /> Trash
+              </button>
+            ) : (
+              <button
+                className={armed === d.id ? "asset-open-page danger armed" : "asset-open-page danger"}
+                onClick={() => {
+                  if (armed === d.id) {
+                    setArmed(null);
+                    void run(api.deleteDocument(d.id));
+                  } else {
+                    setArmed(d.id);
+                  }
+                }}
+              >
+                <Icon name="trash-2" size={14} />{" "}
+                {armed === d.id ? "Really delete?" : "Delete forever"}
+              </button>
+            )}
+          </div>
+        ))}
+      </div>
+    </div>
+  );
+}
+
+/* ======================= import vault modal ======================= */
+
+/**
+ * Import settings, opened from Settings → "Import Obsidian vault". Hosts the
+ * vault picker plus the AI bulk-label pass (the natural follow-up to a big
+ * import), which used to sit loose in the sidebar footer.
+ */
+function ImportVaultModal({
+  workspaceId,
+  onPickVault,
+  onClose,
+}: {
+  workspaceId: string;
+  onPickVault: () => void;
+  onClose: () => void;
+}) {
+  return (
+    <div className="conn-overlay" onClick={onClose}>
+      <div className="conn-card import-card-modal" onClick={(e) => e.stopPropagation()}>
+        <div className="conn-head">
+          <h2 className="conn-title">Import a vault</h2>
+          <button className="icon-btn" aria-label="Close" onClick={onClose}>
+            <Icon name="x" size={17} />
+          </button>
+        </div>
+        <p className="conn-intro">
+          Pick your Obsidian vault folder and every Markdown note becomes a Selfnote
+          page. Folder structure is kept as nested pages; images move into Assets.
+        </p>
+        <button className="auth-submit" onClick={onPickVault}>
+          Choose vault folder…
+        </button>
+        <div className="import-modal-section">
+          <div className="import-modal-label">After importing</div>
+          <p className="conn-intro">
+            Let the AI read your notes and tag every unlabeled page, so the label
+            filters are useful from day one.
+          </p>
+          <BulkLabelButton workspaceId={workspaceId} />
+        </div>
+      </div>
+    </div>
+  );
+}
+
 /* ============================= sidebar ============================= */
+
+type MainView = "editor" | "tasks" | "graph" | "assets" | "archive" | "trash";
 
 function Sidebar({
   docs,
   activeId,
   workspaceId,
-  tasksActive,
-  graphActive,
+  view,
   theme,
   onToggleTheme,
   onOpen,
-  onOpenTasks,
-  onOpenGraph,
+  onOpenView,
   onCreate,
   onRename,
   onArchive,
+  onTrash,
   onLogout,
-  onImport,
+  onOpenImport,
   onOpenSearch,
 }: {
   docs: Document[];
   activeId: string | null;
   workspaceId: string | null;
-  tasksActive: boolean;
-  graphActive: boolean;
+  view: MainView;
   theme: "light" | "dark";
   onToggleTheme: () => void;
   onOpen: (id: string) => void;
-  onOpenTasks: () => void;
-  onOpenGraph: () => void;
+  onOpenView: (view: MainView) => void;
   onCreate: (parentId: string | null) => void;
   onRename: (id: string, title: string) => void;
   onArchive: (id: string) => void;
+  onTrash: (id: string) => void;
   onLogout: () => void;
-  onImport: () => void;
+  onOpenImport: () => void;
   onOpenSearch: () => void;
 }) {
   const [showConnections, setShowConnections] = useState(false);
+  const [showSettings, setShowSettings] = useState(false);
 
-  // Workspace labels + doc→labels assignments, for row dots and the label
-  // filter. Refetched when any label data changes (LABELS_CHANGED_EVENT).
+  // User-resizable width: drag the right edge; persisted across reloads.
+  const [width, setWidth] = useState<number>(() => {
+    try {
+      const raw = Number(localStorage.getItem("selfnote_sidebar_width"));
+      return Number.isFinite(raw) && raw >= 200 && raw <= 480 ? raw : 288;
+    } catch {
+      return 288;
+    }
+  });
+  useEffect(() => {
+    try {
+      localStorage.setItem("selfnote_sidebar_width", String(width));
+    } catch {
+      /* storage unavailable — keep in-memory only */
+    }
+  }, [width]);
+  const startResize = (e: React.MouseEvent) => {
+    e.preventDefault();
+    const startX = e.clientX;
+    const startW = width;
+    const onMove = (ev: MouseEvent) => {
+      setWidth(Math.min(480, Math.max(200, startW + ev.clientX - startX)));
+    };
+    const onUp = () => {
+      window.removeEventListener("mousemove", onMove);
+      window.removeEventListener("mouseup", onUp);
+    };
+    window.addEventListener("mousemove", onMove);
+    window.addEventListener("mouseup", onUp);
+  };
+
+  // Workspace labels + doc→labels assignments for the label filter. Refetched
+  // when label data changes (LABELS_CHANGED_EVENT) and when the page list
+  // changes (archive/trash/restore/delete), since those decide which labels
+  // still tag an active page.
   const [wsLabels, setWsLabels] = useState<Label[]>([]);
   const [docLabelIds, setDocLabelIds] = useState<Map<string, string[]>>(new Map());
   const [filterLabel, setFilterLabel] = useState<string | null>(null);
@@ -501,7 +1030,25 @@ function Sidebar({
       alive = false;
       window.removeEventListener(LABELS_CHANGED_EVENT, load);
     };
-  }, [workspaceId]);
+  }, [workspaceId, docs]);
+
+  // Only labels that still tag at least one active page are offered as filters:
+  // archiving/trashing/deleting a label's last page makes the chip disappear
+  // (the label row itself survives, so restoring the page brings it back). The
+  // assignments endpoint already excludes archived/trashed documents.
+  const usedLabels = useMemo(() => {
+    const used = new Set<string>();
+    for (const ids of docLabelIds.values()) for (const id of ids) used.add(id);
+    return wsLabels.filter((l) => used.has(l.id));
+  }, [wsLabels, docLabelIds]);
+
+  // If the active filter's label just vanished, drop the filter so the tree
+  // doesn't stay stuck on an empty "no pages with this label" state.
+  useEffect(() => {
+    if (filterLabel && !usedLabels.some((l) => l.id === filterLabel)) {
+      setFilterLabel(null);
+    }
+  }, [filterLabel, usedLabels]);
 
   // A search-modal "label" result asks us to show that label's pages.
   useEffect(() => {
@@ -518,18 +1065,12 @@ function Sidebar({
   // "+N more" toggle.
   const [labelsExpanded, setLabelsExpanded] = useState(false);
   const visibleLabels = useMemo(() => {
-    if (labelsExpanded || wsLabels.length <= LABEL_FILTER_PREVIEW) return wsLabels;
-    const head = wsLabels.slice(0, LABEL_FILTER_PREVIEW);
-    const active = filterLabel && wsLabels.find((l) => l.id === filterLabel);
+    if (labelsExpanded || usedLabels.length <= LABEL_FILTER_PREVIEW) return usedLabels;
+    const head = usedLabels.slice(0, LABEL_FILTER_PREVIEW);
+    const active = filterLabel && usedLabels.find((l) => l.id === filterLabel);
     if (active && !head.some((l) => l.id === active.id)) head[head.length - 1] = active;
     return head;
-  }, [wsLabels, labelsExpanded, filterLabel]);
-
-  const labelById = useMemo(() => new Map(wsLabels.map((l) => [l.id, l])), [wsLabels]);
-  const dotsFor = (docId: string): string[] =>
-    (docLabelIds.get(docId) ?? [])
-      .map((id) => labelById.get(id)?.color)
-      .filter((c): c is string => !!c);
+  }, [usedLabels, labelsExpanded, filterLabel]);
 
   const childrenOf = useMemo(() => {
     const map = new Map<string | null, Document[]>();
@@ -564,6 +1105,23 @@ function Sidebar({
       return next;
     });
 
+  // Collapse/expand the whole tree in one click (header button). "Collapse
+  // all" when anything is open; flips to "Expand all" once everything is shut.
+  const parentIds = useMemo(
+    () => docs.filter((d) => (childrenOf.get(d.id) ?? []).length > 0).map((d) => d.id),
+    [docs, childrenOf],
+  );
+  const allCollapsed = parentIds.length > 0 && parentIds.every((id) => collapsed.has(id));
+  const toggleCollapseAll = () => {
+    const next = allCollapsed ? new Set<string>() : new Set(parentIds);
+    setCollapsed(next);
+    try {
+      localStorage.setItem("selfnote_tree_collapsed", JSON.stringify([...next]));
+    } catch {
+      /* storage unavailable — keep in-memory only */
+    }
+  };
+
   const renderTree = (parentId: string | null, depth: number): ReactNode =>
     (childrenOf.get(parentId) ?? []).map((d) => {
       const hasChildren = (childrenOf.get(d.id) ?? []).length > 0;
@@ -581,7 +1139,7 @@ function Sidebar({
           onCreate={onCreate}
           onRename={onRename}
           onArchive={onArchive}
-          dots={dotsFor(d.id)}
+          onTrash={onTrash}
         >
           {hasChildren && expanded ? renderTree(d.id, depth + 1) : null}
         </Row>
@@ -594,10 +1152,18 @@ function Sidebar({
     : null;
 
   return (
-    <aside className="sidebar">
+    <aside className="sidebar" style={{ width, minWidth: width }}>
       <div className="sidebar-head">
         <span className="brand">selfnote</span>
         <div className="head-actions">
+          <button
+            className="icon-btn"
+            title={allCollapsed ? "Expand all" : "Collapse all"}
+            onClick={toggleCollapseAll}
+            disabled={parentIds.length === 0}
+          >
+            <Icon name="chevrons-down-up" size={17} />
+          </button>
           <button
             className="icon-btn"
             title={theme === "light" ? "Switch to dark" : "Switch to light"}
@@ -617,15 +1183,15 @@ function Sidebar({
           <kbd className="nav-kbd">⌘K</kbd>
         </button>
         <button
-          className={tasksActive ? "nav-item active" : "nav-item"}
-          onClick={onOpenTasks}
+          className={view === "tasks" ? "nav-item active" : "nav-item"}
+          onClick={() => onOpenView("tasks")}
         >
           <span className="nav-item-icon"><Icon name="check-square" size={16} /></span>
           Tasks
         </button>
         <button
-          className={graphActive ? "nav-item active" : "nav-item"}
-          onClick={onOpenGraph}
+          className={view === "graph" ? "nav-item active" : "nav-item"}
+          onClick={() => onOpenView("graph")}
         >
           <span className="nav-item-icon"><Icon name="git-branch" size={16} /></span>
           Graph
@@ -672,7 +1238,7 @@ function Sidebar({
                 onCreate={onCreate}
                 onRename={onRename}
                 onArchive={onArchive}
-                dots={dotsFor(d.id)}
+                onTrash={onTrash}
               >
                 {null}
               </Row>
@@ -684,17 +1250,84 @@ function Sidebar({
           renderTree(null, 0)
         )}
       </div>
+      {/* System shelves: workspace-wide assets plus the archived/trashed pages. */}
+      <div className="system-nav">
+        <div className="system-title">System</div>
+        <button
+          className={view === "assets" ? "nav-item sys active" : "nav-item sys"}
+          onClick={() => onOpenView("assets")}
+        >
+          <span className="nav-item-icon"><Icon name="paperclip" size={15} /></span>
+          Assets
+        </button>
+        <button
+          className={view === "archive" ? "nav-item sys active" : "nav-item sys"}
+          onClick={() => onOpenView("archive")}
+        >
+          <span className="nav-item-icon"><Icon name="archive" size={15} /></span>
+          Archive
+        </button>
+        <button
+          className={view === "trash" ? "nav-item sys active" : "nav-item sys"}
+          onClick={() => onOpenView("trash")}
+        >
+          <span className="nav-item-icon"><Icon name="trash-2" size={15} /></span>
+          Trash
+        </button>
+      </div>
       <div className="sidebar-foot">
-        <button className="foot-btn" onClick={onImport}>
-          <Icon name="download" size={16} /> Import Obsidian vault
-        </button>
-        {workspaceId && <BulkLabelButton workspaceId={workspaceId} />}
-        <button className="foot-btn" onClick={() => setShowConnections(true)}>
-          <Icon name="settings" size={16} /> Connections
-        </button>
-        <button className="foot-btn" onClick={onLogout}>
-          Log out
-        </button>
+        <a
+          className="foot-help"
+          href="https://github.com/fulviodenza/selfnote#readme"
+          target="_blank"
+          rel="noreferrer"
+        >
+          <Icon name="help-circle" size={16} /> Help
+        </a>
+        <div className="foot-settings">
+          <button
+            className="icon-btn"
+            title="Settings"
+            aria-label="Settings"
+            onClick={() => setShowSettings((v) => !v)}
+          >
+            <Icon name="settings" size={18} />
+          </button>
+          {showSettings && (
+            <>
+              <div className="page-menu-scrim" onClick={() => setShowSettings(false)} />
+              <div className="settings-pop">
+                <button
+                  className="page-menu-item"
+                  onClick={() => {
+                    setShowSettings(false);
+                    setShowConnections(true);
+                  }}
+                >
+                  <Icon name="link" size={15} /> Connections
+                </button>
+                <button
+                  className="page-menu-item"
+                  onClick={() => {
+                    setShowSettings(false);
+                    onOpenImport();
+                  }}
+                >
+                  <Icon name="download" size={15} /> Import Obsidian vault
+                </button>
+                <button
+                  className="page-menu-item danger"
+                  onClick={() => {
+                    setShowSettings(false);
+                    onLogout();
+                  }}
+                >
+                  <Icon name="log-out" size={15} /> Log out
+                </button>
+              </div>
+            </>
+          )}
+        </div>
       </div>
       {showConnections && (
         <ConnectionsModal
@@ -702,6 +1335,7 @@ function Sidebar({
           onClose={() => setShowConnections(false)}
         />
       )}
+      <div className="sidebar-resize" onMouseDown={startResize} aria-hidden />
     </aside>
   );
 }
@@ -717,7 +1351,7 @@ function Row({
   onCreate,
   onRename,
   onArchive,
-  dots,
+  onTrash,
   children,
 }: {
   doc: Document;
@@ -730,8 +1364,7 @@ function Row({
   onCreate: (parentId: string | null) => void;
   onRename: (id: string, title: string) => void;
   onArchive: (id: string) => void;
-  /** Colors of the doc's labels, shown as compact dots after the title. */
-  dots?: string[];
+  onTrash: (id: string) => void;
   children: ReactNode;
 }) {
   const [editing, setEditing] = useState(false);
@@ -794,13 +1427,6 @@ function Row({
             {doc.title || "Untitled"}
           </span>
         )}
-        {dots && dots.length > 0 ? (
-          <span className="row-label-dots" aria-hidden>
-            {dots.slice(0, 3).map((c, i) => (
-              <span key={i} className="row-label-dot" style={{ background: c }} />
-            ))}
-          </span>
-        ) : null}
         <span className="row-actions" onClick={(e) => e.stopPropagation()}>
           <button title="Add subpage" aria-label="Add subpage" onClick={() => onCreate(doc.id)}>
             <Icon name="plus" size={15} />
@@ -809,7 +1435,10 @@ function Row({
             <Icon name="edit-3" size={15} />
           </button>
           <button title="Archive" aria-label="Archive" onClick={() => onArchive(doc.id)}>
-            <Icon name="x" size={15} />
+            <Icon name="archive" size={15} />
+          </button>
+          <button title="Move to trash" aria-label="Move to trash" onClick={() => onTrash(doc.id)}>
+            <Icon name="trash-2" size={15} />
           </button>
         </span>
       </div>
@@ -947,6 +1576,38 @@ function ShareAnalyticsPanel({ docId }: { docId: string }) {
 
 /* ============================= editor pane ============================= */
 
+/**
+ * Own a DocConnection's lifecycle from an effect, surviving StrictMode's dev
+ * double-invoke: destroying the memoized connection in the first cleanup would
+ * leave the re-run effect subscribed to a dead socket (status stuck on
+ * "connecting", no sync). Deferring destroy by a tick lets the immediate
+ * re-run cancel the teardown; a real unmount still destroys it.
+ */
+const pendingDestroys = new Map<DocConnection, ReturnType<typeof setTimeout>>();
+function useConnectionLifecycle(
+  connection: DocConnection,
+  onStatus?: (s: ConnectionStatus) => void,
+) {
+  useEffect(() => {
+    const timer = pendingDestroys.get(connection);
+    if (timer) {
+      clearTimeout(timer);
+      pendingDestroys.delete(connection);
+    }
+    const off = onStatus ? connection.onStatus(onStatus) : null;
+    return () => {
+      off?.();
+      pendingDestroys.set(
+        connection,
+        setTimeout(() => {
+          pendingDestroys.delete(connection);
+          connection.destroy();
+        }, 0),
+      );
+    };
+  }, [connection, onStatus]);
+}
+
 // Theme-aware via the "Ink & Paper" CSS tokens (matches the mobile StatusDot).
 const STATUS_COLOR: Record<ConnectionStatus, string> = {
   connecting: "var(--warn)",
@@ -1031,6 +1692,11 @@ function EditorPaneInner({
   const [proposalRefresh, setProposalRefresh] = useState(0);
   const [reviewing, setReviewing] = useState<AiProposal[] | null>(null);
   const bumpProposals = () => setProposalRefresh((n) => n + 1);
+  // The page's media/file blocks, reported by the editor on change; drives the
+  // paperclip indicator + attachments panel on the right of the topbar.
+  const [attachments, setAttachments] = useState<ExtractedAttachment[]>([]);
+  const [showAttach, setShowAttach] = useState(false);
+  const [attachPreview, setAttachPreview] = useState<ExtractedAttachment | null>(null);
   // Task metadata for this document: `undefined` while loading, `null` if the
   // document is not a task, otherwise the Task.
   const [task, setTask] = useState<Task | null | undefined>(undefined);
@@ -1119,13 +1785,7 @@ function EditorPaneInner({
     [doc.id],
   );
 
-  useEffect(() => {
-    const off = connection.onStatus(setStatus);
-    return () => {
-      off();
-      connection.destroy();
-    };
-  }, [connection]);
+  useConnectionLifecycle(connection, setStatus);
 
   // One-shot: does this server have an AI backend? (Silently false if not.)
   useEffect(() => {
@@ -1203,6 +1863,37 @@ function EditorPaneInner({
           {offline ? "Offline" : status}
         </span>
         <div className="topbar-right">
+          {attachments.length > 0 && (
+            <div className="page-menu">
+              <button
+                className={showAttach ? "toggle on" : "toggle"}
+                title="Files attached to this page"
+                onClick={() => setShowAttach((v) => !v)}
+              >
+                <Icon name="paperclip" size={15} /> {attachments.length}
+              </button>
+              {showAttach && (
+                <>
+                  <div className="page-menu-scrim" onClick={() => setShowAttach(false)} />
+                  <div className="page-menu-pop attach-pop">
+                    {attachments.map((a, i) => (
+                      <button
+                        key={`${a.url}-${i}`}
+                        className="page-menu-item attach-item"
+                        onClick={() => {
+                          setShowAttach(false);
+                          setAttachPreview(a);
+                        }}
+                      >
+                        <Icon name={ATTACH_ICON[attachmentPreviewKind(a)]} size={15} />
+                        <span className="attach-item-name">{a.name}</span>
+                      </button>
+                    ))}
+                  </div>
+                </>
+              )}
+            </div>
+          )}
           {ai?.available && (
             <NoteAiActions editor={editor as unknown as ActionEditor | null} docId={doc.id} />
           )}
@@ -1297,10 +1988,11 @@ function EditorPaneInner({
             linkNoteProvider={linkNoteProvider}
             onNavigateToDoc={onOpenPage}
             onLinksChange={onLinksChange}
+            onAttachmentsChange={setAttachments}
             aiFeatures={ai?.features}
             summarize={ai?.available ? summarize : undefined}
             onError={showToast}
-            uploadFile={(f) => api.uploadFile(doc.workspace_id, f)}
+            uploadFile={(f) => api.uploadFile(doc.workspace_id, f, doc.id)}
             onAskAi={
               ai?.available
                 ? (selection) => {
@@ -1360,6 +2052,15 @@ function EditorPaneInner({
           onResolved={bumpProposals}
         />
       )}
+
+      {attachPreview && (
+        <FilePreviewModal
+          url={attachPreview.url}
+          name={attachPreview.name}
+          kind={attachmentPreviewKind(attachPreview)}
+          onClose={() => setAttachPreview(null)}
+        />
+      )}
     </div>
   );
 }
@@ -1399,7 +2100,7 @@ function SharedEditor({
     () => createDocConnection(share.doc_id, { serverUrl: SYNC_URL, token: share.token }),
     [share.doc_id, share.token],
   );
-  useEffect(() => () => connection.destroy(), [connection]);
+  useConnectionLifecycle(connection);
   const editable = share.mode === "rw";
 
   return (
