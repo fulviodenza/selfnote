@@ -29,8 +29,8 @@ use crate::auth::AuthUser;
 use crate::error::{ApiResult, AppError};
 use crate::state::AppState;
 
-const FEATURES: [&str; 5] = ["continue", "summarize", "ideas", "improve", "ask"];
-const MAX_CONTEXT_CHARS: usize = 24_000;
+const FEATURES: [&str; 6] = ["continue", "summarize", "ideas", "improve", "ask", "labels"];
+pub(crate) const MAX_CONTEXT_CHARS: usize = 24_000;
 const REQUEST_TIMEOUT: Duration = Duration::from_secs(30);
 
 #[derive(Debug, Clone)]
@@ -182,15 +182,22 @@ pub async fn complete(
     }
 
     let prompt = build_prompt(&req);
+    let text = run_text(&prompt).await?;
+    Ok(Json(CompleteResp { text }))
+}
+
+/// One-shot prompt → trimmed reply on whichever provider is configured.
+/// `409` when none is. Shared by `/ai/complete` and the label suggester.
+pub(crate) async fn run_text(prompt: &str) -> ApiResult<String> {
     let text = match provider() {
-        Provider::ClaudeCli { cmd, .. } => run_cli(cmd, &prompt).await?,
-        Provider::AnthropicApi { model } => run_anthropic(model, &prompt).await?,
-        Provider::Ollama { host, model } => run_ollama(host, model, &prompt).await?,
+        Provider::ClaudeCli { cmd, .. } => run_cli(cmd, prompt).await?,
+        Provider::AnthropicApi { model } => run_anthropic(model, prompt).await?,
+        Provider::Ollama { host, model } => run_ollama(host, model, prompt).await?,
         Provider::None => {
             return Err(AppError::Conflict("no AI provider configured".to_string()))
         }
     };
-    Ok(Json(CompleteResp { text: text.trim().to_string() }))
+    Ok(text.trim().to_string())
 }
 
 async fn run_cli(cmd: &str, prompt: &str) -> ApiResult<String> {

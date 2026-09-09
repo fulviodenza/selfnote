@@ -1438,6 +1438,126 @@ button.toggle.on {
   margin: 10px 0;
 }
 
+/* ---------------- labels ----------------
+ * Chips on the note page (LabelBar) — colored per label via the --chip var. */
+.label-bar {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 6px;
+  padding: 6px 54px 0;
+  font-size: 12px;
+}
+.label-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  padding: 2px 8px;
+  border-radius: 999px;
+  border: 1px solid color-mix(in srgb, var(--chip, var(--accent)) 45%, transparent);
+  background: color-mix(in srgb, var(--chip, var(--accent)) 12%, transparent);
+  color: var(--fg);
+  line-height: 18px;
+  white-space: nowrap;
+}
+.label-chip.suggestion {
+  cursor: pointer;
+  border-style: dashed;
+  background: transparent;
+  color: var(--muted);
+}
+.label-chip.suggestion:hover {
+  background: color-mix(in srgb, var(--chip, var(--accent)) 10%, transparent);
+  color: var(--fg);
+}
+.label-dot {
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  background: var(--chip, var(--accent));
+  flex: none;
+}
+.label-chip-x {
+  display: inline-flex;
+  align-items: center;
+  border: none;
+  background: none;
+  padding: 0;
+  cursor: pointer;
+  color: var(--muted);
+}
+.label-chip-x:hover { color: var(--fg); }
+.label-add { position: relative; }
+.label-add-btn,
+.label-suggest-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding: 2px 8px;
+  border-radius: 999px;
+  border: 1px dashed var(--border);
+  background: none;
+  color: var(--muted);
+  font-size: 12px;
+  line-height: 18px;
+  cursor: pointer;
+}
+.label-add-btn:hover,
+.label-suggest-btn:hover:not(:disabled) {
+  color: var(--fg);
+  border-color: var(--muted);
+}
+.label-suggest-btn:disabled { opacity: 0.6; cursor: default; }
+.label-pop-scrim { position: fixed; inset: 0; z-index: 30; }
+.label-pop {
+  position: absolute;
+  top: calc(100% + 6px);
+  left: 0;
+  z-index: 31;
+  width: 240px;
+  padding: 8px;
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  background: var(--paper);
+  box-shadow: 0 8px 28px rgba(0, 0, 0, 0.18);
+}
+.label-pop input {
+  width: 100%;
+  padding: 6px 8px;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  background: var(--bg);
+  color: var(--fg);
+  font-size: 13px;
+}
+.label-pop-list {
+  margin-top: 6px;
+  max-height: 220px;
+  overflow-y: auto;
+  display: flex;
+  flex-direction: column;
+}
+.label-pop-item {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 6px 8px;
+  border: none;
+  border-radius: 8px;
+  background: none;
+  color: var(--fg);
+  font-size: 13px;
+  text-align: left;
+  cursor: pointer;
+}
+.label-pop-item:hover { background: color-mix(in srgb, var(--fg) 6%, transparent); }
+.label-pop-item.on { font-weight: 600; }
+.label-pop-item.create { color: var(--accent); }
+.label-pop-name { flex: 1; overflow: hidden; text-overflow: ellipsis; }
+.label-pop-empty { padding: 8px; color: var(--muted); font-size: 12px; }
+.label-suggestions { display: inline-flex; align-items: center; gap: 6px; }
+.label-error { color: var(--danger); font-size: 12px; }
+
 /* ---------------- callouts (editor block + AI chat) ----------------
  * Notion/GitHub-alert style tinted box. The editor also injects these rules at
  * runtime (packages/editor CALLOUT_CSS); duplicated here so AI-chat callouts are
