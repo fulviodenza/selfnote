@@ -61,6 +61,7 @@ import {
 import { ThemeProvider, useTheme, type ThemeMode } from "./src/theme-context";
 import { useAndroidBack } from "./src/hooks/useAndroidBack";
 import { TaskControls } from "./src/screens/TaskControls";
+import { LabelRow } from "./src/components/LabelRow";
 import { TasksScreen } from "./src/screens/TasksScreen";
 import { CalendarFeedSection } from "./src/screens/CalendarFeedSection";
 import { VoiceSection } from "./src/screens/VoiceSection";
@@ -897,6 +898,13 @@ function ConnectedEditor({
       <View style={styles.taskControls}>
         <TaskControls docId={doc.id} onError={(m) => m && toast(m)} />
       </View>
+      <LabelRow
+        docId={doc.id}
+        workspaceId={doc.workspace_id}
+        aiAvailable={ai?.available ?? false}
+        getText={() => editorRef.current?.getText() ?? Promise.resolve("")}
+        onError={(m) => toast(m)}
+      />
       <WebViewEditor
         ref={editorRef}
         connection={connection}

@@ -298,6 +298,21 @@ async function raw<T>(path: string, options: RequestInit = {}, auth = true): Pro
   return res.status === 204 ? (undefined as T) : ((await res.json()) as T);
 }
 
+/** A workspace label (tag) attachable to notes. */
+export interface Label {
+  id: string;
+  workspace_id: string;
+  name: string;
+  color: string;
+}
+
+/** One AI label suggestion; `existing_id` set when it matches a current label. */
+export interface LabelSuggestion {
+  name: string;
+  existing_id: string | null;
+  color: string | null;
+}
+
 /** Authed request with one automatic refresh-and-retry on 401. */
 async function req<T>(path: string, options: RequestInit = {}): Promise<T> {
   try {
@@ -419,6 +434,37 @@ export const api = {
       (r) => r.results,
     );
   },
+
+  /* ---- Labels ---- */
+
+  /** All labels in a workspace, name-ordered. */
+  listLabels: (workspaceId: string) =>
+    req<{ labels: Label[] }>(`/workspaces/${workspaceId}/labels`).then((r) => r.labels),
+
+  /** Create (or return the existing case-insensitive match of) a label. */
+  createLabel: (workspaceId: string, name: string, color?: string) =>
+    req<Label>(`/workspaces/${workspaceId}/labels`, {
+      method: "POST",
+      body: JSON.stringify({ name, ...(color ? { color } : {}) }),
+    }),
+
+  /** A note's labels. */
+  getDocLabels: (docId: string) =>
+    req<{ labels: Label[] }>(`/documents/${docId}/labels`).then((r) => r.labels),
+
+  /** Authoritative replace of a note's label set; returns the new set. */
+  setDocLabels: (docId: string, labelIds: string[]) =>
+    req<{ labels: Label[] }>(`/documents/${docId}/labels`, {
+      method: "PUT",
+      body: JSON.stringify({ label_ids: labelIds }),
+    }).then((r) => r.labels),
+
+  /** AI label suggestions for a note (409 when no provider is configured). */
+  suggestLabels: (docId: string, text: string) =>
+    req<{ suggestions: LabelSuggestion[] }>(`/ai/labels/suggest`, {
+      method: "POST",
+      body: JSON.stringify({ doc_id: docId, text }),
+    }).then((r) => r.suggestions),
 
   createShare: (docId: string, mode: "rw" | "ro") =>
     req<ShareInfo>(`/documents/${docId}/shares`, { method: "POST", body: JSON.stringify({ mode }) }),

@@ -9,6 +9,7 @@ mod documents;
 mod error;
 mod files;
 mod history;
+mod labels;
 mod links;
 mod proposals;
 mod rooms;
@@ -64,6 +65,7 @@ async fn main() -> anyhow::Result<()> {
         .route("/ai/action", post(ai::action))
         .route("/ai/action/stream", post(ai::action_stream))
         .route("/ai/voice", get(ai::get_voice).put(ai::set_voice))
+        .route("/ai/labels/suggest", post(labels::suggest))
         .route("/ai/proposals", get(proposals::list).post(proposals::create))
         .route("/ai/proposals/:id", get(proposals::get))
         .route("/ai/proposals/:id/accept", post(proposals::accept))
@@ -86,6 +88,15 @@ async fn main() -> anyhow::Result<()> {
             get(links::links).put(links::set_links),
         )
         .route("/documents/:id/backlinks", get(links::backlinks))
+        .route(
+            "/documents/:id/labels",
+            get(labels::doc_labels).put(labels::set_doc_labels),
+        )
+        .route(
+            "/workspaces/:id/labels",
+            get(labels::list).post(labels::create),
+        )
+        .route("/labels/:id", axum::routing::patch(labels::update).delete(labels::delete))
         .route("/workspaces/:id/graph", get(links::graph))
         .route(
             "/documents/:id/content",

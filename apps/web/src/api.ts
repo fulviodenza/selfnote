@@ -340,6 +340,21 @@ async function req<T>(path: string, options: RequestInit = {}): Promise<T> {
   }
 }
 
+/** A workspace label (tag) attachable to documents. */
+export interface Label {
+  id: string;
+  workspace_id: string;
+  name: string;
+  color: string;
+}
+
+/** One AI label suggestion; `existing_id` set when it matches a current label. */
+export interface LabelSuggestion {
+  name: string;
+  existing_id: string | null;
+  color: string | null;
+}
+
 async function tryRefresh(): Promise<boolean> {
   const refresh_token = localStorage.getItem(REFRESH_KEY);
   if (!refresh_token) return false;
@@ -467,6 +482,42 @@ export const api = {
       (r) => r.results,
     );
   },
+
+  /** All labels in a workspace, name-ordered. */
+  listLabels: (workspaceId: string) =>
+    req<{ labels: Label[] }>(`/workspaces/${workspaceId}/labels`).then((r) => r.labels),
+
+  /** Create (or return the existing case-insensitive match of) a label. */
+  createLabel: (workspaceId: string, name: string, color?: string) =>
+    req<Label>(`/workspaces/${workspaceId}/labels`, {
+      method: "POST",
+      body: JSON.stringify({ name, ...(color ? { color } : {}) }),
+    }),
+
+  /** Rename / recolor a label. */
+  updateLabel: (id: string, patch: Partial<{ name: string; color: string }>) =>
+    req<Label>(`/labels/${id}`, { method: "PATCH", body: JSON.stringify(patch) }),
+
+  /** Delete a label everywhere (detaches from all notes). */
+  deleteLabel: (id: string) => req<{ deleted: string }>(`/labels/${id}`, { method: "DELETE" }),
+
+  /** A document's labels. */
+  getDocLabels: (docId: string) =>
+    req<{ labels: Label[] }>(`/documents/${docId}/labels`).then((r) => r.labels),
+
+  /** Authoritative replace of a document's label set; returns the new set. */
+  setDocLabels: (docId: string, labelIds: string[]) =>
+    req<{ labels: Label[] }>(`/documents/${docId}/labels`, {
+      method: "PUT",
+      body: JSON.stringify({ label_ids: labelIds }),
+    }).then((r) => r.labels),
+
+  /** AI label suggestions for a note (409 when no provider is configured). */
+  suggestLabels: (docId: string, text: string) =>
+    req<{ suggestions: LabelSuggestion[] }>(`/ai/labels/suggest`, {
+      method: "POST",
+      body: JSON.stringify({ doc_id: docId, text }),
+    }).then((r) => r.suggestions),
 
   /** Upload a file (multipart); returns its served URL. */
   uploadFile: async (workspaceId: string, file: File): Promise<string> => {

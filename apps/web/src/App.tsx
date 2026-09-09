@@ -21,6 +21,7 @@ import {
 import { AssistPanel, type AiEditor } from "./AssistPanel";
 import { HistoryPanel } from "./components/history/HistoryPanel";
 import { NoteAiActions, type ActionEditor } from "./NoteAiActions";
+import { LabelBar } from "./LabelBar";
 import { AiProposalBanner, AiDiffPreview } from "./AiProposals";
 import { BacklinksPanel } from "./BacklinksPanel";
 import { GraphView } from "./GraphView";
@@ -1082,6 +1083,13 @@ function EditorPaneInner({
           )}
         </div>
       </div>
+
+      <LabelBar
+        docId={doc.id}
+        workspaceId={doc.workspace_id}
+        aiAvailable={!!ai?.available}
+        editor={editor as unknown as Parameters<typeof LabelBar>[0]["editor"]}
+      />
 
       {task !== undefined && (
         <TaskControls docId={doc.id} task={task} onChange={setTask} />
