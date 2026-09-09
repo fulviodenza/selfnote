@@ -754,6 +754,32 @@ export const EDITOR_HTML = /* html */ `<!doctype html>
               send({ type: "console", level: "error", text: "insert failed: " + e });
             }
           })();
+        } else if (msg.type === "insertFile" && msg.url) {
+          // An uploaded attachment from RN: insert the matching media block at
+          // the cursor (image/video/audio by mime, generic file otherwise).
+          try {
+            if (!bnEditor) return;
+            const mime = String(msg.mime || "");
+            const name = String(msg.name || "file");
+            const block =
+              mime.indexOf("image/") === 0
+                ? { type: "image", props: { url: msg.url, caption: "" } }
+                : mime.indexOf("video/") === 0
+                  ? { type: "video", props: { url: msg.url, caption: "" } }
+                  : mime.indexOf("audio/") === 0
+                    ? { type: "audio", props: { url: msg.url, caption: "" } }
+                    : { type: "file", props: { url: msg.url, name: name, caption: "" } };
+            let ref = null;
+            try { ref = bnEditor.getTextCursorPosition().block; } catch {}
+            if (!ref) {
+              const docBlocks = bnEditor.document;
+              ref = docBlocks[docBlocks.length - 1];
+            }
+            if (ref) bnEditor.insertBlocks([block], ref, "after");
+            else bnEditor.replaceBlocks(bnEditor.document, [block]);
+          } catch (e) {
+            send({ type: "console", level: "error", text: "insertFile failed: " + e });
+          }
         }
       }
 

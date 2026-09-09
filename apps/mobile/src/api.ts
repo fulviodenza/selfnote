@@ -464,6 +464,35 @@ export const api = {
     );
   },
 
+  /**
+   * Upload a picked file (multipart from its local uri); returns the served
+   * URL (absolute, so the WebView editor can load it from any origin).
+   */
+  uploadFileUri: async (
+    workspaceId: string,
+    file: { uri: string; name: string; mimeType?: string | null },
+  ): Promise<string> => {
+    const fd = new FormData();
+    // RN's FormData accepts a {uri, name, type} descriptor for file parts.
+    fd.append("file", {
+      uri: file.uri,
+      name: file.name || "file",
+      type: file.mimeType || "application/octet-stream",
+    } as unknown as Blob);
+    const base = getSettings().apiUrl;
+    const res = await fetch(`${base}/files?workspace_id=${encodeURIComponent(workspaceId)}`, {
+      method: "POST",
+      headers: accessToken ? { authorization: `Bearer ${accessToken}` } : {},
+      body: fd,
+    });
+    if (!res.ok) throw new Error(`upload failed (${res.status})`);
+    const { url } = (await res.json()) as { url: string };
+    // The server returns "/api/files/<id>" relative to the web origin; the
+    // WebView isn't served from that origin, so absolutize against the API
+    // base (which already ends in /api).
+    return url.startsWith("/api/") ? `${base}${url.slice(4)}` : url;
+  },
+
   /* ---- Labels ---- */
 
   /** All labels in a workspace, name-ordered. */

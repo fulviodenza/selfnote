@@ -100,6 +100,12 @@ export interface CollaborativeEditorProps {
    * the selected text to the host (which opens the Assist panel prefilled).
    */
   onAskAi?: (selection: string) => void;
+  /**
+   * Uploads a file and resolves to its served URL. Enables BlockNote's native
+   * file handling: drag & drop onto the editor, pasting images, and the
+   * "Upload" tab on image/file/video/audio blocks. Wire to POST /files.
+   */
+  uploadFile?: (file: File) => Promise<string>;
 }
 
 /**
@@ -218,6 +224,7 @@ export function CollaborativeEditor({
   summarize,
   onError,
   onAskAi,
+  uploadFile,
 }: CollaborativeEditorProps) {
   const editor = useCreateBlockNote(
     withCollaboration({
@@ -229,6 +236,11 @@ export function CollaborativeEditor({
         fragment: connection.fragment,
         user,
       },
+      // Files dropped/pasted into the editor (and the blocks' Upload tab) go
+      // through the host's uploader; the returned URL lands in the block.
+      // Captured at creation (the editor mounts per document), so hosts should
+      // pass a callback that is valid for the editor's lifetime.
+      ...(uploadFile ? { uploadFile } : {}),
     }),
   );
 

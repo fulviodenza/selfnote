@@ -12,6 +12,7 @@ import {
 } from "react-native";
 import { Feather } from "@expo/vector-icons";
 import * as Clipboard from "expo-clipboard";
+import * as DocumentPicker from "expo-document-picker";
 import { useFonts } from "expo-font";
 import { StatusBar } from "expo-status-bar";
 import AsyncStorage from "@react-native-async-storage/async-storage";
@@ -916,6 +917,25 @@ function ConnectedEditor({
   const [reviewing, setReviewing] = useState<AiProposal | null>(null);
   // Composer prefill for the selection bar's "Ask AI".
   const [assistPrefill, setAssistPrefill] = useState("");
+
+  // Attach a file: pick → upload (multipart) → insert the matching block.
+  const attachFile = async () => {
+    try {
+      const picked = await DocumentPicker.getDocumentAsync({ copyToCacheDirectory: true });
+      if (picked.canceled || !picked.assets?.length) return;
+      const asset = picked.assets[0];
+      toast("Uploading…");
+      const url = await api.uploadFileUri(doc.workspace_id, {
+        uri: asset.uri,
+        name: asset.name ?? "file",
+        mimeType: asset.mimeType,
+      });
+      editorRef.current?.insertFile({ url, name: asset.name ?? "file", mime: asset.mimeType });
+      toast("Attached.");
+    } catch {
+      toast("Couldn't upload the file.");
+    }
+  };
   // Bumped after the editor re-scans + stores its outgoing links, so the
   // backlinks/outgoing panel re-fetches (docs/features/backlinks-graph.md §5).
   const [linksVersion, setLinksVersion] = useState(0);
@@ -1037,6 +1057,7 @@ function ConnectedEditor({
         onHistory={() => setShowHistory(true)}
         onActions={ai?.available ? () => setShowActions(true) : undefined}
         onAssist={ai?.available ? () => setShowAssist(true) : undefined}
+        onAttach={canWrite ? () => void attachFile() : undefined}
       />
       {offline ? (
         <Pressable style={styles.offlineBanner} onPress={() => connection.goOnline()}>
@@ -1199,6 +1220,7 @@ function EditorTopbar({
   onActions,
   onAssist,
   onShare,
+  onAttach,
 }: {
   title: string;
   onBack: () => void;
@@ -1207,6 +1229,7 @@ function EditorTopbar({
   onActions?: () => void;
   onAssist?: () => void;
   onShare?: () => void;
+  onAttach?: () => void;
 }) {
   const { colors, type } = useTheme();
   const styles = useMemo(() => makeStyles(colors, type), [colors, type]);
@@ -1216,6 +1239,7 @@ function EditorTopbar({
       <Text style={[type.docTitle, styles.flex]} numberOfLines={1}>
         {title || "Untitled"}
       </Text>
+      {onAttach ? <IconButton icon="paperclip" label="Attach file" onPress={onAttach} /> : null}
       {onHistory ? <IconButton icon="clock" label="Version history" onPress={onHistory} /> : null}
       {onShare ? <IconButton icon="share" label="Share" onPress={onShare} /> : null}
       {onActions ? <IconButton icon="zap" label="AI actions" onPress={onActions} /> : null}

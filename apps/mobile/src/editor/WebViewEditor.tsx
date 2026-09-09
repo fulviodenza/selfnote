@@ -38,6 +38,8 @@ export interface EditorHandle {
   renderMarkdown(state: string): Promise<string>;
   /** Append text to the document (parsed from markdown). */
   insert(text: string): void;
+  /** Insert an uploaded attachment as an image/video/audio/file block. */
+  insertFile(file: { url: string; name: string; mime?: string | null }): void;
   /** Replace the current selection, or the whole document, with markdown text. */
   replace(text: string): void;
   /**
@@ -164,6 +166,9 @@ export const WebViewEditor = forwardRef<EditorHandle, WebViewEditorProps>(
       },
       insert(text: string) {
         post({ type: "insert", text });
+      },
+      insertFile(file: { url: string; name: string; mime?: string | null }) {
+        post({ type: "insertFile", url: file.url, name: file.name, mime: file.mime ?? "" });
       },
       replace(text: string) {
         post({ type: "replace", text });

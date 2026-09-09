@@ -578,7 +578,13 @@ export const api = {
       body: fd,
     });
     if (!res.ok) throw new Error(`upload failed (${res.status})`);
-    return ((await res.json()) as { url: string }).url;
+    const { url } = (await res.json()) as { url: string };
+    // The server returns "/api/files/<id>" relative to the web origin. In the
+    // browser that resolves through nginx; on desktop (configured absolute
+    // base) it must be absolutized against the API base.
+    return url.startsWith("/api/") && API_BASE !== "/api"
+      ? `${API_BASE}${url.slice(4)}`
+      : url;
   },
 
   createShare: (docId: string, mode: "rw" | "ro") =>

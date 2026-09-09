@@ -19,6 +19,7 @@
     "expo": "~52.0.0",
     "expo-asset": "~11.0.5",
     "expo-clipboard": "~7.0.1",
+    "expo-document-picker": "^57.0.1",
     "expo-font": "~13.0.4",
     "expo-haptics": "~14.0.1",
     "expo-sqlite": "~15.0.0",
