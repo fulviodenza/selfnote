@@ -308,6 +308,25 @@ export const EDITOR_HTML = /* html */ `<!doctype html>
         }, true);
       }
 
+      // Global Ctrl/Cmd+Z undo, Ctrl/Cmd+Shift+Z / Ctrl/Cmd+Y redo (hardware
+      // keyboards / iPad). Window-level capture so it works regardless of
+      // focus; routes to the Yjs UndoManager (only LOCAL changes are undone).
+      // Mirrors packages/editor/src/undoShortcut.ts.
+      function setupUndoShortcut(editor) {
+        window.addEventListener("keydown", (e) => {
+          if (!(e.metaKey || e.ctrlKey) || e.altKey) return;
+          const key = String(e.key || "").toLowerCase();
+          const isUndo = key === "z" && !e.shiftKey;
+          const isRedo = (key === "z" && e.shiftKey) || (key === "y" && !e.shiftKey);
+          if (!isUndo && !isRedo) return;
+          e.preventDefault();
+          try {
+            if (isUndo) editor.undo && editor.undo();
+            else editor.redo && editor.redo();
+          } catch {}
+        }, true);
+      }
+
       // Selection action bar: shown while a non-empty text selection exists.
       // Turn into callout/quote in place, copy the selection as Markdown (via
       // RN's clipboard), or hand the selected text to the Assist drawer.
@@ -771,6 +790,7 @@ export const EDITOR_HTML = /* html */ `<!doctype html>
           setupCalloutInputRule(editor);
           setupSelectAll(editor);
           setupSelectionToolbar(editor);
+          setupUndoShortcut(editor);
           window.__editorMounted = true;
           const fb = document.getElementById("fallback");
           if (fb) fb.style.display = "none";
