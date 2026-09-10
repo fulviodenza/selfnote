@@ -30,6 +30,20 @@ export async function loadCachedState(docId: string): Promise<string | null> {
   }
 }
 
+/**
+ * Delete the on-device note cache (Settings → "Delete all data on this phone").
+ * Dropping the table instead of the database file keeps any open connection
+ * valid; the file itself stays but holds nothing.
+ */
+export async function wipeLocalCache(): Promise<void> {
+  try {
+    const db = await SQLite.openDatabaseAsync("selfnote.db");
+    await db.execAsync("DROP TABLE IF EXISTS ydoc");
+  } catch {
+    /* nothing cached on this device */
+  }
+}
+
 export const sqlitePersistence: PersistenceFactory = (docId, doc): DocPersistence => {
   let db: SQLite.SQLiteDatabase | null = null;
   let saveTimer: ReturnType<typeof setTimeout> | null = null;

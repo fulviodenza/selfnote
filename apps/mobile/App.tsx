@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
   ActivityIndicator,
+  Alert,
   FlatList,
   KeyboardAvoidingView,
   Platform,
@@ -17,7 +18,7 @@ import { useFonts } from "expo-font";
 import { StatusBar } from "expo-status-bar";
 import AsyncStorage from "@react-native-async-storage/async-storage";
 import { createDocConnection, type ConnectionStatus } from "@selfnote/core";
-import { sqlitePersistence, loadCachedState } from "./src/persistence/sqlite";
+import { sqlitePersistence, loadCachedState, wipeLocalCache } from "./src/persistence/sqlite";
 import { WebViewEditor, type EditorUser, type EditorHandle } from "./src/editor/WebViewEditor";
 import { BacklinksPanel } from "./src/editor/BacklinksPanel";
 import { GraphView } from "./src/editor/GraphView";
@@ -240,6 +241,14 @@ function AppInner() {
         <SettingsScreen
           workspaceId={phase === "app" ? workspaceId : null}
           onClose={() => setShowSettings(false)}
+          onWiped={() => {
+            setShowSettings(false);
+            setOpenDoc(null);
+            setWorkspaceId(null);
+            setShowTasks(false);
+            setShowGraph(false);
+            setPhase("auth");
+          }}
         />
       )}
     </Screen>
@@ -505,6 +514,25 @@ function DocListScreen({
       return next;
     });
 
+  // Collapse/expand the whole tree in one tap (mirrors the web sidebar header):
+  // "Collapse all" while anything is open, flipping to "Expand all" once every
+  // parent is shut.
+  const parentIds = useMemo(() => {
+    if (!docs) return [];
+    const ids = new Set(docs.map((d) => d.id));
+    const withKids = new Set<string>();
+    for (const d of docs) {
+      if (d.parent_id && ids.has(d.parent_id)) withKids.add(d.parent_id);
+    }
+    return [...withKids];
+  }, [docs]);
+  const allCollapsed = parentIds.length > 0 && parentIds.every((id) => collapsed.has(id));
+  const toggleCollapseAll = () => {
+    const next = allCollapsed ? new Set<string>() : new Set(parentIds);
+    setCollapsed(next);
+    AsyncStorage.setItem(COLLAPSED_KEY, JSON.stringify([...next])).catch(() => undefined);
+  };
+
   const rename = async (doc: Document, title: string) => {
     setRenameDoc(null);
     try {
@@ -557,6 +585,26 @@ function DocListScreen({
     };
   }, [query, workspaceId]);
 
+  // Only labels that still tag at least one active page are offered as filters
+  // (parity with the web sidebar): shelving a label's last page hides the chip.
+  const usedLabels = useMemo(() => {
+    const activeIds = new Set((docs ?? []).map((d) => d.id));
+    const used = new Set<string>();
+    for (const [docId, ids] of docLabelIds) {
+      if (!activeIds.has(docId)) continue;
+      for (const id of ids) used.add(id);
+    }
+    return wsLabels.filter((l) => used.has(l.id));
+  }, [wsLabels, docLabelIds, docs]);
+
+  // If the active filter's label just vanished, drop the filter so the list
+  // doesn't stay stuck on an empty state.
+  useEffect(() => {
+    if (filterLabel && !usedLabels.some((l) => l.id === filterLabel)) {
+      setFilterLabel(null);
+    }
+  }, [filterLabel, usedLabels]);
+
   // Search / label filter show a flat list; otherwise the collapsible tree.
   const q = query.trim().toLowerCase();
   const labelById = new Map(wsLabels.map((l) => [l.id, l]));
@@ -582,6 +630,12 @@ function DocListScreen({
         <Text style={[type.docTitle, styles.flex]} numberOfLines={1} adjustsFontSizeToFit>
           Documents
         </Text>
+        <IconButton
+          icon={allCollapsed ? "chevrons-down" : "chevrons-up"}
+          label={allCollapsed ? "Expand all" : "Collapse all"}
+          onPress={toggleCollapseAll}
+          disabled={parentIds.length === 0}
+        />
         <IconButton icon="check-square" label="Tasks" onPress={onTasks} />
         <IconButton icon="git-branch" label="Graph" onPress={onGraph} />
         <IconButton icon="settings" label="Settings" onPress={onSettings} />
@@ -598,14 +652,14 @@ function DocListScreen({
         <BulkLabelButton workspaceId={workspaceId} onError={(m) => toast(m)} />
       ) : null}
 
-      {wsLabels.length > 0 ? (
+      {usedLabels.length > 0 ? (
         <ScrollView
           horizontal
           showsHorizontalScrollIndicator={false}
           style={styles.labelFilterRow}
           contentContainerStyle={styles.labelFilterContent}
         >
-          {wsLabels.map((l) => {
+          {usedLabels.map((l) => {
             const on = filterLabel === l.id;
             return (
               <Pressable
@@ -1261,9 +1315,11 @@ function EditorTopbar({
 function SettingsScreen({
   workspaceId,
   onClose,
+  onWiped,
 }: {
   workspaceId: string | null;
   onClose: () => void;
+  onWiped: () => void;
 }) {
   const current = getSettings();
   const { mode, setMode, colors, type } = useTheme();
@@ -1287,6 +1343,33 @@ function SettingsScreen({
     await saveSettings({ syncUrl, apiUrl } as ServerSettings);
     setSaved(true);
     setTimeout(onClose, 400);
+  };
+
+  // Wipe everything this device holds: session tokens, server settings, theme
+  // and tree preferences, and the cached note bodies. Notes on the server are
+  // untouched; signing back in re-syncs them.
+  const deleteAllData = () => {
+    Alert.alert(
+      "Delete all data on this phone?",
+      "This signs you out and removes cached notes, settings, and preferences from this device. Notes on your server are not affected.",
+      [
+        { text: "Cancel", style: "cancel" },
+        {
+          text: "Delete",
+          style: "destructive",
+          onPress: () => {
+            void (async () => {
+              await api.logout().catch(() => undefined);
+              await AsyncStorage.clear().catch(() => undefined);
+              await wipeLocalCache();
+              await loadSettings(); // reset the in-memory URLs to the defaults
+              setMode("system"); // theme override is device data too
+              onWiped();
+            })();
+          },
+        },
+      ],
+    );
   };
 
   return (
@@ -1331,6 +1414,9 @@ function SettingsScreen({
       {aiAvailable ? <VoiceSection /> : null}
 
       {workspaceId ? <CalendarFeedSection workspaceId={workspaceId} /> : null}
+
+      <Text style={type.label}>This device</Text>
+      <Button variant="destructive" label="Delete all data on this phone" onPress={deleteAllData} />
     </Sheet>
   );
 }

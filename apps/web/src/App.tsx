@@ -1045,10 +1045,14 @@ function Sidebar({
   // (the label row itself survives, so restoring the page brings it back). The
   // assignments endpoint already excludes archived/trashed documents.
   const usedLabels = useMemo(() => {
+    const activeIds = new Set(docs.map((d) => d.id));
     const used = new Set<string>();
-    for (const ids of docLabelIds.values()) for (const id of ids) used.add(id);
+    for (const [docId, ids] of docLabelIds) {
+      if (!activeIds.has(docId)) continue;
+      for (const id of ids) used.add(id);
+    }
     return wsLabels.filter((l) => used.has(l.id));
-  }, [wsLabels, docLabelIds]);
+  }, [wsLabels, docLabelIds, docs]);
 
   // If the active filter's label just vanished, drop the filter so the tree
   // doesn't stay stuck on an empty "no pages with this label" state.
@@ -1081,9 +1085,12 @@ function Sidebar({
   }, [usedLabels, labelsExpanded, filterLabel]);
 
   const childrenOf = useMemo(() => {
+    // A page whose parent isn't in the active list (e.g. the parent sits in a
+    // shelf) renders at the root — never active-but-invisible.
+    const activeIds = new Set(docs.map((d) => d.id));
     const map = new Map<string | null, Document[]>();
     for (const d of docs) {
-      const key = d.parent_id;
+      const key = d.parent_id && activeIds.has(d.parent_id) ? d.parent_id : null;
       if (!map.has(key)) map.set(key, []);
       map.get(key)!.push(d);
     }
@@ -1205,7 +1212,7 @@ function Sidebar({
           Graph
         </button>
       </div>
-      {wsLabels.length > 0 && (
+      {usedLabels.length > 0 && (
         <div className="label-filter">
           {visibleLabels.map((l) => (
             <button
@@ -1218,12 +1225,12 @@ function Sidebar({
               {l.name}
             </button>
           ))}
-          {wsLabels.length > LABEL_FILTER_PREVIEW && (
+          {usedLabels.length > LABEL_FILTER_PREVIEW && (
             <button
               className="label-chip filter more"
               onClick={() => setLabelsExpanded((v) => !v)}
             >
-              {labelsExpanded ? "less" : `+${wsLabels.length - visibleLabels.length} more`}
+              {labelsExpanded ? "less" : `+${usedLabels.length - visibleLabels.length} more`}
             </button>
           )}
         </div>
@@ -1686,7 +1693,6 @@ function EditorPaneInner({
     [doc.id, token],
   );
   const [status, setStatus] = useState<ConnectionStatus>(connection.status());
-  const [offline, setOffline] = useState(false);
   const [showShares, setShowShares] = useState(false);
   const [ai, setAi] = useState<AiStatus | null>(null);
   const [showAssist, setShowAssist] = useState(false);
@@ -1829,12 +1835,6 @@ function EditorPaneInner({
     titleTimer.current = setTimeout(() => onAutoTitle(text), 600);
   };
 
-  const toggleOffline = () => {
-    if (offline) connection.goOnline();
-    else connection.goOffline();
-    setOffline(!offline);
-  };
-
   // Apply a version-history restore update to the live doc so this client
   // converges immediately; every other client receives it over the sync socket.
   const applyRestore = useCallback(
@@ -1868,7 +1868,7 @@ function EditorPaneInner({
         </span>
         <span className="status">
           <span className="dot" style={{ background: STATUS_COLOR[status] }} />
-          {offline ? "Offline" : status}
+          {status}
         </span>
         <div className="topbar-right">
           {attachments.length > 0 && (
@@ -1925,9 +1925,6 @@ function EditorPaneInner({
             onClick={() => setShowShares((v) => !v)}
           >
             Share
-          </button>
-          <button className={offline ? "toggle on" : "toggle"} onClick={toggleOffline}>
-            {offline ? "Go online" : "Simulate offline"}
           </button>
           {task && (
             <div className="page-menu">

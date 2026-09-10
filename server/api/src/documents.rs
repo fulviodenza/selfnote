@@ -264,9 +264,26 @@ pub async fn update(
 
     let title = body.title.unwrap_or(doc.title);
     let icon = body.icon.or(doc.icon);
-    let parent_id = body.parent_id.unwrap_or(doc.parent_id);
+    let mut parent_id = body.parent_id.unwrap_or(doc.parent_id);
     let archived = body.archived.unwrap_or(doc.archived);
     let trashed = body.trashed.unwrap_or(doc.trashed);
+
+    // Restoring a page whose parent is still shelved would leave it "active"
+    // but unreachable from the tree root — lift it to the top level instead.
+    let restoring = (doc.archived && !archived) || (doc.trashed && !trashed);
+    if restoring && !archived && !trashed {
+        if let Some(pid) = parent_id {
+            let parent_shelved: Option<(bool, bool)> =
+                sqlx::query_as("select archived, trashed from documents where id = $1")
+                    .bind(pid)
+                    .fetch_optional(&state.pool)
+                    .await?;
+            match parent_shelved {
+                Some((false, false)) => {}
+                _ => parent_id = None,
+            }
+        }
+    }
 
     let updated: Document = sqlx::query_as(
         "update documents set title = $2, icon = $3, parent_id = $4, archived = $5, trashed = $6, updated_at = now() \
@@ -281,6 +298,28 @@ pub async fn update(
     .bind(trashed)
     .fetch_one(&state.pool)
     .await?;
+
+    // Shelf state applies to the whole subtree: archiving/trashing a page (or
+    // restoring it) would otherwise strand its children as active-but-invisible
+    // pages — the tree only renders from the root, but labels, search, and sync
+    // would still see them.
+    let flags_changed = archived != doc.archived || trashed != doc.trashed;
+    if flags_changed {
+        sqlx::query(
+            "with recursive sub as ( \
+                 select id from documents where parent_id = $1 \
+                 union all \
+                 select d.id from documents d join sub s on d.parent_id = s.id \
+             ) \
+             update documents set archived = $2, trashed = $3, updated_at = now() \
+             where id in (select id from sub)",
+        )
+        .bind(doc_id)
+        .bind(archived)
+        .bind(trashed)
+        .execute(&state.pool)
+        .await?;
+    }
     Ok(Json(updated))
 }
 
