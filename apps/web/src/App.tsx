@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import {
+  activeUsedLabels,
   applyUpdateBase64,
   createDocConnection,
   type ConnectionStatus,
@@ -1040,19 +1041,16 @@ function Sidebar({
     };
   }, [workspaceId, docs]);
 
+  const activeIds = useMemo(() => new Set(docs.map((d) => d.id)), [docs]);
+
   // Only labels that still tag at least one active page are offered as filters:
   // archiving/trashing/deleting a label's last page makes the chip disappear
   // (the label row itself survives, so restoring the page brings it back). The
   // assignments endpoint already excludes archived/trashed documents.
-  const usedLabels = useMemo(() => {
-    const activeIds = new Set(docs.map((d) => d.id));
-    const used = new Set<string>();
-    for (const [docId, ids] of docLabelIds) {
-      if (!activeIds.has(docId)) continue;
-      for (const id of ids) used.add(id);
-    }
-    return wsLabels.filter((l) => used.has(l.id));
-  }, [wsLabels, docLabelIds, docs]);
+  const usedLabels = useMemo(
+    () => activeUsedLabels(wsLabels, docLabelIds, activeIds),
+    [wsLabels, docLabelIds, activeIds],
+  );
 
   // If the active filter's label just vanished, drop the filter so the tree
   // doesn't stay stuck on an empty "no pages with this label" state.
@@ -1086,8 +1084,7 @@ function Sidebar({
 
   const childrenOf = useMemo(() => {
     // A page whose parent isn't in the active list (e.g. the parent sits in a
-    // shelf) renders at the root — never active-but-invisible.
-    const activeIds = new Set(docs.map((d) => d.id));
+    // shelf) renders at the root: never active-but-invisible.
     const map = new Map<string | null, Document[]>();
     for (const d of docs) {
       const key = d.parent_id && activeIds.has(d.parent_id) ? d.parent_id : null;
@@ -1095,7 +1092,7 @@ function Sidebar({
       map.get(key)!.push(d);
     }
     return map;
-  }, [docs]);
+  }, [docs, activeIds]);
 
   // Collapsed page ids (default: everything expanded). Persisted so the tree
   // keeps its shape across reloads.

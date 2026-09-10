@@ -269,18 +269,17 @@ pub async fn update(
     let trashed = body.trashed.unwrap_or(doc.trashed);
 
     // Restoring a page whose parent is still shelved would leave it "active"
-    // but unreachable from the tree root — lift it to the top level instead.
-    let restoring = (doc.archived && !archived) || (doc.trashed && !trashed);
-    if restoring && !archived && !trashed {
+    // but unreachable from the tree root, so lift it to the top level instead.
+    let restoring_to_active = (doc.archived || doc.trashed) && !archived && !trashed;
+    if restoring_to_active {
         if let Some(pid) = parent_id {
             let parent_shelved: Option<(bool, bool)> =
                 sqlx::query_as("select archived, trashed from documents where id = $1")
                     .bind(pid)
                     .fetch_optional(&state.pool)
                     .await?;
-            match parent_shelved {
-                Some((false, false)) => {}
-                _ => parent_id = None,
+            if parent_shelved != Some((false, false)) {
+                parent_id = None;
             }
         }
     }
@@ -301,7 +300,7 @@ pub async fn update(
 
     // Shelf state applies to the whole subtree: archiving/trashing a page (or
     // restoring it) would otherwise strand its children as active-but-invisible
-    // pages — the tree only renders from the root, but labels, search, and sync
+    // pages. The tree only renders from the root, but labels, search, and sync
     // would still see them.
     let flags_changed = archived != doc.archived || trashed != doc.trashed;
     if flags_changed {

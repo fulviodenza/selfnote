@@ -17,7 +17,7 @@ import * as DocumentPicker from "expo-document-picker";
 import { useFonts } from "expo-font";
 import { StatusBar } from "expo-status-bar";
 import AsyncStorage from "@react-native-async-storage/async-storage";
-import { createDocConnection, type ConnectionStatus } from "@selfnote/core";
+import { activeUsedLabels, createDocConnection, type ConnectionStatus } from "@selfnote/core";
 import { sqlitePersistence, loadCachedState, wipeLocalCache } from "./src/persistence/sqlite";
 import { WebViewEditor, type EditorUser, type EditorHandle } from "./src/editor/WebViewEditor";
 import { BacklinksPanel } from "./src/editor/BacklinksPanel";
@@ -517,15 +517,15 @@ function DocListScreen({
   // Collapse/expand the whole tree in one tap (mirrors the web sidebar header):
   // "Collapse all" while anything is open, flipping to "Expand all" once every
   // parent is shut.
-  const parentIds = useMemo(() => {
-    if (!docs) return [];
-    const ids = new Set(docs.map((d) => d.id));
-    const withKids = new Set<string>();
-    for (const d of docs) {
-      if (d.parent_id && ids.has(d.parent_id)) withKids.add(d.parent_id);
-    }
-    return [...withKids];
-  }, [docs]);
+  const parentIds = useMemo(
+    () =>
+      docs
+        ? flattenTree(docs, new Set())
+            .filter((r) => r.hasChildren)
+            .map((r) => r.doc.id)
+        : [],
+    [docs],
+  );
   const allCollapsed = parentIds.length > 0 && parentIds.every((id) => collapsed.has(id));
   const toggleCollapseAll = () => {
     const next = allCollapsed ? new Set<string>() : new Set(parentIds);
@@ -587,15 +587,10 @@ function DocListScreen({
 
   // Only labels that still tag at least one active page are offered as filters
   // (parity with the web sidebar): shelving a label's last page hides the chip.
-  const usedLabels = useMemo(() => {
-    const activeIds = new Set((docs ?? []).map((d) => d.id));
-    const used = new Set<string>();
-    for (const [docId, ids] of docLabelIds) {
-      if (!activeIds.has(docId)) continue;
-      for (const id of ids) used.add(id);
-    }
-    return wsLabels.filter((l) => used.has(l.id));
-  }, [wsLabels, docLabelIds, docs]);
+  const usedLabels = useMemo(
+    () => activeUsedLabels(wsLabels, docLabelIds, new Set((docs ?? []).map((d) => d.id))),
+    [wsLabels, docLabelIds, docs],
+  );
 
   // If the active filter's label just vanished, drop the filter so the list
   // doesn't stay stuck on an empty state.
@@ -1348,26 +1343,22 @@ function SettingsScreen({
   // Wipe everything this device holds: session tokens, server settings, theme
   // and tree preferences, and the cached note bodies. Notes on the server are
   // untouched; signing back in re-syncs them.
+  const wipeDevice = async () => {
+    await api.logout().catch(() => undefined);
+    await AsyncStorage.clear().catch(() => undefined);
+    await wipeLocalCache();
+    await loadSettings(); // reset the in-memory URLs to the defaults
+    setMode("system"); // theme override is device data too
+    onWiped();
+  };
+
   const deleteAllData = () => {
     Alert.alert(
       "Delete all data on this phone?",
       "This signs you out and removes cached notes, settings, and preferences from this device. Notes on your server are not affected.",
       [
         { text: "Cancel", style: "cancel" },
-        {
-          text: "Delete",
-          style: "destructive",
-          onPress: () => {
-            void (async () => {
-              await api.logout().catch(() => undefined);
-              await AsyncStorage.clear().catch(() => undefined);
-              await wipeLocalCache();
-              await loadSettings(); // reset the in-memory URLs to the defaults
-              setMode("system"); // theme override is device data too
-              onWiped();
-            })();
-          },
-        },
+        { text: "Delete", style: "destructive", onPress: () => void wipeDevice() },
       ],
     );
   };

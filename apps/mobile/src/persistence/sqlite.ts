@@ -11,6 +11,15 @@ import * as Y from "yjs";
 import { fromBase64, toBase64 } from "lib0/buffer";
 import type { DocPersistence, PersistenceFactory } from "@selfnote/core";
 
+const DB_NAME = "selfnote.db";
+
+/** Open the cache database and make sure the ydoc table exists. */
+async function openDb(): Promise<SQLite.SQLiteDatabase> {
+  const db = await SQLite.openDatabaseAsync(DB_NAME);
+  await db.execAsync("CREATE TABLE IF NOT EXISTS ydoc (id TEXT PRIMARY KEY, state TEXT)");
+  return db;
+}
+
 /**
  * Read a doc's last-saved full Yjs state (base64) from the local cache, or null
  * if it was never opened on this device. Used to resolve *other* notes' bodies
@@ -18,8 +27,7 @@ import type { DocPersistence, PersistenceFactory } from "@selfnote/core";
  */
 export async function loadCachedState(docId: string): Promise<string | null> {
   try {
-    const db = await SQLite.openDatabaseAsync("selfnote.db");
-    await db.execAsync("CREATE TABLE IF NOT EXISTS ydoc (id TEXT PRIMARY KEY, state TEXT)");
+    const db = await openDb();
     const row = await db.getFirstAsync<{ state: string }>(
       "SELECT state FROM ydoc WHERE id = ?",
       docId,
@@ -37,7 +45,7 @@ export async function loadCachedState(docId: string): Promise<string | null> {
  */
 export async function wipeLocalCache(): Promise<void> {
   try {
-    const db = await SQLite.openDatabaseAsync("selfnote.db");
+    const db = await SQLite.openDatabaseAsync(DB_NAME);
     await db.execAsync("DROP TABLE IF EXISTS ydoc");
   } catch {
     /* nothing cached on this device */
@@ -68,8 +76,7 @@ export const sqlitePersistence: PersistenceFactory = (docId, doc): DocPersistenc
   };
 
   const whenSynced = (async () => {
-    db = await SQLite.openDatabaseAsync("selfnote.db");
-    await db.execAsync("CREATE TABLE IF NOT EXISTS ydoc (id TEXT PRIMARY KEY, state TEXT)");
+    db = await openDb();
     const row = await db.getFirstAsync<{ state: string }>(
       "SELECT state FROM ydoc WHERE id = ?",
       docId,
