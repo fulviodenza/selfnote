@@ -81,8 +81,6 @@ export interface DocConnection {
   onStatus(cb: (s: ConnectionStatus) => void): () => void;
   /** Subscribe to sync completion (true once the initial diff is applied). */
   onSynced(cb: (synced: boolean) => void): () => void;
-  /** Simulate/force going offline (keeps editing locally). */
-  goOffline(): void;
   /** Reconnect and resync. */
   goOnline(): void;
   destroy(): void;
@@ -95,6 +93,24 @@ export interface DocConnection {
  * when connected. Conflict resolution is handled by the Yjs CRDT, so concurrent /
  * offline edits merge without loss.
  */
+/**
+ * Labels that still tag at least one active document. Shared by the web and
+ * mobile sidebars so the filter chips stay in lockstep across platforms:
+ * shelving a label's last page hides its chip.
+ */
+export function activeUsedLabels<L extends { id: string }>(
+  labels: L[],
+  docLabelIds: ReadonlyMap<string, Iterable<string>>,
+  activeDocIds: ReadonlySet<string>,
+): L[] {
+  const used = new Set<string>();
+  for (const [docId, ids] of docLabelIds) {
+    if (!activeDocIds.has(docId)) continue;
+    for (const id of ids) used.add(id);
+  }
+  return labels.filter((l) => used.has(l.id));
+}
+
 export function createDocConnection(docId: string, opts: CreateDocOptions): DocConnection {
   const doc = new Y.Doc();
 
@@ -113,7 +129,6 @@ export function createDocConnection(docId: string, opts: CreateDocOptions): DocC
   const fragment = doc.getXmlFragment(FRAGMENT_NAME);
 
   let current: ConnectionStatus = "connecting";
-  let manualOffline = false;
   const statusCbs = new Set<(s: ConnectionStatus) => void>();
 
   const emit = (s: ConnectionStatus) => {
@@ -122,7 +137,6 @@ export function createDocConnection(docId: string, opts: CreateDocOptions): DocC
   };
 
   provider.on("status", (e: { status: ConnectionStatus }) => {
-    if (manualOffline) return;
     emit(e.status);
   });
 
@@ -144,13 +158,7 @@ export function createDocConnection(docId: string, opts: CreateDocOptions): DocC
       provider.on("sync", handler);
       return () => provider.off("sync", handler);
     },
-    goOffline() {
-      manualOffline = true;
-      provider.disconnect();
-      emit("offline");
-    },
     goOnline() {
-      manualOffline = false;
       provider.connect();
       emit("connecting");
     },
