@@ -52,12 +52,19 @@ jobs:
         # apps/mobile/android is gitignored and regenerated every run.
         # --no-install: npm ci already did it, and prebuild would redo it.
         #
+        # --template pins the exact template version. Without it, prebuild
+        # resolves the mutable sdk-52 npm dist-tag at run time, and a drifting
+        # default (Kotlin, AGP, even the keystore blob below) changes the
+        # build with zero repo change; the Kotlin default moving to 1.9.25
+        # is what broke the first runs here. Bump it together with the
+        # versions in deploy/ci/android-runner.Dockerfile.
+        #
         # This is also what puts android/app/debug.keystore in place. The
         # template's release buildType signs with it, and it is a fixed blob in
         # the published template, so CI produces the same signature as a local
         # build and existing sideloads upgrade in place. That key is public:
         # when Selfnote ships to anyone else, swap in a real release keystore.
-        run: npx expo prebuild --platform android --no-install
+        run: npx expo prebuild --platform android --no-install --template expo-template-bare-minimum@52.0.46
 
       - name: Build the release APK
         working-directory: apps/mobile/android
@@ -69,15 +76,15 @@ jobs:
           # command line would not: org.gradle.jvmargs configures the build JVM,
           # not the launcher that reads the flag.
           echo "org.gradle.jvmargs=-Xmx4g" >> gradle.properties
-          # prebuild resolves expo-template-bare-minimum from the mutable
-          # sdk-52 npm dist-tag at run time, so the template's Kotlin default
-          # can drift between runs (the first run got 1.9.24 and failed
-          # against the Compose Compiler expo-modules-core picked). Pin it.
-          # The value must be a key of expo-modules-core's Kotlin-to-Compose
-          # versionsMap (see its android/build.gradle), or the Compose
-          # Compiler version resolves to null. Re-pin on the next Expo SDK
-          # bump, together with deploy/ci/android-runner.Dockerfile.
-          echo "android.kotlinVersion=1.9.25" >> gradle.properties
+          # Kotlin is pinned in apps/mobile/app.json via expo-build-properties
+          # (android.kotlinVersion), so it applies to local builds too, and
+          # the pinned --template above keeps the rest of the defaults from
+          # drifting. Nothing to append for it here. When re-pinning, the
+          # value must match the Kotlin of the React Native release AND be a
+          # key of expo-modules-core's Kotlin-to-Compose versionsMap (its
+          # android/build.gradle), or the Compose Compiler version resolves
+          # to null with an opaque configuration error.
+          #
           # The template builds all four ABIs, but x86/x86_64 only exist for
           # emulators and this APK is a phone sideload. Dropping them roughly
           # halves the native build on the 4-CPU runner node.

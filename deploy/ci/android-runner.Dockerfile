@@ -12,10 +12,11 @@
 #   compileSdk 35 | targetSdk 34 | minSdk 24 | buildTools 35.0.0
 #   ndk 26.1.10909125
 #
-# Kotlin is not baked in here: the template's default drifts with the sdk-52
-# dist-tag, so the workflow pins android.kotlinVersion in gradle.properties
-# instead (see .github/workflows/mobile-apk.yml). Re-pin both together when
-# Expo SDK moves.
+# Kotlin is not baked in here: it is pinned in apps/mobile/app.json via
+# expo-build-properties (android.kotlinVersion), matching the Kotlin that the
+# React Native release actually compiles with, and the workflow pins the
+# prebuild template version itself. Re-pin all of it together when Expo SDK
+# moves.
 #
 # Only the NDK has to be exact. Gradle downloads a missing SDK platform or
 # build-tools package on its own, but never an NDK, so a wrong pin here is a

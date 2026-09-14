@@ -34,6 +34,14 @@
             "./assets/fonts/feather.ttf"
           ]
         }
+      ],
+      [
+        "expo-build-properties",
+        {
+          "android": {
+            "kotlinVersion": "1.9.24"
+          }
+        }
       ]
     ]
   }
