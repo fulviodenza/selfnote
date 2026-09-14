@@ -543,6 +543,13 @@ export const api = {
       body: JSON.stringify({ name, ...(color ? { color } : {}) }),
     }),
 
+  /** Rename / recolor a label. */
+  updateLabel: (id: string, patch: Partial<{ name: string; color: string }>) =>
+    req<Label>(`/labels/${id}`, { method: "PATCH", body: JSON.stringify(patch) }),
+
+  /** Delete a label everywhere (detaches it from every note). */
+  deleteLabel: (id: string) => req<{ deleted: string }>(`/labels/${id}`, { method: "DELETE" }),
+
   /** A note's labels. */
   getDocLabels: (docId: string) =>
     req<{ labels: Label[] }>(`/documents/${docId}/labels`).then((r) => r.labels),
