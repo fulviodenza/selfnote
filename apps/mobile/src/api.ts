@@ -34,8 +34,19 @@ export interface Document {
   title: string;
   icon: string | null;
   archived: boolean;
+  trashed: boolean;
   created_at: string;
   updated_at: string;
+}
+
+/** One uploaded workspace asset (metadata only; the bytes come from fileUrl). */
+export interface FileAsset {
+  id: string;
+  doc_id: string | null;
+  name: string | null;
+  mime: string;
+  size: number;
+  created_at: string;
 }
 
 export interface RoomToken {
@@ -397,8 +408,11 @@ export const api = {
   createWorkspace: (name: string) =>
     req<Workspace>("/workspaces", { method: "POST", body: JSON.stringify({ name }) }),
 
-  listDocuments: (workspaceId: string) =>
-    req<Document[]>(`/documents?workspace_id=${encodeURIComponent(workspaceId)}`),
+  /** Pages on one shelf: "active" (the default), "archived", or "trashed". */
+  listDocuments: (workspaceId: string, state?: "active" | "archived" | "trashed") =>
+    req<Document[]>(
+      `/documents?workspace_id=${encodeURIComponent(workspaceId)}${state ? `&state=${state}` : ""}`,
+    ),
   createDocument: (workspaceId: string, parentId: string | null, title: string) =>
     req<Document>("/documents", {
       method: "POST",
@@ -406,8 +420,15 @@ export const api = {
     }),
   updateDocument: (
     id: string,
-    patch: Partial<{ title: string; parent_id: string | null; archived: boolean }>,
+    patch: Partial<{
+      title: string;
+      parent_id: string | null;
+      archived: boolean;
+      trashed: boolean;
+    }>,
   ) => req<Document>(`/documents/${id}`, { method: "PATCH", body: JSON.stringify(patch) }),
+  /** Permanently delete a page (Trash's "Delete forever"). */
+  deleteDocument: (id: string) => req<void>(`/documents/${id}`, { method: "DELETE" }),
 
   roomToken: (docId: string) =>
     req<RoomToken>(`/documents/${docId}/room-token`, { method: "POST" }),
@@ -496,6 +517,18 @@ export const api = {
     // base (which already ends in /api).
     return url.startsWith("/api/") ? `${base}${url.slice(4)}` : url;
   },
+
+  /** The workspace's uploaded assets (metadata only), newest first. */
+  listFiles: (workspaceId: string) => req<FileAsset[]>(`/workspaces/${workspaceId}/files`),
+
+  /** Permanently delete one uploaded asset (Assets shelf cleanup). */
+  deleteFile: (id: string) => req<void>(`/files/${id}`, { method: "DELETE" }),
+
+  /**
+   * Absolute URL for an uploaded asset. The download route is unauthenticated,
+   * so <Image>/Linking can fetch it without the bearer token.
+   */
+  fileUrl: (id: string) => `${getSettings().apiUrl}/files/${id}`,
 
   /* ---- Labels ---- */
 
