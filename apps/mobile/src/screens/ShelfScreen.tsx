@@ -42,8 +42,8 @@ export function ShelfScreen({
       try {
         setDocs(await api.listDocuments(workspaceId, shelf === "archive" ? "archived" : "trashed"));
       } catch {
+        // Leave whatever we had: an unreachable server is not an empty shelf.
         setError("Couldn't load this list.");
-        setDocs([]);
       } finally {
         if (isRefresh) setRefreshing(false);
       }
@@ -100,7 +100,9 @@ export function ShelfScreen({
   const title = shelf === "archive" ? "Archive" : "Trash";
   const count = docs
     ? `${docs.length} page${docs.length === 1 ? "" : "s"}`
-    : "Loading…";
+    : error
+      ? ""
+      : "Loading…";
 
   return (
     <View style={styles.flex}>
@@ -118,9 +120,11 @@ export function ShelfScreen({
       {error ? <Text style={styles.error}>{error}</Text> : null}
 
       {docs === null ? (
-        <View style={styles.center}>
-          <ActivityIndicator color={colors.accent} />
-        </View>
+        error ? null : (
+          <View style={styles.center}>
+            <ActivityIndicator color={colors.accent} />
+          </View>
+        )
       ) : docs.length === 0 ? (
         <View style={styles.center}>
           <Text style={styles.empty}>

@@ -81,8 +81,8 @@ export function AssetsScreen({
       try {
         setAssets(await api.listFiles(workspaceId));
       } catch {
+        // Leave whatever we had: an unreachable server is not an empty shelf.
         setError("Couldn't load the workspace files.");
-        setAssets([]);
       } finally {
         if (isRefresh) setRefreshing(false);
       }
@@ -134,7 +134,11 @@ export function AssetsScreen({
             Assets
           </Text>
           <Text style={type.meta}>
-            {assets ? `${assets.length} file${assets.length === 1 ? "" : "s"}` : "Loading…"}
+            {assets
+              ? `${assets.length} file${assets.length === 1 ? "" : "s"}`
+              : error
+                ? ""
+                : "Loading…"}
           </Text>
         </View>
         <IconButton icon="refresh-cw" label="Refresh" onPress={() => load(true)} />
@@ -143,9 +147,11 @@ export function AssetsScreen({
       {error ? <Text style={styles.error}>{error}</Text> : null}
 
       {assets === null ? (
-        <View style={styles.center}>
-          <ActivityIndicator color={colors.accent} />
-        </View>
+        error ? null : (
+          <View style={styles.center}>
+            <ActivityIndicator color={colors.accent} />
+          </View>
+        )
       ) : assets.length === 0 ? (
         <View style={styles.center}>
           <Text style={styles.empty}>

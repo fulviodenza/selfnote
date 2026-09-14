@@ -135,7 +135,10 @@ function AppInner() {
       .then((raw) => {
         if (!raw) return;
         try {
-          setTabIds(JSON.parse(raw) as string[]);
+          const stored = JSON.parse(raw) as string[];
+          // Merge rather than replace: a page opened while this read was in
+          // flight is already in state and must stay open.
+          setTabIds((cur) => [...stored.filter((id) => !cur.includes(id)), ...cur]);
         } catch {
           /* ignore malformed */
         }
@@ -514,6 +517,30 @@ interface TreeRow {
   hasChildren: boolean;
 }
 
+/**
+ * A page's id plus every descendant's. Shelf state cascades to the subtree on
+ * the server, so the local list has to drop the same set: leaving the children
+ * behind would re-root them in the tree (see flattenTree) as pages that are
+ * archived or trashed on the server but still shown.
+ */
+function subtreeIds(docs: Document[], rootId: string): Set<string> {
+  const childrenOf = new Map<string, string[]>();
+  for (const d of docs) {
+    if (!d.parent_id) continue;
+    childrenOf.set(d.parent_id, [...(childrenOf.get(d.parent_id) ?? []), d.id]);
+  }
+  const ids = new Set<string>([rootId]);
+  const stack = [rootId];
+  while (stack.length > 0) {
+    for (const child of childrenOf.get(stack.pop()!) ?? []) {
+      if (ids.has(child)) continue; // a cycle would otherwise spin forever
+      ids.add(child);
+      stack.push(child);
+    }
+  }
+  return ids;
+}
+
 /** Flatten docs into a depth-tagged list; children of collapsed nodes are hidden. */
 function flattenTree(docs: Document[], collapsed: Set<string>): TreeRow[] {
   const ids = new Set(docs.map((d) => d.id));
@@ -690,9 +717,11 @@ function DocListScreen({
     setActionsDoc(null);
     const patch = shelf === "archive" ? { archived: true } : { trashed: true };
     const undo = shelf === "archive" ? { archived: false } : { trashed: false };
-    // Optimistically drop it, then offer Undo. Reporting the shorter list up
-    // is what closes the page's tab if it was open.
-    const remaining = (docs ?? []).filter((d) => d.id !== doc.id);
+    // Optimistically drop the page and its subtree, then offer Undo (the
+    // server restores the same subtree). Reporting the shorter list up is what
+    // closes the tabs of the pages that just left the tree.
+    const shelved = subtreeIds(docs ?? [], doc.id);
+    const remaining = (docs ?? []).filter((d) => !shelved.has(d.id));
     setDocs(remaining);
     onDocs(remaining);
     try {
