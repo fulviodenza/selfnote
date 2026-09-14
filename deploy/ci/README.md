@@ -29,6 +29,27 @@ It is a large image (the SDK, build-tools, and NDK are most of it). Rebuild it
 when Expo SDK moves: the versions it pins come from the prebuild template, and
 the NDK is the one Gradle will not download for itself.
 
+Two traps on this step:
+
+- A direct push to `registry.fulvio.dev` fails with `413 Payload Too Large`.
+  The hostname goes through Cloudflare, which caps upload size well below the
+  multi-GB SDK layer. Push around it through the Harbor service instead:
+
+  ```sh
+  kubectl -n harbor port-forward svc/harbor 8443:443 &
+  docker tag registry.fulvio.dev/selfnote/android-runner:sdk52 \
+    127.0.0.1:8443/selfnote/android-runner:sdk52
+  docker push 127.0.0.1:8443/selfnote/android-runner:sdk52
+  ```
+
+  The repository inside Harbor is the same either way, so the cluster still
+  pulls it as `registry.fulvio.dev/selfnote/android-runner:sdk52` (pulls are
+  downloads and pass through Cloudflare fine).
+
+- If the build fails at the `FROM` line with `failed to fetch oauth token:
+  denied`, a stale `ghcr.io` credential in `~/.docker/config.json` is being
+  sent for a public image. `docker logout ghcr.io` clears it.
+
 ### 2. Give the `ci` namespace a Harbor pull secret
 
 Pull secrets are namespace-scoped, so the `harbor` secret in `selfnote` and
