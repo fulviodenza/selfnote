@@ -19,15 +19,42 @@ immediately before applying.
 
 ### 1. Build and push the image
 
+The push goes through a port-forward to the Harbor service, not through the
+hostname: `registry.fulvio.dev` sits behind Cloudflare, which caps upload size
+well below the multi-GB SDK layer, so a direct push always dies with
+`413 Payload Too Large`. The repository inside Harbor is the same either way,
+so the cluster still pulls `registry.fulvio.dev/selfnote/android-runner:sdk52`
+(pulls are downloads and pass through Cloudflare fine).
+
 ```sh
 docker build -f deploy/ci/android-runner.Dockerfile \
   -t registry.fulvio.dev/selfnote/android-runner:sdk52 .
-docker push registry.fulvio.dev/selfnote/android-runner:sdk52
+
+kubectl -n harbor port-forward svc/harbor 8443:443 &
+until curl -sk https://127.0.0.1:8443/v2/ -o /dev/null; do sleep 1; done
+# Docker keys credentials by registry host, so the login stored for
+# registry.fulvio.dev is not sent to 127.0.0.1:8443. Same Harbor account.
+docker login 127.0.0.1:8443
+docker tag registry.fulvio.dev/selfnote/android-runner:sdk52 \
+  127.0.0.1:8443/selfnote/android-runner:sdk52
+docker push 127.0.0.1:8443/selfnote/android-runner:sdk52
+kill %1
 ```
 
 It is a large image (the SDK, build-tools, and NDK are most of it). Rebuild it
-when Expo SDK moves: the versions it pins come from the prebuild template, and
-the NDK is the one Gradle will not download for itself.
+when Expo SDK moves: the versions it pins come from the prebuild template, the
+NDK is the one Gradle will not download for itself, and the workflow's
+`android.kotlinVersion` pin needs re-checking at the same time.
+
+Two traps on this step:
+
+- The loopback push assumes the docker daemon can reach the host's 127.0.0.1
+  (Linux, OrbStack, colima). On Docker Desktop the daemon runs in a VM whose
+  loopback is its own, and the push is refused.
+
+- If the build fails at the `FROM` line with `failed to fetch oauth token:
+  denied`, a stale `ghcr.io` credential in `~/.docker/config.json` is being
+  sent for a public image. `docker logout ghcr.io` clears it.
 
 ### 2. Give the `ci` namespace a Harbor pull secret
 

@@ -69,6 +69,19 @@ jobs:
           # command line would not: org.gradle.jvmargs configures the build JVM,
           # not the launcher that reads the flag.
           echo "org.gradle.jvmargs=-Xmx4g" >> gradle.properties
+          # prebuild resolves expo-template-bare-minimum from the mutable
+          # sdk-52 npm dist-tag at run time, so the template's Kotlin default
+          # can drift between runs (the first run got 1.9.24 and failed
+          # against the Compose Compiler expo-modules-core picked). Pin it.
+          # The value must be a key of expo-modules-core's Kotlin-to-Compose
+          # versionsMap (see its android/build.gradle), or the Compose
+          # Compiler version resolves to null. Re-pin on the next Expo SDK
+          # bump, together with deploy/ci/android-runner.Dockerfile.
+          echo "android.kotlinVersion=1.9.25" >> gradle.properties
+          # The template builds all four ABIs, but x86/x86_64 only exist for
+          # emulators and this APK is a phone sideload. Dropping them roughly
+          # halves the native build on the 4-CPU runner node.
+          echo "reactNativeArchitectures=arm64-v8a,armeabi-v7a" >> gradle.properties
           # --no-daemon: the runner pod is long-lived, and a Gradle daemon that
           # outlives the job is how the pod gets OOMKilled three builds later on
           # an 8Gi node.
