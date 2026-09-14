@@ -67,6 +67,7 @@ import { ThemeProvider, useTheme, type ThemeMode } from "./src/theme-context";
 import { useAndroidBack } from "./src/hooks/useAndroidBack";
 import { TaskControls } from "./src/screens/TaskControls";
 import { BulkLabelButton, LabelRow } from "./src/components/LabelRow";
+import { TabStrip } from "./src/components/TabStrip";
 import { TasksScreen } from "./src/screens/TasksScreen";
 import { AssetsScreen } from "./src/screens/AssetsScreen";
 import { ShelfScreen, type Shelf } from "./src/screens/ShelfScreen";
@@ -74,6 +75,7 @@ import { CalendarFeedSection } from "./src/screens/CalendarFeedSection";
 import { VoiceSection } from "./src/screens/VoiceSection";
 
 const COLLAPSED_KEY = "selfnote.collapsed";
+const TABS_KEY = "selfnote.tabs";
 
 const USER: EditorUser = {
   name: `Mobile ${Math.floor(Math.random() * 90 + 10)}`,
@@ -108,7 +110,14 @@ function AppInner() {
   // expo-font config plugin (app.json), so this normally resolves instantly.
   const [fontsLoaded, fontError] = useFonts(Feather.font);
   const [showSettings, setShowSettings] = useState(false);
-  const [openDoc, setOpenDoc] = useState<Document | null>(null);
+  // Browser-style page tabs (web's TabStrip): the ordered ids of the open
+  // pages plus the one filling the screen. The ids are persisted so the open
+  // set survives a restart; the Documents behind them come from whichever
+  // screen last listed the workspace, which is what keeps a tab's title
+  // current after a rename.
+  const [tabIds, setTabIds] = useState<string[]>([]);
+  const [activeId, setActiveId] = useState<string | null>(null);
+  const [docsById, setDocsById] = useState<Map<string, Document>>(new Map());
   // The signed-in workspace (single-workspace model), lifted so the Tasks screen
   // and the calendar-feed settings section can share it.
   const [workspaceId, setWorkspaceId] = useState<string | null>(null);
@@ -118,6 +127,72 @@ function AppInner() {
   // files, plus the archived and trashed pages. null = the page tree.
   const [systemView, setSystemView] = useState<SystemView | null>(null);
 
+  // Restore the open set once on launch, then keep it written back. The write
+  // waits for the read so the initial empty state can't erase it.
+  const tabsHydrated = useRef(false);
+  useEffect(() => {
+    AsyncStorage.getItem(TABS_KEY)
+      .then((raw) => {
+        if (!raw) return;
+        try {
+          setTabIds(JSON.parse(raw) as string[]);
+        } catch {
+          /* ignore malformed */
+        }
+      })
+      .finally(() => {
+        tabsHydrated.current = true;
+      });
+  }, []);
+  useEffect(() => {
+    if (!tabsHydrated.current) return;
+    AsyncStorage.setItem(TABS_KEY, JSON.stringify(tabIds)).catch(() => undefined);
+  }, [tabIds]);
+
+  /** Show a page: it joins the tab strip if it isn't already open. */
+  const openPage = useCallback((doc: Document) => {
+    setDocsById((cur) => (cur.get(doc.id) === doc ? cur : new Map(cur).set(doc.id, doc)));
+    setTabIds((cur) => (cur.includes(doc.id) ? cur : [...cur, doc.id]));
+    setShowTasks(false);
+    setShowGraph(false);
+    setSystemView(null);
+    setActiveId(doc.id);
+  }, []);
+
+  /** Closing the active tab shows its right neighbour, or the last one left. */
+  const closeTab = useCallback((id: string) => {
+    setTabIds((cur) => {
+      const idx = cur.indexOf(id);
+      if (idx === -1) return cur;
+      const next = cur.filter((t) => t !== id);
+      setActiveId((active) =>
+        active === id ? next[Math.min(idx, next.length - 1)] ?? null : active,
+      );
+      return next;
+    });
+  }, []);
+
+  /**
+   * The page list just loaded. Re-point the tabs at the fresh Documents so a
+   * rename reaches the strip, and drop any tab whose page has left the active
+   * shelf (archived, trashed, or deleted from another device).
+   */
+  const syncDocs = useCallback((list: Document[]) => {
+    const byId = new Map(list.map((d) => [d.id, d]));
+    setDocsById(byId);
+    setTabIds((cur) => {
+      const next = cur.filter((id) => byId.has(id));
+      return next.length === cur.length ? cur : next;
+    });
+    setActiveId((active) => (active && byId.has(active) ? active : null));
+  }, []);
+
+  const clearTabs = useCallback(() => {
+    setTabIds([]);
+    setActiveId(null);
+    setDocsById(new Map());
+  }, []);
+
   // Open a note from the Tasks screen (which only knows the doc id): fetch the
   // workspace's documents and open the matching one.
   const openDocById = useCallback(
@@ -126,20 +201,30 @@ function AppInner() {
         const ws = workspaceId ?? (await ensureWorkspace());
         const docs = await api.listDocuments(ws);
         const doc = docs.find((d) => d.id === docId);
-        if (doc) {
-          setShowTasks(false);
-          setShowGraph(false);
-          setSystemView(null);
-          setOpenDoc(doc);
-        } else {
-          toast("That note is no longer available.");
-        }
+        if (doc) openPage(doc);
+        else toast("That note is no longer available.");
       } catch {
         toast("Couldn't open the note.");
       }
     },
-    [workspaceId, toast],
+    [workspaceId, toast, openPage],
   );
+
+  /** The "+" on the tab strip: a new root page, opened in its own tab. */
+  const createPage = useCallback(async () => {
+    if (!workspaceId) return;
+    try {
+      openPage(await api.createDocument(workspaceId, null, "Untitled"));
+    } catch {
+      toast("Couldn't create the page.");
+    }
+  }, [workspaceId, openPage, toast]);
+
+  const tabs = useMemo(
+    () => tabIds.map((id) => docsById.get(id)).filter((d): d is Document => !!d),
+    [tabIds, docsById],
+  );
+  const openDoc = activeId ? docsById.get(activeId) ?? null : null;
 
   const goPostConfig = useCallback(async () => {
     await loadSession();
@@ -170,7 +255,7 @@ function AppInner() {
         return true;
       }
       if (openDoc) {
-        setOpenDoc(null);
+        setActiveId(null);
         return true;
       }
       if (showGraph) {
@@ -219,11 +304,21 @@ function AppInner() {
 
         {phase === "app" &&
           (openDoc ? (
-            <EditorScreen
-              doc={openDoc}
-              onBack={() => setOpenDoc(null)}
-              onNavigateToDoc={openDocById}
-            />
+            <View style={styles.flex}>
+              <TabStrip
+                tabs={tabs}
+                activeId={activeId}
+                onSelect={openPage}
+                onClose={closeTab}
+                onNew={() => void createPage()}
+              />
+              <EditorScreen
+                key={openDoc.id}
+                doc={openDoc}
+                onBack={() => setActiveId(null)}
+                onNavigateToDoc={openDocById}
+              />
+            </View>
           ) : showGraph && workspaceId ? (
             <GraphView
               workspaceId={workspaceId}
@@ -251,7 +346,8 @@ function AppInner() {
             />
           ) : (
             <DocListScreen
-              onOpen={setOpenDoc}
+              onOpen={openPage}
+              onDocs={syncDocs}
               onWorkspace={setWorkspaceId}
               onTasks={() => setShowTasks(true)}
               onGraph={() => setShowGraph(true)}
@@ -259,6 +355,7 @@ function AppInner() {
               onSettings={() => setShowSettings(true)}
               onLogout={async () => {
                 await api.logout();
+                clearTabs();
                 setPhase("auth");
               }}
             />
@@ -270,7 +367,7 @@ function AppInner() {
           onClose={() => setShowSettings(false)}
           onWiped={() => {
             setShowSettings(false);
-            setOpenDoc(null);
+            clearTabs();
             setWorkspaceId(null);
             setShowTasks(false);
             setShowGraph(false);
@@ -441,6 +538,7 @@ function flattenTree(docs: Document[], collapsed: Set<string>): TreeRow[] {
 
 function DocListScreen({
   onOpen,
+  onDocs,
   onWorkspace,
   onTasks,
   onGraph,
@@ -449,6 +547,8 @@ function DocListScreen({
   onLogout,
 }: {
   onOpen: (doc: Document) => void;
+  /** Report the loaded page list up, so the tab strip can track it. */
+  onDocs: (docs: Document[]) => void;
   onWorkspace: (id: string) => void;
   onTasks: () => void;
   onGraph: () => void;
@@ -500,6 +600,7 @@ function DocListScreen({
       // trashed pages, so the tree is exactly what it returns.
       const list = await api.listDocuments(ws);
       setDocs(list);
+      onDocs(list);
       // Labels are decoration — fetch them best-effort alongside the tree.
       try {
         const [labels, assignments] = await Promise.all([
@@ -518,10 +619,12 @@ function DocListScreen({
         /* older server — no labels UI */
       }
     } catch (e) {
+      // Leave the tabs alone on a failed load: an unreachable server is not
+      // evidence that any page is gone.
       setError(friendly(e));
       setDocs([]);
     }
-  }, [workspaceId, onWorkspace]);
+  }, [workspaceId, onWorkspace, onDocs]);
 
   useEffect(() => {
     refresh();
@@ -587,8 +690,11 @@ function DocListScreen({
     setActionsDoc(null);
     const patch = shelf === "archive" ? { archived: true } : { trashed: true };
     const undo = shelf === "archive" ? { archived: false } : { trashed: false };
-    // Optimistically drop it, then offer Undo.
-    setDocs((prev) => prev?.filter((d) => d.id !== doc.id) ?? prev);
+    // Optimistically drop it, then offer Undo. Reporting the shorter list up
+    // is what closes the page's tab if it was open.
+    const remaining = (docs ?? []).filter((d) => d.id !== doc.id);
+    setDocs(remaining);
+    onDocs(remaining);
     try {
       await api.updateDocument(doc.id, patch);
       toast(
