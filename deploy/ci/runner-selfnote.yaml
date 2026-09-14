@@ -1,0 +1,113 @@
+# Self-hosted GitHub Actions runner for fulviodenza/selfnote, in the homelab
+# `ci` namespace alongside the runners for the other repos. Drives
+# .github/workflows/mobile-apk.yml.
+#
+# Scrubbed example, like deploy/homelab/*.yaml: the cluster is the source of
+# truth. The registration token below is a placeholder and must not be
+# committed with a real value. See deploy/ci/README.md for the bootstrap.
+#
+# Differences from the other runners in this namespace, all deliberate:
+#   - a custom image carrying the Android toolchain, not the stock runner
+#   - 40Gi of state instead of 5Gi, because GRADLE_USER_HOME lives on it
+#     (local-path cannot expand a claim, hence a new one rather than a resize)
+#   - no dind sidecar: nothing here builds images, so nothing needs privileged
+---
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: github-runner-selfnote-state
+  namespace: ci
+spec:
+  accessModes: ["ReadWriteOnce"]
+  storageClassName: local-path
+  resources:
+    requests:
+      storage: 40Gi
+---
+# One-time runner registration token, from:
+#   Settings > Actions > Runners > New self-hosted runner
+# It expires about an hour after it is minted, and is only read on first boot:
+# once state/.runner exists on the PVC the runner re-uses that registration.
+apiVersion: v1
+kind: Secret
+metadata:
+  name: github-runner-selfnote-reg
+  namespace: ci
+type: Opaque
+stringData:
+  token: "REPLACE_WITH_ONE_TIME_REGISTRATION_TOKEN"
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: github-runner-selfnote
+  namespace: ci
+  labels:
+    app: github-runner-selfnote
+spec:
+  replicas: 1
+  # Recreate, not RollingUpdate: the state PVC is ReadWriteOnce, so a second
+  # pod would sit Pending on a volume the outgoing one still holds.
+  strategy:
+    type: Recreate
+  selector:
+    matchLabels:
+      app: github-runner-selfnote
+  template:
+    metadata:
+      labels:
+        app: github-runner-selfnote
+    spec:
+      containers:
+        - name: runner
+          image: registry.fulvio.dev/selfnote/android-runner:sdk52
+          imagePullPolicy: Always
+          command: ["/bin/bash", "-c"]
+          args:
+            - |
+              set -e
+              cd /home/runner
+              # First boot registers with the one-time token and copies the
+              # credentials onto the PVC; every later boot restores them, so a
+              # restart does not need a fresh token.
+              if [ ! -f state/.runner ]; then
+                ./config.sh --unattended \
+                  --url https://github.com/fulviodenza/selfnote \
+                  --token "${RUNNER_REG_TOKEN}" \
+                  --name k3s-home-selfnote \
+                  --labels self-hosted,home \
+                  --replace
+                cp -a .runner .credentials .credentials_rsaparams state/ 2>/dev/null || true
+              else
+                cp -a state/.runner state/.credentials state/.credentials_rsaparams . 2>/dev/null || true
+              fi
+              exec ./run.sh
+          env:
+            - name: RUNNER_REG_TOKEN
+              valueFrom:
+                secretKeyRef:
+                  name: github-runner-selfnote-reg
+                  key: token
+                  optional: true
+            # Gradle and npm caches live on the PVC so a build reuses them.
+            # Without this every run re-downloads the whole dependency graph on
+            # a 4-CPU node.
+            - name: GRADLE_USER_HOME
+              value: /home/runner/state/gradle
+            - name: npm_config_cache
+              value: /home/runner/state/npm
+          resources:
+            requests:
+              cpu: 500m
+              # Requesting 4Gi keeps the scheduler off the 8Gi nodes when they
+              # are already loaded; Gradle plus Metro will use most of it.
+              memory: 4Gi
+            limits:
+              memory: 12Gi
+          volumeMounts:
+            - name: state
+              mountPath: /home/runner/state
+      volumes:
+        - name: state
+          persistentVolumeClaim:
+            claimName: github-runner-selfnote-state
