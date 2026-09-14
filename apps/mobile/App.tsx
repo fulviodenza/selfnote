@@ -68,6 +68,8 @@ import { useAndroidBack } from "./src/hooks/useAndroidBack";
 import { TaskControls } from "./src/screens/TaskControls";
 import { BulkLabelButton, LabelRow } from "./src/components/LabelRow";
 import { TasksScreen } from "./src/screens/TasksScreen";
+import { AssetsScreen } from "./src/screens/AssetsScreen";
+import { ShelfScreen, type Shelf } from "./src/screens/ShelfScreen";
 import { CalendarFeedSection } from "./src/screens/CalendarFeedSection";
 import { VoiceSection } from "./src/screens/VoiceSection";
 
@@ -79,6 +81,9 @@ const USER: EditorUser = {
 };
 
 type Phase = "booting" | "onboarding" | "auth" | "app";
+
+/** The System shelves, mirroring the web sidebar's "System" group. */
+type SystemView = "assets" | Shelf;
 
 export function App() {
   return (
@@ -109,6 +114,9 @@ function AppInner() {
   const [workspaceId, setWorkspaceId] = useState<string | null>(null);
   const [showTasks, setShowTasks] = useState(false);
   const [showGraph, setShowGraph] = useState(false);
+  // System shelves (web sidebar's "System" group): the workspace's uploaded
+  // files, plus the archived and trashed pages. null = the page tree.
+  const [systemView, setSystemView] = useState<SystemView | null>(null);
 
   // Open a note from the Tasks screen (which only knows the doc id): fetch the
   // workspace's documents and open the matching one.
@@ -121,6 +129,7 @@ function AppInner() {
         if (doc) {
           setShowTasks(false);
           setShowGraph(false);
+          setSystemView(null);
           setOpenDoc(doc);
         } else {
           toast("That note is no longer available.");
@@ -172,8 +181,12 @@ function AppInner() {
         setShowTasks(false);
         return true;
       }
+      if (systemView) {
+        setSystemView(null);
+        return true;
+      }
       return false;
-    }, [showSettings, openDoc, showGraph, showTasks]),
+    }, [showSettings, openDoc, showGraph, showTasks, systemView]),
   );
 
   // Hold at the boot spinner until the icon font is ready — but never brick
@@ -223,12 +236,26 @@ function AppInner() {
               onBack={() => setShowTasks(false)}
               onOpenTask={openDocById}
             />
+          ) : systemView === "assets" && workspaceId ? (
+            <AssetsScreen
+              workspaceId={workspaceId}
+              onBack={() => setSystemView(null)}
+              onOpenPage={openDocById}
+            />
+          ) : systemView && systemView !== "assets" && workspaceId ? (
+            <ShelfScreen
+              key={systemView}
+              shelf={systemView}
+              workspaceId={workspaceId}
+              onBack={() => setSystemView(null)}
+            />
           ) : (
             <DocListScreen
               onOpen={setOpenDoc}
               onWorkspace={setWorkspaceId}
               onTasks={() => setShowTasks(true)}
               onGraph={() => setShowGraph(true)}
+              onSystem={setSystemView}
               onSettings={() => setShowSettings(true)}
               onLogout={async () => {
                 await api.logout();
@@ -247,6 +274,7 @@ function AppInner() {
             setWorkspaceId(null);
             setShowTasks(false);
             setShowGraph(false);
+            setSystemView(null);
             setPhase("auth");
           }}
         />
@@ -416,6 +444,7 @@ function DocListScreen({
   onWorkspace,
   onTasks,
   onGraph,
+  onSystem,
   onSettings,
   onLogout,
 }: {
@@ -423,6 +452,7 @@ function DocListScreen({
   onWorkspace: (id: string) => void;
   onTasks: () => void;
   onGraph: () => void;
+  onSystem: (view: SystemView) => void;
   onSettings: () => void;
   onLogout: () => void;
 }) {
@@ -437,6 +467,9 @@ function DocListScreen({
   const [query, setQuery] = useState("");
   const [actionsDoc, setActionsDoc] = useState<Document | null>(null);
   const [renameDoc, setRenameDoc] = useState<Document | null>(null);
+  // The overflow menu: the System shelves plus the app-level actions that used
+  // to sit loose in the topbar (web keeps the same split in its sidebar foot).
+  const [menuOpen, setMenuOpen] = useState(false);
   // Workspace labels + doc→labels map for row dots and the label filter.
   const [wsLabels, setWsLabels] = useState<Label[]>([]);
   const [docLabelIds, setDocLabelIds] = useState<Map<string, string[]>>(new Map());
@@ -463,8 +496,10 @@ function DocListScreen({
       const ws = workspaceId ?? (await ensureWorkspace());
       setWorkspaceId(ws);
       onWorkspace(ws);
+      // The server's default shelf ("active") already excludes archived and
+      // trashed pages, so the tree is exactly what it returns.
       const list = await api.listDocuments(ws);
-      setDocs(list.filter((d) => !d.archived));
+      setDocs(list);
       // Labels are decoration — fetch them best-effort alongside the tree.
       try {
         const [labels, assignments] = await Promise.all([
@@ -543,23 +578,41 @@ function DocListScreen({
     }
   };
 
-  const archive = async (doc: Document) => {
+  /**
+   * Move a page to a shelf. The server applies the flag to the whole subtree
+   * (and undoes it the same way), so dropping just this row locally is enough
+   * until the next refresh.
+   */
+  const shelve = async (doc: Document, shelf: Shelf) => {
     setActionsDoc(null);
+    const patch = shelf === "archive" ? { archived: true } : { trashed: true };
+    const undo = shelf === "archive" ? { archived: false } : { trashed: false };
     // Optimistically drop it, then offer Undo.
     setDocs((prev) => prev?.filter((d) => d.id !== doc.id) ?? prev);
     try {
-      await api.updateDocument(doc.id, { archived: true });
-      toast(`Archived "${doc.title || "Untitled"}"`, {
-        actionLabel: "Undo",
-        onAction: async () => {
-          await api.updateDocument(doc.id, { archived: false });
-          refresh();
+      await api.updateDocument(doc.id, patch);
+      toast(
+        shelf === "archive"
+          ? `Archived "${doc.title || "Untitled"}"`
+          : `Trashed "${doc.title || "Untitled"}"`,
+        {
+          actionLabel: "Undo",
+          onAction: async () => {
+            await api.updateDocument(doc.id, undo);
+            refresh();
+          },
         },
-      });
+      );
     } catch (e) {
       setError(friendly(e));
       refresh();
     }
+  };
+
+  /** Close the overflow menu, then run whatever it chose. */
+  const go = (action: () => void) => {
+    setMenuOpen(false);
+    action();
   };
 
   // Categorized server search for the current query (labels + body text; the
@@ -633,8 +686,7 @@ function DocListScreen({
         />
         <IconButton icon="check-square" label="Tasks" onPress={onTasks} />
         <IconButton icon="git-branch" label="Graph" onPress={onGraph} />
-        <IconButton icon="settings" label="Settings" onPress={onSettings} />
-        <Button variant="ghost" label="Log out" onPress={onLogout} style={styles.logout} />
+        <IconButton icon="more-horizontal" label="Menu" onPress={() => setMenuOpen(true)} />
       </View>
 
       {docs && docs.length > 0 ? (
@@ -827,7 +879,48 @@ function DocListScreen({
               createDoc(d.id);
             }}
           />
-          <Button variant="destructive" label="Archive" onPress={() => archive(actionsDoc)} />
+          <Button
+            variant="secondary"
+            label="Archive"
+            onPress={() => shelve(actionsDoc, "archive")}
+          />
+          <Button
+            variant="destructive"
+            label="Move to trash"
+            onPress={() => shelve(actionsDoc, "trash")}
+          />
+        </Sheet>
+      ) : null}
+
+      {menuOpen ? (
+        <Sheet title="Menu" onClose={() => setMenuOpen(false)}>
+          <Text style={type.label}>System</Text>
+          <Button
+            variant="secondary"
+            icon="paperclip"
+            label="Assets"
+            onPress={() => go(() => onSystem("assets"))}
+          />
+          <Button
+            variant="secondary"
+            icon="archive"
+            label="Archive"
+            onPress={() => go(() => onSystem("archive"))}
+          />
+          <Button
+            variant="secondary"
+            icon="trash-2"
+            label="Trash"
+            onPress={() => go(() => onSystem("trash"))}
+          />
+          <Text style={type.label}>App</Text>
+          <Button
+            variant="secondary"
+            icon="settings"
+            label="Settings"
+            onPress={() => go(onSettings)}
+          />
+          <Button variant="ghost" icon="log-out" label="Log out" onPress={() => go(onLogout)} />
         </Sheet>
       ) : null}
 
@@ -1444,7 +1537,6 @@ const makeStyles = (colors: Palette, type: TypeRoles) =>
     borderBottomColor: colors.hairline,
     backgroundColor: colors.paper,
   },
-  logout: { paddingHorizontal: spacing.sm },
   searchWrap: { paddingHorizontal: spacing.gutter, paddingVertical: spacing.md },
   segment: { flexDirection: "row", gap: spacing.sm },
   rowInner: { flexDirection: "row", alignItems: "center", gap: spacing.sm },

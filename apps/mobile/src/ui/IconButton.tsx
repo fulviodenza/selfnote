@@ -12,14 +12,30 @@ export interface IconButtonProps {
   onPress: () => void;
   label: string;
   active?: boolean;
+  /** "danger" paints the glyph in the destructive hue (delete-forever actions). */
+  tone?: "default" | "danger";
   disabled?: boolean;
   style?: ViewStyle;
 }
 
 /** 44px visual circle inside a 48px touch target (DESIGN.md §4). */
-export function IconButton({ icon, onPress, label, active = false, disabled = false, style }: IconButtonProps) {
+export function IconButton({
+  icon,
+  onPress,
+  label,
+  active = false,
+  tone = "default",
+  disabled = false,
+  style,
+}: IconButtonProps) {
   const { colors } = useTheme();
-  const color = disabled ? colors.inkFaint : active ? colors.accent : colors.ink;
+  const color = disabled
+    ? colors.inkFaint
+    : tone === "danger"
+      ? colors.danger
+      : active
+        ? colors.accent
+        : colors.ink;
   return (
     <Pressable
       accessibilityRole="button"
