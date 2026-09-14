@@ -1,16 +1,21 @@
 # Self-hosted GitHub Actions runner with an Android build toolchain, used by
 # .github/workflows/mobile-apk.yml to build the Selfnote APK in the homelab
 # cluster. The other runners in the `ci` namespace use the stock image; this one
-# needs a JDK, the Android SDK, and Node, so it is built and pushed to Harbor:
-#
-#   docker build -f deploy/ci/android-runner.Dockerfile -t registry.fulvio.dev/selfnote/android-runner:sdk52 .
-#   docker push registry.fulvio.dev/selfnote/android-runner:sdk52
+# needs a JDK, the Android SDK, and Node, so it is built and pushed to Harbor.
+# The push must go through a port-forward to the Harbor service, never through
+# registry.fulvio.dev (Cloudflare 413s the multi-GB SDK layer): the full
+# recipe is in deploy/ci/README.md.
 #
 # Versions below are not guesses. They are what `expo prebuild` lays down for
 # Expo SDK 52, read from expo-template-bare-minimum@52.0.46:
 #
 #   compileSdk 35 | targetSdk 34 | minSdk 24 | buildTools 35.0.0
-#   kotlin 1.9.24 | ndk 26.1.10909125
+#   ndk 26.1.10909125
+#
+# Kotlin is not baked in here: the template's default drifts with the sdk-52
+# dist-tag, so the workflow pins android.kotlinVersion in gradle.properties
+# instead (see .github/workflows/mobile-apk.yml). Re-pin both together when
+# Expo SDK moves.
 #
 # Only the NDK has to be exact. Gradle downloads a missing SDK platform or
 # build-tools package on its own, but never an NDK, so a wrong pin here is a
