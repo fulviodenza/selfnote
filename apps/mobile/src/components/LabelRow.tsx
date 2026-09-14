@@ -17,8 +17,13 @@ import {
   View,
 } from "react-native";
 import { api, type BulkLabelStatus, type Label, type LabelSuggestion } from "../api";
-import { spacing } from "../theme";
+import { hitSlop, spacing } from "../theme";
 import { useTheme } from "../theme-context";
+
+/** The server's default palette, offered as swatches when editing a label. */
+export const LABEL_COLORS = [
+  "#2B44C7", "#1F9E6A", "#C1841E", "#8B5CF6", "#C4392B", "#0E7490", "#B4468A", "#5B6472",
+];
 
 /**
  * Entry point for the bulk "label everything" job (mobile parity for web's
@@ -117,6 +122,8 @@ export function LabelRow({
   const [query, setQuery] = useState("");
   const [suggestions, setSuggestions] = useState<LabelSuggestion[]>([]);
   const [suggesting, setSuggesting] = useState(false);
+  // Manage mode: the label being renamed/recolored/deleted in the sheet.
+  const [editing, setEditing] = useState<Label | null>(null);
 
   const reload = useCallback(async () => {
     try {
@@ -151,6 +158,39 @@ export function LabelRow({
       ? labels.filter((l) => l.id !== label.id).map((l) => l.id)
       : [...labels.map((l) => l.id), label.id];
     void save(ids);
+  };
+
+  const saveEdit = async () => {
+    if (!editing) return;
+    try {
+      const updated = await api.updateLabel(editing.id, {
+        name: editing.name.trim(),
+        color: editing.color,
+      });
+      setAll((prev) => prev.map((l) => (l.id === updated.id ? updated : l)));
+      setLabels((prev) => prev.map((l) => (l.id === updated.id ? updated : l)));
+      setEditing(null);
+    } catch {
+      onError?.("Couldn't update the label.");
+    }
+  };
+
+  /** Delete the label from the workspace, detaching it from every note. */
+  const removeLabel = async () => {
+    if (!editing) return;
+    try {
+      await api.deleteLabel(editing.id);
+      setAll((prev) => prev.filter((l) => l.id !== editing.id));
+      setLabels((prev) => prev.filter((l) => l.id !== editing.id));
+      setEditing(null);
+    } catch {
+      onError?.("Couldn't delete the label.");
+    }
+  };
+
+  const closeSheet = () => {
+    setSheetOpen(false);
+    setEditing(null);
   };
 
   const createFromQuery = async () => {
@@ -204,15 +244,21 @@ export function LabelRow({
     <View style={styles.wrap}>
       <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={styles.row}>
         {labels.map((l) => (
-          <Pressable
+          <View
             key={l.id}
             style={[styles.chip, { borderColor: l.color, backgroundColor: `${l.color}20` }]}
-            onLongPress={() => toggle(l)}
-            accessibilityLabel={`Label ${l.name} (long-press to remove)`}
           >
             <View style={[styles.dot, { backgroundColor: l.color }]} />
             <Text style={styles.chipText}>{l.name}</Text>
-          </Pressable>
+            <Pressable
+              onPress={() => toggle(l)}
+              hitSlop={hitSlop(12)}
+              accessibilityRole="button"
+              accessibilityLabel={`Remove label ${l.name}`}
+            >
+              <Feather name="x" size={12} color={colors.inkSoft} />
+            </Pressable>
+          </View>
         ))}
         <Pressable style={styles.addBtn} onPress={() => setSheetOpen(true)}>
           <Feather name="plus" size={12} color={colors.inkSoft} />
@@ -240,8 +286,8 @@ export function LabelRow({
         ))}
       </ScrollView>
 
-      <Modal visible={sheetOpen} transparent animationType="slide" onRequestClose={() => setSheetOpen(false)}>
-        <Pressable style={styles.scrim} onPress={() => setSheetOpen(false)} />
+      <Modal visible={sheetOpen} transparent animationType="slide" onRequestClose={closeSheet}>
+        <Pressable style={styles.scrim} onPress={closeSheet} />
         <View style={styles.sheet}>
           <Text style={styles.sheetTitle}>Labels</Text>
           <TextInput
@@ -254,18 +300,82 @@ export function LabelRow({
               if (q && !exactExists) void createFromQuery();
             }}
           />
-          <ScrollView style={styles.list}>
-            {filtered.map((l) => {
-              const on = labels.some((x) => x.id === l.id);
-              return (
-                <Pressable key={l.id} style={styles.item} onPress={() => toggle(l)}>
-                  <View style={[styles.dot, { backgroundColor: l.color }]} />
-                  <Text style={[styles.itemText, on && styles.itemOn]}>{l.name}</Text>
-                  {on ? <Feather name="check" size={15} color={colors.accent} /> : null}
+          {editing ? (
+            <View style={styles.edit}>
+              <TextInput
+                style={styles.input}
+                value={editing.name}
+                placeholder="Label name"
+                placeholderTextColor={colors.inkSoft}
+                onChangeText={(name) => setEditing({ ...editing, name })}
+                onSubmitEditing={() => void saveEdit()}
+              />
+              <View style={styles.swatches}>
+                {LABEL_COLORS.map((c) => (
+                  <Pressable
+                    key={c}
+                    onPress={() => setEditing({ ...editing, color: c })}
+                    style={[
+                      styles.swatch,
+                      { backgroundColor: c },
+                      editing.color === c && { borderColor: colors.ink },
+                    ]}
+                    accessibilityRole="button"
+                    accessibilityLabel={`Color ${c}`}
+                    accessibilityState={{ selected: editing.color === c }}
+                  />
+                ))}
+              </View>
+              <View style={styles.editActions}>
+                <Pressable
+                  onPress={() => void removeLabel()}
+                  accessibilityRole="button"
+                  accessibilityLabel={`Delete label ${editing.name}`}
+                >
+                  <Text style={styles.editDelete}>Delete</Text>
                 </Pressable>
-              );
-            })}
-            {q && !exactExists ? (
+                <Pressable onPress={() => setEditing(null)} accessibilityRole="button">
+                  <Text style={styles.editAction}>Cancel</Text>
+                </Pressable>
+                <Pressable
+                  onPress={() => void saveEdit()}
+                  accessibilityRole="button"
+                  accessibilityLabel="Save label"
+                >
+                  <Text style={[styles.editAction, { color: colors.accent }]}>Save</Text>
+                </Pressable>
+              </View>
+            </View>
+          ) : null}
+          <ScrollView style={styles.list}>
+            {!editing &&
+              filtered.map((l) => {
+                const on = labels.some((x) => x.id === l.id);
+                return (
+                  <View key={l.id} style={styles.item}>
+                    <Pressable
+                      style={styles.itemMain}
+                      onPress={() => toggle(l)}
+                      accessibilityRole="button"
+                      accessibilityState={{ selected: on }}
+                      accessibilityLabel={`Label ${l.name}`}
+                    >
+                      <View style={[styles.dot, { backgroundColor: l.color }]} />
+                      <Text style={[styles.itemText, on && styles.itemOn]}>{l.name}</Text>
+                      {on ? <Feather name="check" size={15} color={colors.accent} /> : null}
+                    </Pressable>
+                    <Pressable
+                      onPress={() => setEditing(l)}
+                      hitSlop={hitSlop(16)}
+                      accessibilityRole="button"
+                      accessibilityLabel={`Edit label ${l.name}`}
+                    >
+                      <Feather name="edit-3" size={15} color={colors.inkSoft} />
+                    </Pressable>
+                  </View>
+                );
+              })}
+            {!editing && q && !exactExists ? (
               <Pressable style={styles.item} onPress={() => void createFromQuery()}>
                 <Feather name="plus" size={14} color={colors.accent} />
                 <Text style={[styles.itemText, { color: colors.accent }]}>
@@ -273,8 +383,8 @@ export function LabelRow({
                 </Text>
               </Pressable>
             ) : null}
-            {filtered.length === 0 && !q ? (
-              <Text style={styles.empty}>No labels yet — type to create one.</Text>
+            {!editing && filtered.length === 0 && !q ? (
+              <Text style={styles.empty}>No labels yet. Type to create one.</Text>
             ) : null}
           </ScrollView>
         </View>
@@ -341,7 +451,14 @@ const makeStyles = (colors: ReturnType<typeof useTheme>["colors"]) =>
       paddingVertical: 10,
       paddingHorizontal: 4,
     },
+    itemMain: { flex: 1, flexDirection: "row", alignItems: "center", gap: 10 },
     itemText: { flex: 1, fontSize: 14, color: colors.ink },
+    edit: { gap: spacing.sm, marginTop: spacing.sm },
+    swatches: { flexDirection: "row", flexWrap: "wrap", gap: spacing.sm },
+    swatch: { width: 28, height: 28, borderRadius: 14, borderWidth: 2, borderColor: "transparent" },
+    editActions: { flexDirection: "row", alignItems: "center", gap: spacing.lg },
+    editDelete: { fontSize: 14, fontWeight: "600", color: colors.danger, marginRight: "auto" },
+    editAction: { fontSize: 14, fontWeight: "600", color: colors.inkSoft },
     itemOn: { fontWeight: "600" },
     empty: { color: colors.inkSoft, fontSize: 13, padding: spacing.sm },
     bulkBtn: {

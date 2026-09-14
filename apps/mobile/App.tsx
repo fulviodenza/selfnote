@@ -67,11 +67,15 @@ import { ThemeProvider, useTheme, type ThemeMode } from "./src/theme-context";
 import { useAndroidBack } from "./src/hooks/useAndroidBack";
 import { TaskControls } from "./src/screens/TaskControls";
 import { BulkLabelButton, LabelRow } from "./src/components/LabelRow";
+import { TabStrip } from "./src/components/TabStrip";
 import { TasksScreen } from "./src/screens/TasksScreen";
+import { AssetsScreen } from "./src/screens/AssetsScreen";
+import { ShelfScreen, type Shelf } from "./src/screens/ShelfScreen";
 import { CalendarFeedSection } from "./src/screens/CalendarFeedSection";
 import { VoiceSection } from "./src/screens/VoiceSection";
 
 const COLLAPSED_KEY = "selfnote.collapsed";
+const TABS_KEY = "selfnote.tabs";
 
 const USER: EditorUser = {
   name: `Mobile ${Math.floor(Math.random() * 90 + 10)}`,
@@ -79,6 +83,9 @@ const USER: EditorUser = {
 };
 
 type Phase = "booting" | "onboarding" | "auth" | "app";
+
+/** The System shelves, mirroring the web sidebar's "System" group. */
+type SystemView = "assets" | Shelf;
 
 export function App() {
   return (
@@ -103,12 +110,91 @@ function AppInner() {
   // expo-font config plugin (app.json), so this normally resolves instantly.
   const [fontsLoaded, fontError] = useFonts(Feather.font);
   const [showSettings, setShowSettings] = useState(false);
-  const [openDoc, setOpenDoc] = useState<Document | null>(null);
+  // Browser-style page tabs (web's TabStrip): the ordered ids of the open
+  // pages plus the one filling the screen. The ids are persisted so the open
+  // set survives a restart; the Documents behind them come from whichever
+  // screen last listed the workspace, which is what keeps a tab's title
+  // current after a rename.
+  const [tabIds, setTabIds] = useState<string[]>([]);
+  const [activeId, setActiveId] = useState<string | null>(null);
+  const [docsById, setDocsById] = useState<Map<string, Document>>(new Map());
   // The signed-in workspace (single-workspace model), lifted so the Tasks screen
   // and the calendar-feed settings section can share it.
   const [workspaceId, setWorkspaceId] = useState<string | null>(null);
   const [showTasks, setShowTasks] = useState(false);
   const [showGraph, setShowGraph] = useState(false);
+  // System shelves (web sidebar's "System" group): the workspace's uploaded
+  // files, plus the archived and trashed pages. null = the page tree.
+  const [systemView, setSystemView] = useState<SystemView | null>(null);
+
+  // Restore the open set once on launch, then keep it written back. The write
+  // waits for the read so the initial empty state can't erase it.
+  const tabsHydrated = useRef(false);
+  useEffect(() => {
+    AsyncStorage.getItem(TABS_KEY)
+      .then((raw) => {
+        if (!raw) return;
+        try {
+          const stored = JSON.parse(raw) as string[];
+          // Merge rather than replace: a page opened while this read was in
+          // flight is already in state and must stay open.
+          setTabIds((cur) => [...stored.filter((id) => !cur.includes(id)), ...cur]);
+        } catch {
+          /* ignore malformed */
+        }
+      })
+      .finally(() => {
+        tabsHydrated.current = true;
+      });
+  }, []);
+  useEffect(() => {
+    if (!tabsHydrated.current) return;
+    AsyncStorage.setItem(TABS_KEY, JSON.stringify(tabIds)).catch(() => undefined);
+  }, [tabIds]);
+
+  /** Show a page: it joins the tab strip if it isn't already open. */
+  const openPage = useCallback((doc: Document) => {
+    setDocsById((cur) => (cur.get(doc.id) === doc ? cur : new Map(cur).set(doc.id, doc)));
+    setTabIds((cur) => (cur.includes(doc.id) ? cur : [...cur, doc.id]));
+    setShowTasks(false);
+    setShowGraph(false);
+    setSystemView(null);
+    setActiveId(doc.id);
+  }, []);
+
+  /** Closing the active tab shows its right neighbour, or the last one left. */
+  const closeTab = useCallback((id: string) => {
+    setTabIds((cur) => {
+      const idx = cur.indexOf(id);
+      if (idx === -1) return cur;
+      const next = cur.filter((t) => t !== id);
+      setActiveId((active) =>
+        active === id ? next[Math.min(idx, next.length - 1)] ?? null : active,
+      );
+      return next;
+    });
+  }, []);
+
+  /**
+   * The page list just loaded. Re-point the tabs at the fresh Documents so a
+   * rename reaches the strip, and drop any tab whose page has left the active
+   * shelf (archived, trashed, or deleted from another device).
+   */
+  const syncDocs = useCallback((list: Document[]) => {
+    const byId = new Map(list.map((d) => [d.id, d]));
+    setDocsById(byId);
+    setTabIds((cur) => {
+      const next = cur.filter((id) => byId.has(id));
+      return next.length === cur.length ? cur : next;
+    });
+    setActiveId((active) => (active && byId.has(active) ? active : null));
+  }, []);
+
+  const clearTabs = useCallback(() => {
+    setTabIds([]);
+    setActiveId(null);
+    setDocsById(new Map());
+  }, []);
 
   // Open a note from the Tasks screen (which only knows the doc id): fetch the
   // workspace's documents and open the matching one.
@@ -118,19 +204,30 @@ function AppInner() {
         const ws = workspaceId ?? (await ensureWorkspace());
         const docs = await api.listDocuments(ws);
         const doc = docs.find((d) => d.id === docId);
-        if (doc) {
-          setShowTasks(false);
-          setShowGraph(false);
-          setOpenDoc(doc);
-        } else {
-          toast("That note is no longer available.");
-        }
+        if (doc) openPage(doc);
+        else toast("That note is no longer available.");
       } catch {
         toast("Couldn't open the note.");
       }
     },
-    [workspaceId, toast],
+    [workspaceId, toast, openPage],
   );
+
+  /** The "+" on the tab strip: a new root page, opened in its own tab. */
+  const createPage = useCallback(async () => {
+    if (!workspaceId) return;
+    try {
+      openPage(await api.createDocument(workspaceId, null, "Untitled"));
+    } catch {
+      toast("Couldn't create the page.");
+    }
+  }, [workspaceId, openPage, toast]);
+
+  const tabs = useMemo(
+    () => tabIds.map((id) => docsById.get(id)).filter((d): d is Document => !!d),
+    [tabIds, docsById],
+  );
+  const openDoc = activeId ? docsById.get(activeId) ?? null : null;
 
   const goPostConfig = useCallback(async () => {
     await loadSession();
@@ -161,7 +258,7 @@ function AppInner() {
         return true;
       }
       if (openDoc) {
-        setOpenDoc(null);
+        setActiveId(null);
         return true;
       }
       if (showGraph) {
@@ -172,8 +269,12 @@ function AppInner() {
         setShowTasks(false);
         return true;
       }
+      if (systemView) {
+        setSystemView(null);
+        return true;
+      }
       return false;
-    }, [showSettings, openDoc, showGraph, showTasks]),
+    }, [showSettings, openDoc, showGraph, showTasks, systemView]),
   );
 
   // Hold at the boot spinner until the icon font is ready — but never brick
@@ -206,11 +307,21 @@ function AppInner() {
 
         {phase === "app" &&
           (openDoc ? (
-            <EditorScreen
-              doc={openDoc}
-              onBack={() => setOpenDoc(null)}
-              onNavigateToDoc={openDocById}
-            />
+            <View style={styles.flex}>
+              <TabStrip
+                tabs={tabs}
+                activeId={activeId}
+                onSelect={openPage}
+                onClose={closeTab}
+                onNew={() => void createPage()}
+              />
+              <EditorScreen
+                key={openDoc.id}
+                doc={openDoc}
+                onBack={() => setActiveId(null)}
+                onNavigateToDoc={openDocById}
+              />
+            </View>
           ) : showGraph && workspaceId ? (
             <GraphView
               workspaceId={workspaceId}
@@ -223,15 +334,31 @@ function AppInner() {
               onBack={() => setShowTasks(false)}
               onOpenTask={openDocById}
             />
+          ) : systemView === "assets" && workspaceId ? (
+            <AssetsScreen
+              workspaceId={workspaceId}
+              onBack={() => setSystemView(null)}
+              onOpenPage={openDocById}
+            />
+          ) : systemView && systemView !== "assets" && workspaceId ? (
+            <ShelfScreen
+              key={systemView}
+              shelf={systemView}
+              workspaceId={workspaceId}
+              onBack={() => setSystemView(null)}
+            />
           ) : (
             <DocListScreen
-              onOpen={setOpenDoc}
+              onOpen={openPage}
+              onDocs={syncDocs}
               onWorkspace={setWorkspaceId}
               onTasks={() => setShowTasks(true)}
               onGraph={() => setShowGraph(true)}
+              onSystem={setSystemView}
               onSettings={() => setShowSettings(true)}
               onLogout={async () => {
                 await api.logout();
+                clearTabs();
                 setPhase("auth");
               }}
             />
@@ -243,10 +370,11 @@ function AppInner() {
           onClose={() => setShowSettings(false)}
           onWiped={() => {
             setShowSettings(false);
-            setOpenDoc(null);
+            clearTabs();
             setWorkspaceId(null);
             setShowTasks(false);
             setShowGraph(false);
+            setSystemView(null);
             setPhase("auth");
           }}
         />
@@ -389,6 +517,30 @@ interface TreeRow {
   hasChildren: boolean;
 }
 
+/**
+ * A page's id plus every descendant's. Shelf state cascades to the subtree on
+ * the server, so the local list has to drop the same set: leaving the children
+ * behind would re-root them in the tree (see flattenTree) as pages that are
+ * archived or trashed on the server but still shown.
+ */
+function subtreeIds(docs: Document[], rootId: string): Set<string> {
+  const childrenOf = new Map<string, string[]>();
+  for (const d of docs) {
+    if (!d.parent_id) continue;
+    childrenOf.set(d.parent_id, [...(childrenOf.get(d.parent_id) ?? []), d.id]);
+  }
+  const ids = new Set<string>([rootId]);
+  const stack = [rootId];
+  while (stack.length > 0) {
+    for (const child of childrenOf.get(stack.pop()!) ?? []) {
+      if (ids.has(child)) continue; // a cycle would otherwise spin forever
+      ids.add(child);
+      stack.push(child);
+    }
+  }
+  return ids;
+}
+
 /** Flatten docs into a depth-tagged list; children of collapsed nodes are hidden. */
 function flattenTree(docs: Document[], collapsed: Set<string>): TreeRow[] {
   const ids = new Set(docs.map((d) => d.id));
@@ -413,16 +565,21 @@ function flattenTree(docs: Document[], collapsed: Set<string>): TreeRow[] {
 
 function DocListScreen({
   onOpen,
+  onDocs,
   onWorkspace,
   onTasks,
   onGraph,
+  onSystem,
   onSettings,
   onLogout,
 }: {
   onOpen: (doc: Document) => void;
+  /** Report the loaded page list up, so the tab strip can track it. */
+  onDocs: (docs: Document[]) => void;
   onWorkspace: (id: string) => void;
   onTasks: () => void;
   onGraph: () => void;
+  onSystem: (view: SystemView) => void;
   onSettings: () => void;
   onLogout: () => void;
 }) {
@@ -437,7 +594,10 @@ function DocListScreen({
   const [query, setQuery] = useState("");
   const [actionsDoc, setActionsDoc] = useState<Document | null>(null);
   const [renameDoc, setRenameDoc] = useState<Document | null>(null);
-  // Workspace labels + doc→labels map for row dots and the label filter.
+  // The overflow menu: the System shelves plus the app-level actions that used
+  // to sit loose in the topbar (web keeps the same split in its sidebar foot).
+  const [menuOpen, setMenuOpen] = useState(false);
+  // Workspace labels + doc→labels map, for the label filter chips.
   const [wsLabels, setWsLabels] = useState<Label[]>([]);
   const [docLabelIds, setDocLabelIds] = useState<Map<string, string[]>>(new Map());
   const [filterLabel, setFilterLabel] = useState<string | null>(null);
@@ -463,8 +623,11 @@ function DocListScreen({
       const ws = workspaceId ?? (await ensureWorkspace());
       setWorkspaceId(ws);
       onWorkspace(ws);
+      // The server's default shelf ("active") already excludes archived and
+      // trashed pages, so the tree is exactly what it returns.
       const list = await api.listDocuments(ws);
-      setDocs(list.filter((d) => !d.archived));
+      setDocs(list);
+      onDocs(list);
       // Labels are decoration — fetch them best-effort alongside the tree.
       try {
         const [labels, assignments] = await Promise.all([
@@ -483,10 +646,12 @@ function DocListScreen({
         /* older server — no labels UI */
       }
     } catch (e) {
+      // Leave the tabs alone on a failed load: an unreachable server is not
+      // evidence that any page is gone.
       setError(friendly(e));
       setDocs([]);
     }
-  }, [workspaceId, onWorkspace]);
+  }, [workspaceId, onWorkspace, onDocs]);
 
   useEffect(() => {
     refresh();
@@ -543,23 +708,46 @@ function DocListScreen({
     }
   };
 
-  const archive = async (doc: Document) => {
+  /**
+   * Move a page to a shelf. The server applies the flag to the whole subtree
+   * (and undoes it the same way), so dropping just this row locally is enough
+   * until the next refresh.
+   */
+  const shelve = async (doc: Document, shelf: Shelf) => {
     setActionsDoc(null);
-    // Optimistically drop it, then offer Undo.
-    setDocs((prev) => prev?.filter((d) => d.id !== doc.id) ?? prev);
+    const patch = shelf === "archive" ? { archived: true } : { trashed: true };
+    const undo = shelf === "archive" ? { archived: false } : { trashed: false };
+    // Optimistically drop the page and its subtree, then offer Undo (the
+    // server restores the same subtree). Reporting the shorter list up is what
+    // closes the tabs of the pages that just left the tree.
+    const shelved = subtreeIds(docs ?? [], doc.id);
+    const remaining = (docs ?? []).filter((d) => !shelved.has(d.id));
+    setDocs(remaining);
+    onDocs(remaining);
     try {
-      await api.updateDocument(doc.id, { archived: true });
-      toast(`Archived "${doc.title || "Untitled"}"`, {
-        actionLabel: "Undo",
-        onAction: async () => {
-          await api.updateDocument(doc.id, { archived: false });
-          refresh();
+      await api.updateDocument(doc.id, patch);
+      toast(
+        shelf === "archive"
+          ? `Archived "${doc.title || "Untitled"}"`
+          : `Trashed "${doc.title || "Untitled"}"`,
+        {
+          actionLabel: "Undo",
+          onAction: async () => {
+            await api.updateDocument(doc.id, undo);
+            refresh();
+          },
         },
-      });
+      );
     } catch (e) {
       setError(friendly(e));
       refresh();
     }
+  };
+
+  /** Close the overflow menu, then run whatever it chose. */
+  const go = (action: () => void) => {
+    setMenuOpen(false);
+    action();
   };
 
   // Categorized server search for the current query (labels + body text; the
@@ -602,11 +790,6 @@ function DocListScreen({
 
   // Search / label filter show a flat list; otherwise the collapsible tree.
   const q = query.trim().toLowerCase();
-  const labelById = new Map(wsLabels.map((l) => [l.id, l]));
-  const dotsFor = (docId: string): string[] =>
-    (docLabelIds.get(docId) ?? [])
-      .map((id) => labelById.get(id)?.color)
-      .filter((c): c is string => !!c);
   const rows: TreeRow[] = !docs
     ? []
     : filterLabel
@@ -633,8 +816,7 @@ function DocListScreen({
         />
         <IconButton icon="check-square" label="Tasks" onPress={onTasks} />
         <IconButton icon="git-branch" label="Graph" onPress={onGraph} />
-        <IconButton icon="settings" label="Settings" onPress={onSettings} />
-        <Button variant="ghost" label="Log out" onPress={onLogout} style={styles.logout} />
+        <IconButton icon="more-horizontal" label="Menu" onPress={() => setMenuOpen(true)} />
       </View>
 
       {docs && docs.length > 0 ? (
@@ -788,16 +970,13 @@ function DocListScreen({
                     />
                   </Pressable>
                 ) : (
-                  <View style={styles.chevron} />
+                  <View style={styles.chevron}>
+                    <View style={styles.rowBullet} />
+                  </View>
                 )}
                 <Text style={[type.docTitle, styles.flex]} numberOfLines={1}>
                   {item.doc.title || "Untitled"}
                 </Text>
-                {dotsFor(item.doc.id)
-                  .slice(0, 3)
-                  .map((c, i) => (
-                    <View key={i} style={[styles.rowLabelDot, { backgroundColor: c }]} />
-                  ))}
               </View>
             </Row>
           )}
@@ -827,7 +1006,48 @@ function DocListScreen({
               createDoc(d.id);
             }}
           />
-          <Button variant="destructive" label="Archive" onPress={() => archive(actionsDoc)} />
+          <Button
+            variant="secondary"
+            label="Archive"
+            onPress={() => shelve(actionsDoc, "archive")}
+          />
+          <Button
+            variant="destructive"
+            label="Move to trash"
+            onPress={() => shelve(actionsDoc, "trash")}
+          />
+        </Sheet>
+      ) : null}
+
+      {menuOpen ? (
+        <Sheet title="Menu" onClose={() => setMenuOpen(false)}>
+          <Text style={type.label}>System</Text>
+          <Button
+            variant="secondary"
+            icon="paperclip"
+            label="Assets"
+            onPress={() => go(() => onSystem("assets"))}
+          />
+          <Button
+            variant="secondary"
+            icon="archive"
+            label="Archive"
+            onPress={() => go(() => onSystem("archive"))}
+          />
+          <Button
+            variant="secondary"
+            icon="trash-2"
+            label="Trash"
+            onPress={() => go(() => onSystem("trash"))}
+          />
+          <Text style={type.label}>App</Text>
+          <Button
+            variant="secondary"
+            icon="settings"
+            label="Settings"
+            onPress={() => go(onSettings)}
+          />
+          <Button variant="ghost" icon="log-out" label="Log out" onPress={() => go(onLogout)} />
         </Sheet>
       ) : null}
 
@@ -1444,11 +1664,10 @@ const makeStyles = (colors: Palette, type: TypeRoles) =>
     borderBottomColor: colors.hairline,
     backgroundColor: colors.paper,
   },
-  logout: { paddingHorizontal: spacing.sm },
   searchWrap: { paddingHorizontal: spacing.gutter, paddingVertical: spacing.md },
   segment: { flexDirection: "row", gap: spacing.sm },
   rowInner: { flexDirection: "row", alignItems: "center", gap: spacing.sm },
-  rowLabelDot: { width: 6, height: 6, borderRadius: 3, marginLeft: 2 },
+  rowBullet: { width: 6, height: 6, borderRadius: 3, backgroundColor: colors.inkFaint },
   // flexShrink: 0 — when the page list below grows (e.g. expanding a subtree),
   // the flex column would otherwise compress this row and clip the chips.
   labelFilterRow: { flexGrow: 0, flexShrink: 0 },
