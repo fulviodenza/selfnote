@@ -24,18 +24,10 @@ spec:
     requests:
       storage: 40Gi
 ---
-# One-time runner registration token, from:
-#   Settings > Actions > Runners > New self-hosted runner
-# It expires about an hour after it is minted, and is only read on first boot:
-# once state/.runner exists on the PVC the runner re-uses that registration.
-apiVersion: v1
-kind: Secret
-metadata:
-  name: github-runner-selfnote-reg
-  namespace: ci
-type: Opaque
-stringData:
-  token: "REPLACE_WITH_ONE_TIME_REGISTRATION_TOKEN"
+# The registration Secret is deliberately NOT in this file. It holds a one-time
+# token created out of band (see README), and a placeholder here would win the
+# apply and overwrite the real value, leaving the pod in CrashLoopBackOff on a
+# token config.sh rejects. Create it with kubectl before applying this.
 ---
 apiVersion: apps/v1
 kind: Deployment
@@ -58,6 +50,16 @@ spec:
       labels:
         app: github-runner-selfnote
     spec:
+      # Namespace-scoped, so the one in `selfnote`/`default` does not count:
+      # the README creates it in `ci` too. Without it the image is an
+      # ImagePullBackOff, since Harbor will not serve it anonymously.
+      imagePullSecrets: [{ name: harbor }]
+      # local-path binds the volume to whichever node the pod first lands on,
+      # so that node is worth choosing rather than inheriting from the
+      # scheduler. homelab-2 has 20Gi against the 8Gi of homelab-3..6, which is
+      # what makes the memory limit below meaningful instead of unreachable.
+      nodeSelector:
+        kubernetes.io/hostname: homelab-2
       containers:
         - name: runner
           image: registry.fulvio.dev/selfnote/android-runner:sdk52
@@ -77,9 +79,15 @@ spec:
                   --name k3s-home-selfnote \
                   --labels self-hosted,home \
                   --replace
-                cp -a .runner .credentials .credentials_rsaparams state/ 2>/dev/null || true
+                # Not `|| true` on these two: if the copy fails (a full PVC,
+                # say) the registration is lost, and the only symptom is a
+                # re-register against an expired token one restart later.
+                cp -a .runner .credentials state/
+                # config.sh writes this one, but not on every runner version.
+                cp -a .credentials_rsaparams state/ 2>/dev/null || true
               else
-                cp -a state/.runner state/.credentials state/.credentials_rsaparams . 2>/dev/null || true
+                cp -a state/.runner state/.credentials .
+                cp -a state/.credentials_rsaparams . 2>/dev/null || true
               fi
               exec ./run.sh
           env:

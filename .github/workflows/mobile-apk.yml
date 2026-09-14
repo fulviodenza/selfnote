@@ -115,14 +115,21 @@ jobs:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
           set -euo pipefail
-          cp apps/mobile/android/app/build/outputs/apk/release/app-release.apk \
-             "${{ steps.meta.outputs.apk }}"
-          gh release create "${{ steps.meta.outputs.tag }}" \
-            "${{ steps.meta.outputs.apk }}" \
-            --title "Selfnote APK: ${{ steps.meta.outputs.tag }}" \
-            --notes-file notes.md \
-            --prerelease \
-            --target "${GITHUB_SHA}"
+          tag="${{ steps.meta.outputs.tag }}"
+          apk="${{ steps.meta.outputs.apk }}"
+          cp apps/mobile/android/app/build/outputs/apk/release/app-release.apk "${apk}"
+          # Idempotent: a re-run, or a workflow_dispatch on an unchanged main,
+          # lands on the same tag. Failing there would throw away a 90 minute
+          # build, so replace the asset instead.
+          if gh release view "${tag}" > /dev/null 2>&1; then
+            gh release upload "${tag}" "${apk}" --clobber
+          else
+            gh release create "${tag}" "${apk}" \
+              --title "Selfnote APK: ${tag}" \
+              --notes-file notes.md \
+              --prerelease \
+              --target "${GITHUB_SHA}"
+          fi
 
       - name: Clean the workspace
         # actions/checkout would clean these at the start of the next run, but

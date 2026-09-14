@@ -10,9 +10,12 @@ cluster is the source of truth.
 | File | What it is |
 | --- | --- |
 | `android-runner.Dockerfile` | Runner image: stock GitHub runner plus JDK 17, Node 20, `gh`, and the Android SDK |
-| `runner-selfnote.yaml` | PVC, registration Secret, and Deployment for `github-runner-selfnote` |
+| `runner-selfnote.yaml` | PVC and Deployment for `github-runner-selfnote` (the Secrets are created out of band, see below) |
 
 ## Bootstrap
+
+Order matters: the registration token expires in about an hour, so mint it
+immediately before applying.
 
 ### 1. Build and push the image
 
@@ -26,20 +29,37 @@ It is a large image (the SDK, build-tools, and NDK are most of it). Rebuild it
 when Expo SDK moves: the versions it pins come from the prebuild template, and
 the NDK is the one Gradle will not download for itself.
 
-### 2. Mint a registration token
+### 2. Give the `ci` namespace a Harbor pull secret
+
+Pull secrets are namespace-scoped, so the `harbor` secret in `selfnote` and
+`default` does not help here. Without this the pod sits in ImagePullBackOff.
+
+```sh
+kubectl -n ci create secret docker-registry harbor \
+  --docker-server=registry.fulvio.dev \
+  --docker-username=<harbor-user> \
+  --docker-password=<harbor-password>
+```
+
+### 3. Mint a registration token
 
 GitHub repo → Settings → Actions → Runners → New self-hosted runner. Copy the
-token out of the `./config.sh --token ...` line. It expires in about an hour.
+token out of the `./config.sh --token ...` line.
 
 ```sh
 kubectl -n ci create secret generic github-runner-selfnote-reg \
   --from-literal=token=THE_ONE_TIME_TOKEN
 ```
 
-The token is only read on first boot. Once `state/.runner` exists on the PVC,
+This Secret is created here rather than in `runner-selfnote.yaml` on purpose. A
+placeholder in the manifest would win every `kubectl apply` and overwrite the
+real token, and the only symptom would be a pod crash-looping on a token
+`config.sh` rejects.
+
+The token is read on first boot only. Once `state/.runner` exists on the PVC
 the runner re-uses that registration, so a pod restart does not need a new one.
 
-### 3. Apply
+### 4. Apply
 
 ```sh
 kubectl apply -f deploy/ci/runner-selfnote.yaml
@@ -87,4 +107,8 @@ generate a real release keystore, keep it in a Secret, and point a
   `npm_config_cache`). That is why the claim is 40Gi rather than the 5Gi the
   other runners use, and why it is a separate claim: the k3s local-path
   provisioner cannot expand a volume in place.
+- The pod is pinned to `homelab-2` with a `nodeSelector`. local-path binds the
+  volume to whichever node the pod first lands on, so the node is worth picking
+  deliberately, and homelab-2's 20Gi is what makes the 12Gi memory limit
+  meaningful rather than larger than the node itself.
 - iOS is not covered. It needs macOS, which the cluster cannot provide.
