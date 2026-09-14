@@ -1,0 +1,140 @@
+name: Mobile APK
+
+# Builds the Android APK on the homelab self-hosted runner and publishes it as a
+# prerelease, the way mobile-apk-* drops were cut by hand before. The runner and
+# its image live in deploy/ci/.
+#
+# Trigger is push-to-main only, never pull_request. A fork PR running on a
+# self-hosted runner would execute attacker-controlled code inside the homelab
+# with cluster network access; requiring the merge first means someone with
+# write access has already vouched for it.
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - "apps/mobile/**"
+      # Mobile consumes @selfnote/core as raw TS over a file: symlink, so a
+      # change there ships in the next APK too.
+      - "packages/core/**"
+      - ".github/workflows/mobile-apk.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+# One build at a time: there is a single runner and the builds share a Gradle
+# cache on its PVC.
+concurrency:
+  group: mobile-apk
+  cancel-in-progress: false
+
+jobs:
+  apk:
+    runs-on: [self-hosted, home]
+    timeout-minutes: 90
+
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          # Full history: the release notes are generated from commits since the
+          # previous mobile-apk-* tag.
+          fetch-depth: 0
+
+      - name: Install JS dependencies
+        working-directory: apps/mobile
+        # apps/mobile is outside the pnpm workspace and carries its own
+        # package-lock.json, so npm ci is correct here rather than pnpm.
+        run: npm ci
+
+      - name: Generate the native project
+        working-directory: apps/mobile
+        # apps/mobile/android is gitignored and regenerated every run.
+        # --no-install: npm ci already did it, and prebuild would redo it.
+        #
+        # This is also what puts android/app/debug.keystore in place. The
+        # template's release buildType signs with it, and it is a fixed blob in
+        # the published template, so CI produces the same signature as a local
+        # build and existing sideloads upgrade in place. That key is public:
+        # when Selfnote ships to anyone else, swap in a real release keystore.
+        run: npx expo prebuild --platform android --no-install
+
+      - name: Build the release APK
+        working-directory: apps/mobile/android
+        run: |
+          set -euo pipefail
+          # Expo's template ships org.gradle.jvmargs=-Xmx2048m, which is tight
+          # for a new-architecture release build. A properties file takes the
+          # last entry for a key, so appending overrides it. Passing -D on the
+          # command line would not: org.gradle.jvmargs configures the build JVM,
+          # not the launcher that reads the flag.
+          echo "org.gradle.jvmargs=-Xmx4g" >> gradle.properties
+          # --no-daemon: the runner pod is long-lived, and a Gradle daemon that
+          # outlives the job is how the pod gets OOMKilled three builds later on
+          # an 8Gi node.
+          ./gradlew --no-daemon assembleRelease
+
+      - name: Name the release
+        id: meta
+        run: |
+          set -euo pipefail
+          sha=$(git rev-parse --short HEAD)
+          # The bare date collides the second time mobile work merges in a day,
+          # which is why the sha is here.
+          tag="mobile-apk-$(date -u +%Y%m%d)-${sha}"
+          echo "tag=${tag}" >> "$GITHUB_OUTPUT"
+          echo "apk=selfnote-${tag#mobile-apk-}.apk" >> "$GITHUB_OUTPUT"
+
+      - name: Collect the release notes
+        id: notes
+        run: |
+          set -euo pipefail
+          # git describe, not `git tag | head -1`: it wants the newest tag
+          # reachable from HEAD, and it avoids the SIGPIPE that head(1) can
+          # inflict on git under `set -o pipefail`.
+          previous=$(git describe --tags --abbrev=0 --match 'mobile-apk-*' 2>/dev/null || true)
+          {
+            echo "Built from main (\`$(git rev-parse --short HEAD)\`) by the homelab runner."
+            echo
+            echo "**New in this drop**"
+            echo
+            if [ -n "${previous}" ]; then
+              # Only commits that touched the mobile app, so unrelated server
+              # and web work stays out of the notes.
+              git log --no-merges --format='- %s' "${previous}..HEAD" -- apps/mobile packages/core
+            else
+              git log --no-merges --format='- %s' -20 -- apps/mobile packages/core
+            fi
+            echo
+            echo "As always: sideload APK, signed with the debug keystore. On first launch the app asks for your server address."
+          } > notes.md
+          echo "previous=${previous}" >> "$GITHUB_OUTPUT"
+
+      - name: Publish the prerelease
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          set -euo pipefail
+          tag="${{ steps.meta.outputs.tag }}"
+          apk="${{ steps.meta.outputs.apk }}"
+          cp apps/mobile/android/app/build/outputs/apk/release/app-release.apk "${apk}"
+          # Idempotent: a re-run, or a workflow_dispatch on an unchanged main,
+          # lands on the same tag. Failing there would throw away a 90 minute
+          # build, so replace the asset instead.
+          if gh release view "${tag}" > /dev/null 2>&1; then
+            gh release upload "${tag}" "${apk}" --clobber
+          else
+            gh release create "${tag}" "${apk}" \
+              --title "Selfnote APK: ${tag}" \
+              --notes-file notes.md \
+              --prerelease \
+              --target "${GITHUB_SHA}"
+          fi
+
+      - name: Clean the workspace
+        # actions/checkout would clean these at the start of the next run, but
+        # the runner pod is long-lived and its _work dir is on the node's
+        # ephemeral storage. Releasing the few GB now beats holding them until
+        # whenever mobile work next merges.
+        if: always()
+        run: rm -rf apps/mobile/android apps/mobile/node_modules
