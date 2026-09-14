@@ -470,7 +470,7 @@ function DocListScreen({
   // The overflow menu: the System shelves plus the app-level actions that used
   // to sit loose in the topbar (web keeps the same split in its sidebar foot).
   const [menuOpen, setMenuOpen] = useState(false);
-  // Workspace labels + doc→labels map for row dots and the label filter.
+  // Workspace labels + doc→labels map, for the label filter chips.
   const [wsLabels, setWsLabels] = useState<Label[]>([]);
   const [docLabelIds, setDocLabelIds] = useState<Map<string, string[]>>(new Map());
   const [filterLabel, setFilterLabel] = useState<string | null>(null);
@@ -655,11 +655,6 @@ function DocListScreen({
 
   // Search / label filter show a flat list; otherwise the collapsible tree.
   const q = query.trim().toLowerCase();
-  const labelById = new Map(wsLabels.map((l) => [l.id, l]));
-  const dotsFor = (docId: string): string[] =>
-    (docLabelIds.get(docId) ?? [])
-      .map((id) => labelById.get(id)?.color)
-      .filter((c): c is string => !!c);
   const rows: TreeRow[] = !docs
     ? []
     : filterLabel
@@ -840,16 +835,13 @@ function DocListScreen({
                     />
                   </Pressable>
                 ) : (
-                  <View style={styles.chevron} />
+                  <View style={styles.chevron}>
+                    <View style={styles.rowBullet} />
+                  </View>
                 )}
                 <Text style={[type.docTitle, styles.flex]} numberOfLines={1}>
                   {item.doc.title || "Untitled"}
                 </Text>
-                {dotsFor(item.doc.id)
-                  .slice(0, 3)
-                  .map((c, i) => (
-                    <View key={i} style={[styles.rowLabelDot, { backgroundColor: c }]} />
-                  ))}
               </View>
             </Row>
           )}
@@ -1540,7 +1532,7 @@ const makeStyles = (colors: Palette, type: TypeRoles) =>
   searchWrap: { paddingHorizontal: spacing.gutter, paddingVertical: spacing.md },
   segment: { flexDirection: "row", gap: spacing.sm },
   rowInner: { flexDirection: "row", alignItems: "center", gap: spacing.sm },
-  rowLabelDot: { width: 6, height: 6, borderRadius: 3, marginLeft: 2 },
+  rowBullet: { width: 6, height: 6, borderRadius: 3, backgroundColor: colors.inkFaint },
   // flexShrink: 0 — when the page list below grows (e.g. expanding a subtree),
   // the flex column would otherwise compress this row and clip the chips.
   labelFilterRow: { flexGrow: 0, flexShrink: 0 },
