@@ -69,15 +69,17 @@ jobs:
           # command line would not: org.gradle.jvmargs configures the build JVM,
           # not the launcher that reads the flag.
           echo "org.gradle.jvmargs=-Xmx4g" >> gradle.properties
-          # prebuild resolves expo-template-bare-minimum from the mutable
-          # sdk-52 npm dist-tag at run time, so the template's Kotlin default
-          # can drift between runs (the first run got 1.9.24 and failed
-          # against the Compose Compiler expo-modules-core picked). Pin it.
-          # The value must be a key of expo-modules-core's Kotlin-to-Compose
-          # versionsMap (see its android/build.gradle), or the Compose
-          # Compiler version resolves to null. Re-pin on the next Expo SDK
-          # bump, together with deploy/ci/android-runner.Dockerfile.
-          echo "android.kotlinVersion=1.9.25" >> gradle.properties
+          # 1.9.24 is what React Native 0.76's gradle plugin actually compiles
+          # with, and that plugin wins regardless of this ext value. The value
+          # here only drives which Compose Compiler expo-modules-core requests
+          # (its versionsMap: 1.9.24 -> 1.5.14, 1.9.25 -> 1.5.15), so it must
+          # say 1.9.24 too or the pair is incompatible. The pin exists because
+          # prebuild resolves the template from the mutable sdk-52 npm
+          # dist-tag at run time, and its drifting default (currently 1.9.25)
+          # is what broke the build. Re-pin on the next Expo SDK bump to
+          # whatever Kotlin that React Native release uses, together with
+          # deploy/ci/android-runner.Dockerfile.
+          echo "android.kotlinVersion=1.9.24" >> gradle.properties
           # The template builds all four ABIs, but x86/x86_64 only exist for
           # emulators and this APK is a phone sideload. Dropping them roughly
           # halves the native build on the 4-CPU runner node.
