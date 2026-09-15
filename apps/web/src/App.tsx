@@ -1392,7 +1392,6 @@ function Row({
       <div
         className={active ? "row active" : "row"}
         style={{ paddingLeft: 8 + depth * 16 }}
-        aria-expanded={hasChildren ? expanded : undefined}
         /*
          * A page with children is a container, and the reason to click one is
          * almost always to see what is inside it rather than to open a mostly
@@ -1406,6 +1405,9 @@ function Row({
           <button
             type="button"
             className="row-toggle"
+            // On the button, not on the row: a bare div maps to role="generic",
+            // where aria-expanded is not permitted and is dropped.
+            aria-expanded={expanded}
             aria-label={expanded ? "Collapse" : "Expand"}
             onClick={(e) => {
               e.stopPropagation();
