@@ -26,6 +26,10 @@
   --radius-md: 12px;
   --radius-full: 999px;
 
+  /* BlockNote's own content inset. Every strip above the editor uses it so the
+     header and the page body share one left edge. */
+  --page-gutter: 54px;
+
   --font-serif: Georgia, "Iowan Old Style", "Palatino Linotype", "Times New Roman", serif;
   --font-sans: "Inter Tight", ui-sans-serif, system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
 
@@ -424,13 +428,24 @@ body {
   align-items: center;
   gap: 14px;
   min-height: 56px;
-  padding: 8px 20px;
+  padding: 8px var(--page-gutter);
   border-bottom: 1px solid var(--border);
   font-size: 14px;
   background: var(--bg);
 }
 
-.user {
+/* Other editors in the room. Absent when you are alone, which is why there is
+   no chip for the local user: see Presence.tsx. */
+.presence {
+  display: inline-flex;
+  align-items: center;
+  gap: 12px;
+}
+
+.presence-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
   font-weight: 600;
 }
 
@@ -510,7 +525,7 @@ button.toggle.on {
 .subpages {
   max-width: 720px;
   margin: 12px auto 0;
-  padding: 16px 54px 0;
+  padding: 16px var(--page-gutter) 0;
   border-top: 1px solid var(--border);
 }
 
@@ -1931,7 +1946,7 @@ button.toggle.on {
   align-items: center;
   flex-wrap: wrap;
   gap: 6px;
-  padding: 6px 54px 0;
+  padding: 6px var(--page-gutter) 0;
   font-size: 12px;
 }
 .label-chip {
@@ -2594,20 +2609,25 @@ button.toggle.on {
   align-items: center;
   flex-wrap: wrap;
   gap: 12px;
-  padding: 10px 20px;
+  padding: 10px var(--page-gutter);
   border-bottom: 1px solid var(--border);
   background: var(--bg);
   font-size: 13px;
 }
 
+/* Sits in the label row, so it is shaped like the other chips there
+   (.label-add-btn) rather than like a toolbar button. */
 .task-make {
-  min-height: 34px;
-  padding: 0 14px;
-  border: 1px solid var(--border);
-  border-radius: var(--radius-full);
-  background: var(--bg);
-  color: var(--fg);
-  font-size: 13px;
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding: 2px 8px;
+  border-radius: 999px;
+  border: 1px dashed var(--border);
+  background: none;
+  color: var(--muted);
+  font-size: 12px;
+  line-height: 18px;
   font-family: var(--font-sans);
   cursor: pointer;
 }

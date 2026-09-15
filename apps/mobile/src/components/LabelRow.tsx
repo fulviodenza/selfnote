@@ -4,7 +4,7 @@
  * Mobile parity for web's LabelBar (apps/web/src/LabelBar.tsx): suggestions are
  * only persisted when the user accepts them.
  */
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useState, type ReactNode } from "react";
 import { Feather } from "@expo/vector-icons";
 import {
   ActivityIndicator,
@@ -104,6 +104,7 @@ export function LabelRow({
   workspaceId,
   aiAvailable,
   getText,
+  trailing,
   onError,
 }: {
   docId: string;
@@ -111,6 +112,12 @@ export function LabelRow({
   aiAvailable: boolean;
   /** The note's current text/Markdown (for the AI suggester). */
   getText: () => Promise<string>;
+  /**
+   * Extra page-metadata affordances at the end of the row (today, the "Make
+   * task" chip). Inside the scroll view on purpose, so it scrolls with the
+   * chips instead of pinning itself over them.
+   */
+  trailing?: ReactNode;
   onError?: (message: string) => void;
 }) {
   const { colors } = useTheme();
@@ -284,6 +291,7 @@ export function LabelRow({
             <Text style={styles.chipText}>{s.name}</Text>
           </Pressable>
         ))}
+        {trailing}
       </ScrollView>
 
       <Modal visible={sheetOpen} transparent animationType="slide" onRequestClose={closeSheet}>
@@ -399,7 +407,9 @@ const makeStyles = (colors: ReturnType<typeof useTheme>["colors"]) =>
     row: {
       alignItems: "center",
       gap: spacing.xs,
-      paddingHorizontal: spacing.md,
+      // The editor body's gutter, so the chips line up with the page text and
+      // with the task row rather than sitting 8px to their left.
+      paddingHorizontal: spacing.gutter,
     },
     chip: {
       flexDirection: "row",

@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import {
   ActivityIndicator,
   Alert,
@@ -39,6 +39,7 @@ import {
   type AiStatus,
   type Label,
   type SearchResults,
+  type Task,
 } from "./src/api";
 import {
   getSettings,
@@ -65,8 +66,9 @@ import {
 } from "./src/ui";
 import { ThemeProvider, useTheme, type ThemeMode } from "./src/theme-context";
 import { useAndroidBack } from "./src/hooks/useAndroidBack";
-import { TaskControls } from "./src/screens/TaskControls";
+import { MakeTaskButton, TaskControls } from "./src/screens/TaskControls";
 import { BulkLabelButton, LabelRow } from "./src/components/LabelRow";
+import { PresenceChips } from "./src/components/PresenceChips";
 import { TabCountButton, TabSwitcherScreen } from "./src/components/TabSwitcherScreen";
 import { TasksScreen } from "./src/screens/TasksScreen";
 import { AssetsScreen } from "./src/screens/AssetsScreen";
@@ -1282,6 +1284,14 @@ function ConnectedEditor({
   const styles = useMemo(() => makeStyles(colors, type), [colors, type]);
   const [status, setStatus] = useState<ConnectionStatus>(connection.status());
   const [ai, setAi] = useState<AiStatus | null>(null);
+  /*
+   * This page's task metadata, owned here rather than inside TaskControls: both
+   * the label row (which carries the "Make task" chip) and the task row need to
+   * know whether the page is a task, so one owner above them is the only
+   * arrangement that keeps them consistent. Matches the web contract.
+   * `undefined` = the lookup is still in flight, `null` = not a task.
+   */
+  const [task, setTask] = useState<Task | null | undefined>(undefined);
   const [showAssist, setShowAssist] = useState(false);
   const [showActions, setShowActions] = useState(false);
   // Version history (docs/features/version-history.md §5): the timeline modal and
@@ -1296,6 +1306,19 @@ function ConnectedEditor({
   const [reviewing, setReviewing] = useState<AiProposal | null>(null);
   // Composer prefill for the selection bar's "Ask AI".
   const [assistPrefill, setAssistPrefill] = useState("");
+
+  // Load this page's task metadata (404 = not a task).
+  useEffect(() => {
+    let alive = true;
+    setTask(undefined);
+    api
+      .getTask(doc.id)
+      .then((t) => alive && setTask(t))
+      .catch(() => alive && setTask(null));
+    return () => {
+      alive = false;
+    };
+  }, [doc.id]);
 
   // Attach a file: pick → upload (multipart) → insert the matching block.
   const attachFile = async () => {
@@ -1434,6 +1457,7 @@ function ConnectedEditor({
     <View style={[styles.flex, { backgroundColor: colors.surface }]}>
       <EditorTopbar
         title={doc.title}
+        presence={<PresenceChips connection={connection} />}
         tabCount={tabCount}
         onShowTabs={onShowTabs}
         onBack={onBack}
@@ -1463,16 +1487,38 @@ function ConnectedEditor({
           <Text style={styles.proposalAction}>Review</Text>
         </Pressable>
       ) : null}
-      <View style={styles.taskControls}>
-        <TaskControls docId={doc.id} onError={(m) => m && toast(m)} />
-      </View>
       <LabelRow
         docId={doc.id}
         workspaceId={doc.workspace_id}
         aiAvailable={ai?.available ?? false}
         getText={() => editorRef.current?.getText() ?? Promise.resolve("")}
+        /*
+          Promoting a page is page metadata, so it belongs with the labels
+          rather than in a row of its own: that row's entire content, for every
+          page that is not a task, was this one button. `undefined` means the
+          lookup is still in flight, so neither is shown yet.
+        */
+        trailing={
+          task === null ? (
+            <MakeTaskButton
+              docId={doc.id}
+              onChange={setTask}
+              onError={(m) => m && toast(m)}
+            />
+          ) : null
+        }
         onError={(m) => toast(m)}
       />
+      {task ? (
+        <View style={styles.taskControls}>
+          <TaskControls
+            docId={doc.id}
+            task={task}
+            onChange={setTask}
+            onError={(m) => m && toast(m)}
+          />
+        </View>
+      ) : null}
       <WebViewEditor
         ref={editorRef}
         connection={connection}
@@ -1600,6 +1646,7 @@ function ConnectedEditor({
 
 function EditorTopbar({
   title,
+  presence,
   tabCount,
   onShowTabs,
   onBack,
@@ -1611,6 +1658,8 @@ function EditorTopbar({
   onAttach,
 }: {
   title: string;
+  /** Other editors in the room; absent when alone. See PresenceChips. */
+  presence?: ReactNode;
   /** Open pages. Omitted by the history-preview topbar, which has no tabs. */
   tabCount?: number;
   onShowTabs?: () => void;
@@ -1630,6 +1679,7 @@ function EditorTopbar({
       <Text style={[type.docTitle, styles.flex]} numberOfLines={1}>
         {title || "Untitled"}
       </Text>
+      {presence}
       {onShowTabs && tabCount ? <TabCountButton count={tabCount} onPress={onShowTabs} /> : null}
       {onAttach ? <IconButton icon="paperclip" label="Attach file" onPress={onAttach} /> : null}
       {onHistory ? <IconButton icon="clock" label="Version history" onPress={onHistory} /> : null}
