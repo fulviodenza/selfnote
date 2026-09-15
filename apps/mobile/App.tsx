@@ -67,7 +67,7 @@ import { ThemeProvider, useTheme, type ThemeMode } from "./src/theme-context";
 import { useAndroidBack } from "./src/hooks/useAndroidBack";
 import { TaskControls } from "./src/screens/TaskControls";
 import { BulkLabelButton, LabelRow } from "./src/components/LabelRow";
-import { TabStrip } from "./src/components/TabStrip";
+import { TabCountButton, TabSwitcherScreen } from "./src/components/TabSwitcherScreen";
 import { TasksScreen } from "./src/screens/TasksScreen";
 import { AssetsScreen } from "./src/screens/AssetsScreen";
 import { ShelfScreen, type Shelf } from "./src/screens/ShelfScreen";
@@ -110,13 +110,15 @@ function AppInner() {
   // expo-font config plugin (app.json), so this normally resolves instantly.
   const [fontsLoaded, fontError] = useFonts(Feather.font);
   const [showSettings, setShowSettings] = useState(false);
-  // Browser-style page tabs (web's TabStrip): the ordered ids of the open
-  // pages plus the one filling the screen. The ids are persisted so the open
-  // set survives a restart; the Documents behind them come from whichever
-  // screen last listed the workspace, which is what keeps a tab's title
-  // current after a rename.
+  // Browser-style page tabs: the ordered ids of the open pages plus the one
+  // filling the screen. The ids are persisted so the open set survives a
+  // restart; the Documents behind them come from whichever screen last listed
+  // the workspace, which is what keeps a tab's title current after a rename.
+  // The set is surfaced by TabSwitcherScreen, a full-screen grid of cards
+  // (Chrome's model) reached from the count button in the editor topbar.
   const [tabIds, setTabIds] = useState<string[]>([]);
   const [activeId, setActiveId] = useState<string | null>(null);
+  const [showTabs, setShowTabs] = useState(false);
   const [docsById, setDocsById] = useState<Map<string, Document>>(new Map());
   // The signed-in workspace (single-workspace model), lifted so the Tasks screen
   // and the calendar-feed settings section can share it.
@@ -159,6 +161,7 @@ function AppInner() {
     setShowTasks(false);
     setShowGraph(false);
     setSystemView(null);
+    setShowTabs(false);
     setActiveId(doc.id);
   }, []);
 
@@ -213,7 +216,7 @@ function AppInner() {
     [workspaceId, toast, openPage],
   );
 
-  /** The "+" on the tab strip: a new root page, opened in its own tab. */
+  /** The "+" in the tab switcher: a new root page, opened in its own tab. */
   const createPage = useCallback(async () => {
     if (!workspaceId) return;
     try {
@@ -257,6 +260,11 @@ function AppInner() {
         setShowSettings(false);
         return true;
       }
+      // The switcher sits above the editor, so it takes back first.
+      if (showTabs) {
+        setShowTabs(false);
+        return true;
+      }
       if (openDoc) {
         setActiveId(null);
         return true;
@@ -274,7 +282,7 @@ function AppInner() {
         return true;
       }
       return false;
-    }, [showSettings, openDoc, showGraph, showTasks, systemView]),
+    }, [showSettings, showTabs, openDoc, showGraph, showTasks, systemView]),
   );
 
   // Hold at the boot spinner until the icon font is ready — but never brick
@@ -306,22 +314,32 @@ function AppInner() {
         )}
 
         {phase === "app" &&
-          (openDoc ? (
-            <View style={styles.flex}>
-              <TabStrip
-                tabs={tabs}
-                activeId={activeId}
-                onSelect={openPage}
-                onClose={closeTab}
-                onNew={() => void createPage()}
-              />
-              <EditorScreen
-                key={openDoc.id}
-                doc={openDoc}
-                onBack={() => setActiveId(null)}
-                onNavigateToDoc={openDocById}
-              />
-            </View>
+          (showTabs && tabs.length > 0 ? (
+            <TabSwitcherScreen
+              tabs={tabs}
+              activeId={activeId}
+              onSelect={openPage}
+              onClose={(id) => {
+                closeTab(id);
+                // Closing the last card leaves nothing to switch between.
+                if (tabIds.length <= 1) setShowTabs(false);
+              }}
+              onCloseAll={() => {
+                clearTabs();
+                setShowTabs(false);
+              }}
+              onNew={() => void createPage()}
+              onDismiss={() => setShowTabs(false)}
+            />
+          ) : openDoc ? (
+            <EditorScreen
+              key={openDoc.id}
+              doc={openDoc}
+              tabCount={tabs.length}
+              onShowTabs={() => setShowTabs(true)}
+              onBack={() => setActiveId(null)}
+              onNavigateToDoc={openDocById}
+            />
           ) : showGraph && workspaceId ? (
             <GraphView
               workspaceId={workspaceId}
@@ -1078,10 +1096,15 @@ function RenameSheet({
 
 function EditorScreen({
   doc,
+  tabCount,
+  onShowTabs,
   onBack,
   onNavigateToDoc,
 }: {
   doc: Document;
+  /** Open pages, shown on the topbar's tab-count button. */
+  tabCount: number;
+  onShowTabs: () => void;
   onBack: () => void;
   onNavigateToDoc: (id: string) => void;
 }) {
@@ -1118,7 +1141,12 @@ function EditorScreen({
   if (error) {
     return (
       <View style={styles.flex}>
-        <EditorTopbar title={doc.title} onBack={onBack} />
+        <EditorTopbar
+          title={doc.title}
+          tabCount={tabCount}
+          onShowTabs={onShowTabs}
+          onBack={onBack}
+        />
         <View style={styles.center}>
           <Text style={styles.error}>{error}</Text>
         </View>
@@ -1129,7 +1157,12 @@ function EditorScreen({
   if (!token) {
     return (
       <View style={styles.flex}>
-        <EditorTopbar title={doc.title} onBack={onBack} />
+        <EditorTopbar
+          title={doc.title}
+          tabCount={tabCount}
+          onShowTabs={onShowTabs}
+          onBack={onBack}
+        />
         <View style={styles.center}>
           <ActivityIndicator color={colors.accent} />
         </View>
@@ -1142,6 +1175,8 @@ function EditorScreen({
       doc={doc}
       token={token}
       canWrite={mode === "rw"}
+      tabCount={tabCount}
+      onShowTabs={onShowTabs}
       onBack={onBack}
       onNavigateToDoc={onNavigateToDoc}
     />
@@ -1152,12 +1187,16 @@ function ConnectedEditor({
   doc,
   token,
   canWrite,
+  tabCount,
+  onShowTabs,
   onBack,
   onNavigateToDoc,
 }: {
   doc: Document;
   token: string;
   canWrite: boolean;
+  tabCount: number;
+  onShowTabs: () => void;
   onBack: () => void;
   onNavigateToDoc: (id: string) => void;
 }) {
@@ -1326,6 +1365,8 @@ function ConnectedEditor({
     <View style={[styles.flex, { backgroundColor: colors.surface }]}>
       <EditorTopbar
         title={doc.title}
+        tabCount={tabCount}
+        onShowTabs={onShowTabs}
         onBack={onBack}
         status={status}
         onShare={() => setShowShares(true)}
@@ -1490,6 +1531,8 @@ function ConnectedEditor({
 
 function EditorTopbar({
   title,
+  tabCount,
+  onShowTabs,
   onBack,
   status,
   onHistory,
@@ -1499,6 +1542,9 @@ function EditorTopbar({
   onAttach,
 }: {
   title: string;
+  /** Open pages. Omitted by the history-preview topbar, which has no tabs. */
+  tabCount?: number;
+  onShowTabs?: () => void;
   onBack: () => void;
   status?: ConnectionStatus;
   onHistory?: () => void;
@@ -1515,6 +1561,7 @@ function EditorTopbar({
       <Text style={[type.docTitle, styles.flex]} numberOfLines={1}>
         {title || "Untitled"}
       </Text>
+      {onShowTabs && tabCount ? <TabCountButton count={tabCount} onPress={onShowTabs} /> : null}
       {onAttach ? <IconButton icon="paperclip" label="Attach file" onPress={onAttach} /> : null}
       {onHistory ? <IconButton icon="clock" label="Version history" onPress={onHistory} /> : null}
       {onShare ? <IconButton icon="share" label="Share" onPress={onShare} /> : null}
