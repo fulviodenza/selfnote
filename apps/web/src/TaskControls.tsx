@@ -1,9 +1,14 @@
 /**
- * Inline task controls for a document, shown under the editor topbar. When the
- * document is not a task it offers a "Make task" button; once it is a task it
- * exposes a status pill (cycles todo → in progress → done), a priority selector,
- * and a due-date picker (date + optional time when not all-day). Every edit
- * fires `updateTask`. "Remove task" (demote) lives in the caller's page menu.
+ * Inline task controls for a document, shown under the editor topbar.
+ *
+ * Two pieces, because they belong in two different places. `MakeTaskButton` is
+ * the promote affordance for a page that is not a task; it is a chip in the
+ * label row, since spending a whole bordered row on one button was most of the
+ * header's vertical space for the overwhelmingly common case. `TaskControls` is
+ * the row a real task earns: a status pill (cycles todo → in progress → done), a
+ * priority selector, and a due-date picker (date + optional time when not
+ * all-day). Every edit fires `updateTask`. "Remove task" (demote) lives in the
+ * caller's page menu.
  */
 import { useEffect, useState } from "react";
 import { api, type Task } from "./api";
@@ -19,38 +24,59 @@ import {
 } from "./tasks";
 import { Icon } from "./Icon";
 
+/** Promote a page to a task. Rendered as a chip in the label row. */
+export function MakeTaskButton({
+  docId,
+  onChange,
+}: {
+  docId: string;
+  /** Report the new task up, which swaps this chip for the task row. */
+  onChange: (task: Task | null) => void;
+}) {
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  return (
+    <>
+      <button
+        className="task-make"
+        disabled={busy}
+        title={error ?? undefined}
+        onClick={async () => {
+          if (busy) return;
+          setBusy(true);
+          setError(null);
+          try {
+            onChange(await api.setTask(docId, {}));
+          } catch {
+            // Without this the rejection is unhandled and the chip just
+            // re-enables, which reads as "nothing happened" rather than
+            // "that failed". The message renders beside it, as LabelBar's
+            // own errors do.
+            setError("Couldn't make this page a task.");
+          } finally {
+            setBusy(false);
+          }
+        }}
+      >
+        <Icon name="check-square" size={12} /> Make task
+      </button>
+      {error && <span className="label-error">{error}</span>}
+    </>
+  );
+}
+
 export function TaskControls({
   docId,
   task,
   onChange,
 }: {
   docId: string;
-  /** Current task metadata, or `null` when the document is not a task. */
-  task: Task | null;
+  /** Current task metadata. Callers render `MakeTaskButton` instead when null. */
+  task: Task;
   /** Report the new task state up (or `null` after demotion). */
   onChange: (task: Task | null) => void;
 }) {
   const [busy, setBusy] = useState(false);
-
-  const makeTask = async () => {
-    if (busy) return;
-    setBusy(true);
-    try {
-      onChange(await api.setTask(docId, {}));
-    } finally {
-      setBusy(false);
-    }
-  };
-
-  if (!task) {
-    return (
-      <div className="task-bar">
-        <button className="task-make" onClick={makeTask} disabled={busy}>
-          <Icon name="check-square" size={15} /> Make task
-        </button>
-      </div>
-    );
-  }
   return <TaskEditor docId={docId} task={task} onChange={onChange} setBusy={setBusy} busy={busy} />;
 }
 

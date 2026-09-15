@@ -4,7 +4,7 @@
  * (`POST /ai/labels/suggest`) that proposes labels the user can accept one by
  * one. Suggestions are never persisted until accepted.
  */
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useRef, useState, type ReactNode } from "react";
 import { api, type BulkLabelStatus, type Label, type LabelSuggestion } from "./api";
 import { Icon } from "./Icon";
 
@@ -93,11 +93,18 @@ export function LabelBar({
   workspaceId,
   aiAvailable,
   editor,
+  trailing,
 }: {
   docId: string;
   workspaceId: string;
   aiAvailable: boolean;
   editor: TextSource | null;
+  /**
+   * Extra page-metadata affordances rendered at the end of the row (today, the
+   * "Make task" chip). Inside the flex-wrap container on purpose, so it wraps
+   * with the chips on a narrow window instead of overflowing.
+   */
+  trailing?: ReactNode;
 }) {
   const [labels, setLabels] = useState<Label[]>([]);
   const [all, setAll] = useState<Label[]>([]);
@@ -372,6 +379,8 @@ export function LabelBar({
           </button>
         </span>
       )}
+
+      {trailing}
 
       {error && <span className="label-error">{error}</span>}
     </div>

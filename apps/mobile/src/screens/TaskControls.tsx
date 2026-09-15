@@ -1,16 +1,24 @@
 /**
- * Task controls shown below the title on the note screen. When the document
- * isn't a task, a single "Make task" Pressable. Once it is, a compact row of
- * native controls — a status segmented control, a priority picker (sheet), and
- * a due-date picker (date + optional time when `due_all_day` is off). Every
- * change fires updateTask; "Remove task" lives in the note overflow menu.
+ * Task controls shown below the title on the note screen.
+ *
+ * Two pieces, because they belong in two different places. `MakeTaskButton` is
+ * the promote affordance for a page that is not a task, and it is a chip in the
+ * label row: spending a whole row on that one button was most of the header's
+ * vertical space for the common case. `TaskControls` is the row a real task
+ * earns: a status segmented control, a priority picker (sheet), and a due-date
+ * picker (date + optional time when `due_all_day` is off). Every change fires
+ * updateTask; "Remove task" lives in the note overflow menu.
+ *
+ * The task itself is owned by the caller, matching the web contract: the label
+ * row and this row both need to know whether the page is a task, so one owner
+ * above them both is the only arrangement that keeps them consistent.
  *
  * Strict parity with the web task panel (apps/web), against the same API
  * contract in docs/features/calendar-task-sync.md.
  */
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useMemo, useState } from "react";
 import { Feather } from "@expo/vector-icons";
-import { ActivityIndicator, Pressable, StyleSheet, Text, View } from "react-native";
+import { Pressable, StyleSheet, Text, View } from "react-native";
 import { api, type Task, type TaskPriority, type TaskStatus } from "../api";
 import {
   PRIORITY_LABEL,
@@ -26,19 +34,68 @@ import { Button, Sheet } from "../ui";
 import { PriorityDot } from "./PriorityDot";
 import { DuePickerSheet } from "./DuePickerSheet";
 
-export function TaskControls({
+/**
+ * Promote a page to a task. Rendered as a chip in the label row, so it is
+ * shaped like the chips beside it rather than like a standalone button.
+ */
+export function MakeTaskButton({
   docId,
+  onChange,
   onError,
 }: {
   docId: string;
+  /** Report the new task up, which swaps this chip for the task row. */
+  onChange: (task: Task | null) => void;
+  onError?: (message: string | null) => void;
+}) {
+  const { colors, type } = useTheme();
+  const styles = useMemo(() => makeStyles(colors, type), [colors, type]);
+  const [busy, setBusy] = useState(false);
+
+  return (
+    <Pressable
+      accessibilityRole="button"
+      accessibilityLabel="Make task"
+      disabled={busy}
+      onPress={async () => {
+        if (busy) return;
+        setBusy(true);
+        onError?.(null);
+        try {
+          onChange(await api.setTask(docId, {}));
+        } catch (e) {
+          onError?.(e instanceof Error ? e.message.slice(0, 160) : String(e));
+        } finally {
+          setBusy(false);
+        }
+      }}
+      style={({ pressed }) => [
+        styles.makeChip,
+        { backgroundColor: pressed ? colors.surfaceSunken : "transparent" },
+      ]}
+    >
+      <Feather name="square" size={12} color={colors.inkSoft} />
+      <Text style={styles.makeChipText}>{busy ? "Making task…" : "Make task"}</Text>
+    </Pressable>
+  );
+}
+
+export function TaskControls({
+  docId,
+  task,
+  onChange,
+  onError,
+}: {
+  docId: string;
+  /** Callers render `MakeTaskButton` instead when the page is not a task. */
+  task: Task;
+  /** Report the new task state up (or `null` after demotion). */
+  onChange: (task: Task | null) => void;
   /** Surfaced so the parent can toast; also cleared on success. */
   onError?: (message: string | null) => void;
 }) {
   const { colors, type } = useTheme();
   const styles = useMemo(() => makeStyles(colors, type), [colors, type]);
-  const [task, setTask] = useState<Task | null>(null);
-  const [loaded, setLoaded] = useState(false);
-  const [busy, setBusy] = useState(false);
   const [showPriority, setShowPriority] = useState(false);
   const [showDue, setShowDue] = useState(false);
   const [showOverflow, setShowOverflow] = useState(false);
@@ -48,47 +105,15 @@ export function TaskControls({
     [onError],
   );
 
-  // Load task metadata; a 404 means the document simply isn't a task yet.
-  useEffect(() => {
-    let alive = true;
-    (async () => {
-      try {
-        const t = await api.getTask(docId);
-        if (alive) setTask(t);
-      } catch (e) {
-        if (alive && (e as { status?: number }).status !== 404) fail(e);
-      } finally {
-        if (alive) setLoaded(true);
-      }
-    })();
-    return () => {
-      alive = false;
-    };
-  }, [docId, fail]);
-
-  const makeTask = async () => {
-    if (busy) return;
-    setBusy(true);
-    onError?.(null);
-    try {
-      setTask(await api.setTask(docId, {}));
-    } catch (e) {
-      fail(e);
-    } finally {
-      setBusy(false);
-    }
-  };
-
   const patch = async (body: Parameters<typeof api.updateTask>[1]) => {
-    if (!task) return;
     onError?.(null);
     // Optimistic; reconcile with the server response.
     const prev = task;
-    setTask({ ...task, ...body } as Task);
+    onChange({ ...task, ...body } as Task);
     try {
-      setTask(await api.updateTask(docId, body));
+      onChange(await api.updateTask(docId, body));
     } catch (e) {
-      setTask(prev);
+      onChange(prev);
       fail(e);
     }
   };
@@ -99,44 +124,14 @@ export function TaskControls({
     setShowOverflow(false);
     onError?.(null);
     const prev = task;
-    setTask(null); // optimistic demote
+    onChange(null); // optimistic demote
     try {
       await api.deleteTask(docId);
     } catch (e) {
-      setTask(prev);
+      onChange(prev);
       fail(e);
     }
   };
-
-  if (!loaded) {
-    return (
-      <View style={styles.loadingWrap}>
-        <ActivityIndicator color={colors.accent} />
-      </View>
-    );
-  }
-
-  if (!task) {
-    return (
-      <View style={styles.makeWrap}>
-        <Pressable
-          accessibilityRole="button"
-          accessibilityLabel="Make task"
-          disabled={busy}
-          onPress={makeTask}
-          style={({ pressed }) => [
-            styles.makeBtn,
-            { backgroundColor: pressed ? colors.surfaceSunken : colors.surface },
-          ]}
-        >
-          <Feather name="square" size={18} color={colors.inkSoft} />
-          <Text style={[type.label, { color: colors.ink }]}>
-            {busy ? "Making task…" : "Make task"}
-          </Text>
-        </Pressable>
-      </View>
-    );
-  }
 
   return (
     <View style={styles.wrap}>
@@ -264,19 +259,19 @@ export function TaskControls({
 
 const makeStyles = (colors: Palette, type: TypeRoles) =>
   StyleSheet.create({
-    loadingWrap: { paddingVertical: spacing.md, alignItems: "flex-start" },
-    makeWrap: { paddingBottom: spacing.sm },
-    makeBtn: {
+    // Chip-shaped, to sit with the label chips rather than beside them.
+    makeChip: {
       flexDirection: "row",
       alignItems: "center",
-      gap: spacing.sm,
-      alignSelf: "flex-start",
-      minHeight: sizing.buttonSecondary,
-      paddingHorizontal: spacing.md,
-      borderRadius: radius.sm,
+      gap: spacing.xs,
+      minHeight: 28,
+      paddingHorizontal: 10,
+      borderRadius: radius.full,
       borderWidth: 1,
+      borderStyle: "dashed",
       borderColor: colors.hairline,
     },
+    makeChipText: { ...type.meta, color: colors.inkSoft },
     wrap: { gap: spacing.sm, paddingBottom: spacing.sm },
     segment: {
       flexDirection: "row",

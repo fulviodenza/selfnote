@@ -41,7 +41,8 @@ import { GraphView } from "./GraphView";
 import { importObsidianVault, type ImportProgress } from "./obsidian";
 import { ConnectionsModal } from "./Connections";
 import { TaskView } from "./TaskView";
-import { TaskControls } from "./TaskControls";
+import { MakeTaskButton, TaskControls } from "./TaskControls";
+import { PresenceChips } from "./Presence";
 import { Icon } from "./Icon";
 import type { Task } from "./api";
 import { syncUrl, needsOnboarding, saveServer, deriveFromBase } from "./server";
@@ -1889,9 +1890,13 @@ function EditorPaneInner({
   return (
     <div className="editor-pane">
       <div className="topbar">
-        <span className="user" style={{ color: user.color }}>
-          <Icon name="circle-filled" size={8} /> {user.name}
-        </span>
+        {/*
+          Only *other* editors are chipped. A permanent chip for the local user
+          answered a question nobody asks, and gave no way to tell whose name it
+          was. `user` still carries a generated name and colour because Yjs
+          awareness needs them to paint remote cursors.
+        */}
+        <PresenceChips connection={connection} />
         <span className="status">
           <span className="dot" style={{ background: STATUS_COLOR[status] }} />
           {status}
@@ -1981,11 +1986,16 @@ function EditorPaneInner({
         workspaceId={doc.workspace_id}
         aiAvailable={!!ai?.available}
         editor={editor as unknown as Parameters<typeof LabelBar>[0]["editor"]}
+        /*
+          Promoting a page is page metadata, so it belongs with the labels
+          rather than in a bordered row of its own: that row's entire content,
+          for every page that is not a task, was this one button. `undefined`
+          means the task lookup is still in flight, so neither is shown yet.
+        */
+        trailing={task === null ? <MakeTaskButton docId={doc.id} onChange={setTask} /> : null}
       />
 
-      {task !== undefined && (
-        <TaskControls docId={doc.id} task={task} onChange={setTask} />
-      )}
+      {task && <TaskControls docId={doc.id} task={task} onChange={setTask} />}
 
       {showShares && <ShareAnalyticsPanel docId={doc.id} />}
 
