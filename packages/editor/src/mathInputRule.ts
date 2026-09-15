@@ -14,6 +14,7 @@
  * rule; the inline rule needs the transaction and is skipped in that case.
  */
 import { InputRule, inputRules } from "prosemirror-inputrules";
+import { markMathInserted } from "./math";
 
 /** Minimal shape of the BlockNote editor we depend on. */
 interface MathEditorApi {
@@ -75,9 +76,29 @@ export function registerMathInputRules(editor: MathEditorApi): void {
 
   if (tiptap?.registerPlugin) {
     const blockRule = new InputRule(BLOCK_RE, (state, _match, start, end) => {
+      /*
+       * BLOCK_RE is matched against the text *before the caret*, so on its own
+       * it would also fire for "$$ " typed at the start of a paragraph that
+       * already has text, or at the start of a heading or list item. A math
+       * block's content model is "none", so converting any of those silently
+       * destroys everything the block held.
+       *
+       * Require a paragraph whose entire text is the "$$" about to be deleted.
+       * The keydown fallback below already checked both; this is the path that
+       * actually runs.
+       */
+      let block: CurrentBlock;
+      try {
+        block = editor.getTextCursorPosition().block;
+      } catch {
+        return null;
+      }
+      if (block.type && block.type !== "paragraph") return null;
+      if (blockPlainText(block) !== "$$") return null;
+
       const tr = state.tr.delete(start, end);
+      markMathInserted();
       schedule(() => {
-        const block = editor.getTextCursorPosition().block;
         editor.updateBlock(block, { type: "math", props: { latex: "" } });
       });
       return tr;
@@ -136,6 +157,7 @@ function attachKeydownFallback(editor: MathEditorApi): void {
     if (block.type && block.type !== "paragraph") return;
     if (!BLOCK_RE.test(blockPlainText(block) + " ")) return;
     e.preventDefault();
+    markMathInserted();
     try {
       editor.updateBlock(block, { type: "math", props: { latex: "" } });
     } catch {

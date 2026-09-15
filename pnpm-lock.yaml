@@ -24,8 +24,8 @@ importers:
         specifier: workspace:*
         version: link:../../packages/editor
       katex:
-        specifier: ^0.18.7
-        version: 0.18.7
+        specifier: ^0.16.47
+        version: 0.16.47
       react:
         specifier: ^19.0.0
         version: 19.2.8
@@ -95,8 +95,8 @@ importers:
         specifier: workspace:*
         version: link:../core
       katex:
-        specifier: ^0.18.7
-        version: 0.18.7
+        specifier: ^0.16.47
+        version: 0.16.47
       lib0:
         specifier: ^0.2.99
         version: 0.2.117
@@ -831,10 +831,6 @@ packages:
   comma-separated-tokens@2.0.3:
     resolution: {integrity: sha512-Fu4hJdvzeylCfQPp9SGWidpzrMs7tTrlu6Vb8XGaRGck8QSNZJJp538Wrb60Lax4fPwR64ViY468OIUTbRlGZg==}
 
-  commander@15.0.0:
-    resolution: {integrity: sha512-z67u4ZhzCL/Tydu1lJARtEZYWbWaN7oYLHbsuzocr6y4N6WZAagG3RQ4FW61V1/0+jImpj293XfrcYnd1qxtPg==}
-    engines: {node: '>=22.12.0'}
-
   commander@8.3.0:
     resolution: {integrity: sha512-OkTL9umf+He2DZkUq8f8J9of7yL6RJKI24dVITBmNfZBmri9zYZQrKkuXiKhyfPSu8tUhnVBB1iKXevvnlR4Ww==}
     engines: {node: '>= 12'}
@@ -1009,10 +1005,6 @@ packages:
 
   katex@0.16.47:
     resolution: {integrity: sha512-Eeo8Ys1doU1z+x8AZsPpQu+p/QcZBI5PeOo7QGQdy2x2m0MU/hYagBbGOmXwr5KVbEfVuWv9LpnQWeehogurjg==}
-    hasBin: true
-
-  katex@0.18.7:
-    resolution: {integrity: sha512-h+UCwkZ+4Jz8WQ7MLGfj7UVFrRCizGb912fwF4luGdYsC5paYG1vx+jy+KRcC/XkpjGva/P7nAWuxNnPzRvzHw==}
     hasBin: true
 
   level-codec@9.0.2:
@@ -2326,8 +2318,6 @@ snapshots:
 
   comma-separated-tokens@2.0.3: {}
 
-  commander@15.0.0: {}
-
   commander@8.3.0: {}
 
   convert-source-map@2.0.0: {}
@@ -2537,10 +2527,6 @@ snapshots:
   katex@0.16.47:
     dependencies:
       commander: 8.3.0
-
-  katex@0.18.7:
-    dependencies:
-      commander: 15.0.0
 
   level-codec@9.0.2:
     dependencies:

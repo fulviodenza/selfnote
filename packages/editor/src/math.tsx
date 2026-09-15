@@ -64,6 +64,29 @@ export function renderMathHtml(latex: string, displayMode: boolean): string {
   });
 }
 
+/*
+ * Set by the insertion sites (the /math slash item and the `$$` input rule)
+ * immediately before they create a block, and consumed by the first render of
+ * that block, which is the only one that should open its source field.
+ *
+ * A module-level latch rather than a block prop because "was just inserted" is
+ * local intent, not document state: it must not sync to other clients, and it
+ * must not survive a reload.
+ */
+let mathJustInserted = false;
+
+/** Record that this client is about to insert a formula. */
+export function markMathInserted(): void {
+  mathJustInserted = true;
+}
+
+/** Take the flag, if it is set. */
+function consumeMathInsertion(): boolean {
+  const was = mathJustInserted;
+  mathJustInserted = false;
+  return was;
+}
+
 /** Rendered formula, or a placeholder when there is nothing to render yet. */
 function Rendered({
   latex,
@@ -113,9 +136,11 @@ export const MathBlock = createReactBlockSpec(MATH_BLOCK_CONFIG, {
   render: ({ block, editor }) => {
     const latex = block.props.latex ?? "";
     const editable = editor.isEditable;
-    // A formula inserted by /math starts empty, so it opens straight into its
-    // source field: nobody wants to insert one and then click it.
-    const [editing, setEditing] = useState(editable && latex === "");
+    // A formula this client just inserted opens straight into its source field:
+    // nobody wants to insert one and then click it. Gated on the insertion flag
+    // rather than on emptiness alone, so an empty formula arriving from a peer,
+    // or one re-rendered on load, does not grab focus.
+    const [editing, setEditing] = useState(() => editable && latex === "" && consumeMathInsertion());
     const [draft, setDraft] = useState(latex);
     const ref = useRef<HTMLTextAreaElement>(null);
 
@@ -130,12 +155,15 @@ export const MathBlock = createReactBlockSpec(MATH_BLOCK_CONFIG, {
     const commit = () => {
       setEditing(false);
       const next = draft.trim();
-      if (next === latex) return;
+      // Emptiness is checked before the no-op short-circuit: for a block that
+      // /math just created, `next` and `latex` are both "", so an equality test
+      // first would leave the empty block in the document forever, reopening
+      // and stealing focus on every mount.
       if (next === "") {
-        // An accidental /math leaves nothing behind.
         editor.removeBlocks([block]);
         return;
       }
+      if (next === latex) return;
       editor.updateBlock(block, { props: { latex: next } });
     };
 
@@ -205,6 +233,15 @@ export const InlineMath = createReactInlineContentSpec(MATH_INLINE_CONFIG, {
     const commit = () => {
       setEditing(false);
       const next = draft.trim();
+      // An inline node cannot delete itself through `updateInlineContent`, so
+      // committing "" would strand an "Empty formula" chip mid-sentence that
+      // clicking only reopens, and that exports as a bare "$$". Refuse the empty
+      // commit instead; the node is removed the way every other inline node is,
+      // with backspace.
+      if (next === "") {
+        setDraft(latex);
+        return;
+      }
       if (next !== latex) {
         updateInlineContent({ type: "inlineMath", props: { latex: next } });
       }

@@ -21,7 +21,14 @@ schema entries. No new tables, columns or endpoints.
 
 ## 3. Renderer
 
-[KaTeX](https://katex.org) 0.18, pinned.
+[KaTeX](https://katex.org) 0.16.47, pinned.
+
+The exact version is load-bearing beyond reproducibility: `rehype-katex`, which
+renders math in the AI panels, depends on KaTeX 0.16 and generates markup for
+0.16's class vocabulary. Pinning the editor to a different major would ship two
+copies and style one of them with the other's stylesheet, so every formula in
+chat would render unstyled. `apps/web`, `packages/editor` and the mobile CDN pin
+therefore all name the same version.
 
 It renders synchronously, needs no layout passes, and ships a self-contained
 stylesheet. Decisively, its `throwOnError: false` mode turns a malformed formula
@@ -68,8 +75,18 @@ source editor:
   than a floating popover. It keeps the caret where the user is looking, needs
   no positioning logic, and works on a phone.
 
-An empty formula that loses focus deletes itself, so an accidental `/math`
-leaves nothing behind.
+An empty *block* that loses focus deletes itself, so an accidental `/math`
+leaves nothing behind. An inline formula instead refuses an empty commit and
+restores its previous LaTeX: an inline node cannot delete itself through
+`updateInlineContent`, and committing nothing would strand a placeholder chip
+mid-sentence that clicking only reopens. It is removed with backspace, like any
+other inline node.
+
+Only a formula the local client just inserted opens straight into its source
+field. That is tracked by a module-level latch the insertion sites set and the
+first render consumes, rather than inferred from emptiness: an empty formula
+arriving from a peer, or re-rendered on load, must not steal focus (on a phone,
+raise the keyboard).
 
 ## 6. Entry points
 
@@ -86,6 +103,12 @@ dinner` intact: the text between those two dollars ends in a space, so the secon
 is also rejected, because `$5-$10 range` satisfies the delimiter rule but is a
 price. The cost of that second guard is that `$1+1$` stays literal; write
 `$1 + 1 = 2$`, or use a display block. `\$` stays literal throughout.
+
+The block rule additionally requires a paragraph whose entire text is the `$$`
+about to be deleted. `prosemirror-inputrules` matches only the text before the
+caret, so without that check `$$ ` typed at the start of a paragraph that already
+had content, or at the start of a heading or list item, would convert it to a
+block whose content model is `none` and destroy everything it held.
 
 On web both rules are genuine `prosemirror-inputrules` rules, mirroring
 `calloutInputRule.ts`. On mobile only the block rule exists, using the keydown
@@ -110,10 +133,17 @@ Import lifts `$$ ... $$` runs out before handing the rest to BlockNote, then
 re-inserts them as math blocks at the right positions; inline `$ ... $` is
 matched inside the resulting paragraphs, including inside callout bodies.
 
-A display run must open its own line and must not sit inside a blockquote, so a
-`$$` in a callout body is left to the callout pass rather than hoisted out of its
-quote. An unterminated `$$` stays literal text rather than swallowing the rest of
-the note, and `$$ $$` produces nothing rather than an empty box.
+A display run must open its own line and must sit outside both blockquotes and
+fenced code blocks: a `$$` in a callout body belongs to the callout pass, and a
+`$$` inside a fence is code. Hoisting either would delete those lines from their
+block and leave the fence unbalanced. An unterminated `$$` stays literal text
+rather than swallowing the rest of the note, and `$$ $$` produces nothing rather
+than an empty box.
+
+Both directions walk `children`, so math nested under a list item or a toggle
+round-trips like any other. Neither touches a `codeBlock`: its content model is
+`plain` and cannot hold an inline node at all, and code is exactly where `$VAR`
+is routine, so a line like `git diff $BASE..$HEAD` must survive untouched.
 
 `tools/mcp-server/src/math.ts` carries a port of this module, alongside the
 existing callout port, so MCP consumers and AI proposals see the same Markdown

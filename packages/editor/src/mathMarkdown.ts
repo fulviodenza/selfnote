@@ -13,11 +13,16 @@
  *    paragraphs, let BlockNote parse the rest, then restore them as math blocks
  *    and split the remaining text runs on inline `$ … $`.
  *
+ * Both directions walk `children`, so math nested under a list item or a toggle
+ * is handled like any other. Both also leave code alone: a shell line such as
+ * `git diff $BASE..$HEAD` is not mathematics, and a `codeBlock` cannot hold an
+ * inline node anyway.
+ *
  * The two round-trips compose inside calloutMarkdown.ts's public entry points,
  * so callers see one pair of functions.
  *
- * NOTE: apps/mobile/src/editor/editorHtml.ts carries a port of this logic;
- * keep the two in sync.
+ * NOTE: apps/mobile/src/editor/editorHtml.ts and tools/mcp-server/src/math.ts
+ * carry ports of this logic; keep the three in sync.
  */
 
 /** Blocks as far as this module cares. */
@@ -25,6 +30,7 @@ interface Block {
   type?: string;
   props?: { latex?: string };
   content?: unknown;
+  children?: unknown;
 }
 
 interface InlineNode {
@@ -45,6 +51,24 @@ const INLINE_SENTINEL = (i: number) => `@@MATHI-${i}@@`;
 /** Matches a sentinel even if the serializer escaped its punctuation. */
 function sentinelPattern(kind: "B" | "I", i: number): RegExp {
   return new RegExp(`\\\\?@\\\\?@MATH${kind}-${i}\\\\?@\\\\?@`, "g");
+}
+
+/**
+ * Blocks whose BlockNote content model is `"plain"` (`text*`), which therefore
+ * cannot hold an `inlineMath` node: inserting one produces a document
+ * ProseMirror will not accept, and the code the user wrote is silently mangled.
+ * Code is also the one place where `$VAR` syntax is routine.
+ */
+const PLAIN_CONTENT_TYPES = new Set(["codeBlock"]);
+
+/** Map `fn` over a block tree, recursing through `children`. */
+function mapBlocks(blocks: unknown[], fn: (block: unknown) => unknown): unknown[] {
+  return (blocks ?? []).map((block) => {
+    const mapped = fn(block);
+    const kids = (block as Block)?.children;
+    if (!Array.isArray(kids) || kids.length === 0) return mapped;
+    return { ...(mapped as object), children: mapBlocks(kids, fn) };
+  });
 }
 
 /* ----------------------------------------------------------------- export -- */
@@ -75,7 +99,7 @@ export function stripMathForExport(blocks: unknown[]): {
     });
   };
 
-  const out = blocks.map((block) => {
+  const out = mapBlocks(blocks, (block) => {
     const b = block as Block;
     if (b?.type === "math") {
       const i = blockMath.length;
@@ -109,22 +133,32 @@ interface BlockMathMatch {
   latex: string;
 }
 
+/** A fenced code block opens or closes here. */
+const FENCE_RE = /^\s*(?:```|~~~)/;
+
 /**
  * Pull `$$ … $$` display runs out of `markdown`, replacing each with a
  * placeholder paragraph line.
  *
- * Only runs whose `$$` opens a line and that are not inside a blockquote are
- * taken, so a `$$` sitting in a callout body is left for the callout pass
- * rather than being hoisted out of its blockquote.
+ * Only runs whose `$$` opens a line are taken, and never inside a blockquote or
+ * a fenced code block: a `$$` in a callout body belongs to the callout pass, and
+ * a `$$` inside a fence is code. Hoisting either would delete those lines from
+ * their block and leave the fence unbalanced.
  */
 function extractBlockMath(markdown: string): { rewritten: string; found: BlockMathMatch[] } {
   const lines = markdown.split("\n");
   const out: string[] = [];
   const found: BlockMathMatch[] = [];
+  let inFence = false;
 
   for (let i = 0; i < lines.length; i++) {
     const line = lines[i];
-    const opener = /^\s*\$\$(.*)$/.exec(line);
+    if (FENCE_RE.test(line)) {
+      inFence = !inFence;
+      out.push(line);
+      continue;
+    }
+    const opener = inFence ? null : /^\s*\$\$(.*)$/.exec(line);
     if (!opener || /^\s*>/.test(line)) {
       out.push(line);
       continue;
@@ -137,11 +171,13 @@ function extractBlockMath(markdown: string): { rewritten: string; found: BlockMa
       continue;
     }
 
-    // Otherwise consume until the closing `$$`.
+    // Otherwise consume until the closing `$$`, stopping at a fence so a run can
+    // never swallow one.
     const body: string[] = opener[1].trim() ? [opener[1]] : [];
     let j = i + 1;
     let closed = false;
     for (; j < lines.length; j++) {
+      if (FENCE_RE.test(lines[j])) break;
       const close = /^(.*?)\$\$\s*$/.exec(lines[j]);
       if (close) {
         if (close[1].trim()) body.push(close[1]);
@@ -187,6 +223,9 @@ const INLINE_RE = /(^|[^\\$])\$([^\s$][^$]*?[^\s$]|[^\s$])\$/g;
  * prices are far more common in notes than a formula whose entire content is
  * "5-". The cost is that `$1+1$` stays literal; write `$1 + 1 = 2$` or use a
  * display block for arithmetic that really is meant as math.
+ *
+ * Kept identical to NOT_MATH_RE in mathInputRule.ts, so typing a formula and
+ * pasting the same formula produce the same result.
  */
 const NOT_MATH_RE = /^[\d.,\-+/*\s]*$/;
 
@@ -245,11 +284,13 @@ export function prepareMathForImport(markdown: string): {
   const { rewritten, found } = extractBlockMath(markdown);
 
   const restore = (blocks: unknown[]): unknown[] =>
-    blocks.map((block) => {
+    mapBlocks(blocks, (block) => {
       const b = block as Block;
       const sole = soleText(b);
       const idx = sole ? found.findIndex((f) => f.placeholder === sole) : -1;
       if (idx !== -1) return { type: "math", props: { latex: found[idx].latex } };
+      // Code holds `$VAR` legitimately, and cannot hold an inline node at all.
+      if (b?.type && PLAIN_CONTENT_TYPES.has(b.type)) return block;
       const content = withInlineMath(b?.content);
       return content === b?.content ? block : { ...b, content };
     });

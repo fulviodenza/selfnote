@@ -20,7 +20,7 @@ export function editorHtml(theme: "light" | "dark"): string {
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1" />
     <link rel="stylesheet" href="https://esm.sh/@blocknote/core@0.54.0/style.css" />
-    <link rel="stylesheet" href="https://esm.sh/katex@0.18.7/dist/katex.min.css" />
+    <link rel="stylesheet" href="https://esm.sh/katex@0.16.47/dist/katex.min.css" />
     <!--
       Force a SINGLE shared copy of the CRDT libs. Without this, esm.sh gives our
       direct yjs/lib0/y-protocols imports a different instance than the copies
@@ -260,7 +260,7 @@ export function editorHtml(theme: "light" | "dark"): string {
         getDefaultSlashMenuItems,
         filterSuggestionItems,
       } from "https://esm.sh/@blocknote/core@0.54.0?external=yjs";
-      import katex from "https://esm.sh/katex@0.18.7";
+      import katex from "https://esm.sh/katex@0.16.47";
       import { withCollaboration } from "https://esm.sh/@blocknote/core@0.54.0/yjs?external=yjs";
       import { Awareness } from "https://esm.sh/y-protocols@1.0.7/awareness?external=yjs";
 
@@ -341,6 +341,21 @@ export function editorHtml(theme: "light" | "dark"): string {
         }
       }
 
+      /*
+       * Set by the insertion sites (the /math item and the "$$" input rule) just
+       * before they create a block, and consumed by that block's first render,
+       * which is the only one that should open its source field. Without it,
+       * every existing empty formula (one synced from a peer, one re-rendered on
+       * load) would raise the soft keyboard and steal the caret.
+       */
+      let mathJustInserted = false;
+      function markMathInserted() { mathJustInserted = true; }
+      function consumeMathInsertion() {
+        const was = mathJustInserted;
+        mathJustInserted = false;
+        return was;
+      }
+
       // Tapping a formula opens its LaTeX in a field; blur commits. Shared by
       // the block and the inline spec so the two behave identically.
       function mathDom(latex, displayMode, commit) {
@@ -379,9 +394,9 @@ export function editorHtml(theme: "light" | "dark"): string {
         };
 
         show();
-        // A formula created empty (slash command / input rule) opens straight
-        // into its source field.
-        if (!latex) edit();
+        // Only the formula this client just inserted opens straight into its
+        // source field, and never in a read-only render.
+        if (!latex && editable && consumeMathInsertion()) edit();
         return dom;
       }
 
@@ -402,6 +417,10 @@ export function editorHtml(theme: "light" | "dark"): string {
         render: (inlineContent, updateInlineContent) => {
           const latex = (inlineContent.props && inlineContent.props.latex) || "";
           const dom = mathDom(latex, false, (next) => {
+            // An inline node cannot delete itself through updateInlineContent,
+            // so committing "" would strand an "Empty formula" chip that tapping
+            // only reopens. Refuse it; backspace removes the node as usual.
+            if (!next) return;
             try {
               updateInlineContent({ type: "inlineMath", props: { latex: next } });
             } catch {}
@@ -493,6 +512,7 @@ export function editorHtml(theme: "light" | "dark"): string {
           } catch {}
           if (text !== "$$") return;
           e.preventDefault();
+          markMathInserted();
           try { editor.updateBlock(block, { type: "math", props: { latex: "" } }); } catch {}
         }, true);
       }
@@ -622,6 +642,8 @@ export function editorHtml(theme: "light" | "dark"): string {
       // escapes backslashes, and a LaTeX body is mostly backslashes.
       const mathBlockSentinel = (i) => "@@MATHB-" + i + "@@";
       const mathInlineSentinel = (i) => "@@MATHI-" + i + "@@";
+      // A fenced code block opens or closes here.
+      const MATH_FENCE_RE = /^\\s*(?:\`\`\`|~~~)/;
       const mathSentinelRe = (kind, i) =>
         new RegExp("\\\\\\\\?@\\\\\\\\?@MATH" + kind + "-" + i + "\\\\\\\\?@\\\\\\\\?@", "g");
 
@@ -631,6 +653,19 @@ export function editorHtml(theme: "light" | "dark"): string {
       // …and a body of only digits and arithmetic punctuation is money, not
       // mathematics ("$5-$10 range").
       const MATH_NOT_RE = /^[\\d.,\\-+/*\\s]*$/;
+      // Blocks whose content model is "plain" (text* only) cannot hold an
+      // inlineMath node, and code is where "$VAR" is routine. Mirrors
+      // PLAIN_CONTENT_TYPES in mathMarkdown.ts.
+      const MATH_PLAIN_TYPES = ["codeBlock"];
+      // Math nested under a list item or toggle must be handled like any other.
+      function mapMathBlocks(blocks, fn) {
+        return (blocks || []).map((block) => {
+          const mapped = fn(block);
+          const kids = block && block.children;
+          if (!Array.isArray(kids) || kids.length === 0) return mapped;
+          return Object.assign({}, mapped, { children: mapMathBlocks(kids, fn) });
+        });
+      }
 
       function stripMathForExport(blocks) {
         const blockMath = [];
@@ -644,7 +679,7 @@ export function editorHtml(theme: "light" | "dark"): string {
             return { type: "text", text: mathInlineSentinel(i), styles: {} };
           });
         };
-        const out = (blocks || []).map((b) => {
+        const out = mapMathBlocks(blocks, (b) => {
           if (b && b.type === "math") {
             const i = blockMath.length;
             blockMath.push((b.props && b.props.latex) || "");
@@ -711,9 +746,11 @@ export function editorHtml(theme: "light" | "dark"): string {
           out.push("", mathBlockSentinel(found.length), "");
           found.push(latex);
         };
+        let inFence = false;
         for (let i = 0; i < lines.length; i++) {
           const line = lines[i];
-          const opener = /^\\s*\\$\\$(.*)$/.exec(line);
+          if (MATH_FENCE_RE.test(line)) { inFence = !inFence; out.push(line); continue; }
+          const opener = inFence ? null : /^\\s*\\$\\$(.*)$/.exec(line);
           if (!opener || /^\\s*>/.test(line)) { out.push(line); continue; }
           const oneLine = /^(.*?)\\$\\$\\s*$/.exec(opener[1]);
           if (oneLine) { push(oneLine[1]); continue; }
@@ -721,6 +758,8 @@ export function editorHtml(theme: "light" | "dark"): string {
           let j = i + 1;
           let closed = false;
           for (; j < lines.length; j++) {
+            // Stop at a fence so a run can never swallow one.
+            if (MATH_FENCE_RE.test(lines[j])) break;
             const close = /^(.*?)\\$\\$\\s*$/.exec(lines[j]);
             if (close) { if (close[1].trim()) body.push(close[1]); closed = true; break; }
             body.push(lines[j]);
@@ -731,13 +770,15 @@ export function editorHtml(theme: "light" | "dark"): string {
           i = j;
         }
         const restore = (blocks) =>
-          (blocks || []).map((b) => {
+          mapMathBlocks(blocks, (b) => {
             if (b && b.type === "paragraph" && Array.isArray(b.content) && b.content.length === 1) {
               const t = ((b.content[0] && b.content[0].text) || "").trim();
               for (let i = 0; i < found.length; i++) {
                 if (t === mathBlockSentinel(i)) return { type: "math", props: { latex: found[i] } };
               }
             }
+            // Code holds "$VAR" legitimately, and cannot hold an inline node.
+            if (b && b.type && MATH_PLAIN_TYPES.indexOf(b.type) !== -1) return b;
             const content = withInlineMath(b && b.content);
             return b && content !== b.content ? Object.assign({}, b, { content: content }) : b;
           });
@@ -1317,6 +1358,7 @@ export function editorHtml(theme: "light" | "dark"): string {
             const block = editor.getTextCursorPosition().block;
             const content = block.content;
             const isEmpty = block.type === "paragraph" && (!Array.isArray(content) || content.length === 0);
+            markMathInserted();
             if (isEmpty) {
               editor.updateBlock(block, { type: "math", props: { latex: "" } });
             } else {

@@ -34,7 +34,7 @@ import {
 import { schema } from "./schema";
 import { CALLOUT_KINDS, ensureCalloutStyles, type CalloutKind } from "./callout";
 import { registerCalloutInputRule } from "./calloutInputRule";
-import { ensureMathStyles } from "./math";
+import { ensureMathStyles, markMathInserted } from "./math";
 import { registerMathInputRules } from "./mathInputRule";
 import { registerSelectAllShortcut } from "./selectAll";
 import { registerUndoShortcut } from "./undoShortcut";
@@ -400,8 +400,9 @@ export function CollaborativeEditor({
             const isEmpty =
               current.type === "paragraph" &&
               (!Array.isArray(content) || content.length === 0);
-            // The new block starts empty, so MathBlock opens it straight into
-            // its source field.
+            // Tells MathBlock's first render that this formula is the one this
+            // client just asked for, so it opens straight into its source field.
+            markMathInserted();
             if (isEmpty) {
               editor.updateBlock(current, { type: "math", props: { latex: "" } });
             } else {
