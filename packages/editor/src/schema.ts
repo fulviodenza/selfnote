@@ -8,8 +8,13 @@
  * The mobile vanilla editor builds the equivalent schema from an identical block
  * config — see apps/mobile/src/editor/editorHtml.ts and callout.tsx CALLOUT_CONFIG.
  */
-import { BlockNoteSchema, defaultBlockSpecs } from "@blocknote/core";
+import {
+  BlockNoteSchema,
+  defaultBlockSpecs,
+  defaultInlineContentSpecs,
+} from "@blocknote/core";
 import { CalloutBlock } from "./callout";
+import { InlineMath, MathBlock } from "./math";
 
 /**
  * `createReactBlockSpec` returns a factory `(options?) => BlockSpec` in BlockNote
@@ -19,6 +24,11 @@ export const schema = BlockNoteSchema.create({
   blockSpecs: {
     ...defaultBlockSpecs,
     callout: CalloutBlock(),
+    math: MathBlock(),
+  },
+  inlineContentSpecs: {
+    ...defaultInlineContentSpecs,
+    inlineMath: InlineMath,
   },
 });
 

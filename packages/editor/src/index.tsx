@@ -8,6 +8,7 @@
  */
 import "@blocknote/core/fonts/inter.css";
 import "@blocknote/mantine/style.css";
+import "katex/dist/katex.min.css";
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { BlockNoteEditor } from "@blocknote/core";
 import { filterSuggestionItems } from "@blocknote/core/extensions";
@@ -33,6 +34,8 @@ import {
 import { schema } from "./schema";
 import { CALLOUT_KINDS, ensureCalloutStyles, type CalloutKind } from "./callout";
 import { registerCalloutInputRule } from "./calloutInputRule";
+import { ensureMathStyles } from "./math";
+import { registerMathInputRules } from "./mathInputRule";
 import { registerSelectAllShortcut } from "./selectAll";
 import { registerUndoShortcut } from "./undoShortcut";
 import {
@@ -294,12 +297,15 @@ export function CollaborativeEditor({
     }),
   );
 
-  // Inject the callout CSS once, attach the `[!kind] ` input rule, the
-  // Ctrl/Cmd+A progressive select-all, and the global Ctrl/Cmd+Z undo (works
-  // even when focus is outside the editor — toolbar clicks, panels, …).
+  // Inject the callout and math CSS once, attach the `[!kind] ` and `$$`/`$…$`
+  // input rules, the Ctrl/Cmd+A progressive select-all, and the global
+  // Ctrl/Cmd+Z undo (works even when focus is outside the editor: toolbar
+  // clicks, panels, and so on).
   useEffect(() => {
     ensureCalloutStyles();
+    ensureMathStyles();
     registerCalloutInputRule(editor as unknown as Parameters<typeof registerCalloutInputRule>[0]);
+    registerMathInputRules(editor as unknown as Parameters<typeof registerMathInputRules>[0]);
     registerSelectAllShortcut(
       editor as unknown as Parameters<typeof registerSelectAllShortcut>[0],
     );
@@ -384,6 +390,29 @@ export function CollaborativeEditor({
         // Callout: a default "Callout" (note) plus one per kind. Inserting swaps
         // the current empty block (or inserts after) with a callout of that kind.
         ...calloutSlashItems(editor),
+        {
+          title: "Math block",
+          aliases: ["math", "latex", "formula", "equation", "katex"],
+          group: "Blocks",
+          onItemClick: () => {
+            const current = editor.getTextCursorPosition().block;
+            const content = current.content;
+            const isEmpty =
+              current.type === "paragraph" &&
+              (!Array.isArray(content) || content.length === 0);
+            // The new block starts empty, so MathBlock opens it straight into
+            // its source field.
+            if (isEmpty) {
+              editor.updateBlock(current, { type: "math", props: { latex: "" } });
+            } else {
+              editor.insertBlocks(
+                [{ type: "math", props: { latex: "" } }],
+                current,
+                "after",
+              );
+            }
+          },
+        },
       ];
 
       if (linkNoteProvider) {
@@ -575,9 +604,10 @@ export function ReadOnlyPreview({
     [blocks],
   );
 
-  // The preview may contain callouts — ensure their styles are present.
+  // The preview may contain callouts or formulas, so both style sets are needed.
   useEffect(() => {
     ensureCalloutStyles();
+    ensureMathStyles();
   }, []);
 
   return <BlockNoteView editor={editor} theme={theme} editable={false} />;

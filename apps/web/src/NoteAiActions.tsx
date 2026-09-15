@@ -11,6 +11,10 @@
 import { useEffect, useRef, useState } from "react";
 import ReactMarkdown from "react-markdown";
 import remarkGfm from "remark-gfm";
+// Math in assistant output: the model is a common source of it.
+import remarkMath from "remark-math";
+import rehypeKatex from "rehype-katex";
+import "katex/dist/katex.min.css";
 import { api, type AiActionKind, type AiActionScope } from "./api";
 import { Icon } from "./Icon";
 
@@ -297,7 +301,7 @@ function AiActionResult({
             <div className="nai-panel-error">{error}</div>
           ) : (
             <div className="assist-md">
-              <ReactMarkdown remarkPlugins={[remarkGfm]}>{result}</ReactMarkdown>
+              <ReactMarkdown remarkPlugins={[remarkGfm, remarkMath]} rehypePlugins={[rehypeKatex]}>{result}</ReactMarkdown>
               {busy ? <span className="assist-caret" /> : null}
             </div>
           )}

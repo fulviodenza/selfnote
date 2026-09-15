@@ -27,6 +27,7 @@ import {
   parseCalloutMarker,
   type CalloutKind,
 } from "./callout";
+import { prepareMathForImport, stripMathForExport } from "./mathMarkdown";
 
 /** Structural subset of the BlockNote editor the round-trip needs. */
 export interface MarkdownEditor {
@@ -50,15 +51,18 @@ const SENTINEL = (i: number) => `@@CALLOUT-${i}@@`;
 
 /**
  * Export `blocks` (default: the whole document) to Markdown, emitting callouts as
- * GitHub alerts. Callout blocks are temporarily swapped for a placeholder
- * paragraph so BlockNote lays them out in order; we then substitute each
- * placeholder with the rendered alert.
+ * GitHub alerts and math as `$$ … $$` / `$ … $`. Callout and math blocks are
+ * temporarily swapped for a placeholder paragraph so BlockNote lays them out in
+ * order; we then substitute each placeholder with the real syntax.
  */
 export async function blocksToMarkdownWithCallouts(
   editor: MarkdownEditor,
   blocks?: unknown[],
 ): Promise<string> {
-  const list = (blocks ?? editor.document) as Block[];
+  // Math first: the callout pass re-serializes a callout's own inline content,
+  // so any inline math inside one must already be a sentinel by then.
+  const math = stripMathForExport((blocks ?? editor.document) as unknown[]);
+  const list = math.blocks as Block[];
   const callouts: string[] = [];
 
   // Replace each callout with a sentinel paragraph, remembering its alert text.
@@ -86,7 +90,7 @@ export async function blocksToMarkdownWithCallouts(
     // Tolerate serializer escaping (e.g. `\@`) around the sentinel characters.
     md = md.replace(sentinelPattern(i), () => callouts[i]);
   }
-  return md;
+  return math.restore(md);
 }
 
 /** Regex matching SENTINEL(i) even if the serializer escaped its punctuation. */
@@ -186,9 +190,12 @@ export async function markdownToBlocksWithCallouts(
   editor: MarkdownEditor,
   markdown: string,
 ): Promise<unknown[]> {
-  const { rewritten, alerts } = extractAlerts(markdown);
+  // Lift display math out first, so a `$$ … $$` run is never handed to the
+  // alert scanner or to BlockNote as prose.
+  const math = prepareMathForImport(markdown);
+  const { rewritten, alerts } = extractAlerts(math.markdown);
   const blocks = (await editor.tryParseMarkdownToBlocks(rewritten)) as Block[];
-  if (alerts.length === 0) return blocks;
+  if (alerts.length === 0) return math.restore(blocks);
 
   // Pre-parse each alert body (flattened to one paragraph) to inline content.
   const bodyContent = await Promise.all(
@@ -206,13 +213,15 @@ export async function markdownToBlocksWithCallouts(
     }),
   );
 
-  // Swap any placeholder paragraph for its callout block.
-  return blocks.map((block) => {
+  // Swap any placeholder paragraph for its callout block, then restore math
+  // into whatever is left (including the callout bodies just built).
+  const withCallouts = blocks.map((block) => {
     const text = soleText(block);
     const idx = text ? alerts.findIndex((a) => a.placeholder === text) : -1;
     if (idx === -1) return block;
     return { type: "callout", props: { kind: alerts[idx].kind }, content: bodyContent[idx] };
   });
+  return math.restore(withCallouts);
 }
 
 /** If a block is a paragraph whose only inline content is one text run, return it. */

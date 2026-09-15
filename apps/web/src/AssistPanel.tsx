@@ -8,6 +8,10 @@ import { cloneElement, isValidElement, useEffect, useMemo, useRef, useState } fr
 import ReactMarkdown from "react-markdown";
 import type { Components } from "react-markdown";
 import remarkGfm from "remark-gfm";
+// Math in assistant output: the model is a common source of it.
+import remarkMath from "remark-math";
+import rehypeKatex from "rehype-katex";
+import "katex/dist/katex.min.css";
 import { createRenderer, CALLOUT_KINDS, calloutIconSvg, type CalloutKind } from "@selfnote/editor";
 import { api, type AiProposal, type AiStatus, type ChatMessage, type ExtraDoc } from "./api";
 import { ContextPicker, type SelectedNote } from "./ContextPicker";
@@ -361,7 +365,7 @@ export function AssistPanel({
               <div className="assist-bubble">
                 {m.role === "assistant" && !m.error ? (
                   <div className="assist-md">
-                    <ReactMarkdown remarkPlugins={[remarkGfm]} components={mdComponents}>
+                    <ReactMarkdown remarkPlugins={[remarkGfm, remarkMath]} rehypePlugins={[rehypeKatex]} components={mdComponents}>
                       {normalizeAlertMarkers(stripInsertMarkers(m.content))}
                     </ReactMarkdown>
                   </div>
