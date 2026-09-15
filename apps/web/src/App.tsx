@@ -1392,7 +1392,15 @@ function Row({
       <div
         className={active ? "row active" : "row"}
         style={{ paddingLeft: 8 + depth * 16 }}
-        onClick={() => !editing && onOpen(doc.id)}
+        aria-expanded={hasChildren ? expanded : undefined}
+        /*
+         * A page with children is a container, and the reason to click one is
+         * almost always to see what is inside it rather than to open a mostly
+         * empty container note. So the row body toggles the subtree, and the
+         * page itself opens from the .row-open button below. Leaf pages are
+         * unchanged: clicking one opens it.
+         */
+        onClick={() => !editing && (hasChildren ? onToggle(doc.id) : onOpen(doc.id))}
       >
         {hasChildren ? (
           <button
@@ -1453,6 +1461,25 @@ function Row({
             <Icon name="trash-2" size={15} />
           </button>
         </span>
+        {/*
+          Always visible, and deliberately after .row-actions so the hover-only
+          buttons appear to its left and it never shifts under the cursor. This
+          is the only way to reach a container page, so it cannot be hover-gated.
+        */}
+        {hasChildren && (
+          <button
+            type="button"
+            className="row-open"
+            title="Open page"
+            aria-label="Open page"
+            onClick={(e) => {
+              e.stopPropagation();
+              onOpen(doc.id);
+            }}
+          >
+            <Icon name="file-text" size={15} />
+          </button>
+        )}
       </div>
       {children}
     </>
