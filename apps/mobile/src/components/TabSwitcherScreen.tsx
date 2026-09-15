@@ -16,7 +16,7 @@ import { FlatList, Pressable, StyleSheet, Text, View } from "react-native";
 import { Feather } from "@expo/vector-icons";
 import type { Document } from "../api";
 import { loadCachedStates } from "../persistence/sqlite";
-import { hitSlop, radius, spacing } from "../theme";
+import { hitSlop, radius, sizing, spacing } from "../theme";
 import type { Palette, TypeRoles } from "../theme";
 import { useTheme } from "../theme-context";
 import { IconButton } from "../ui";
@@ -126,13 +126,20 @@ export function TabSwitcherScreen({
                 <Text style={[styles.cardTitle, active && styles.cardTitleActive]} numberOfLines={1}>
                   {title}
                 </Text>
+                {/*
+                  A sized pressable rather than a small icon with hitSlop: the
+                  slop needed to reach a real target overlapped the title on one
+                  side and spilled past the card on the other, where the card's
+                  overflow: hidden clipped it. Laid out as a sibling, the target
+                  is exactly where it looks.
+                */}
                 <Pressable
                   onPress={() => onClose(item.id)}
-                  hitSlop={hitSlop(14)}
+                  style={styles.cardClose}
                   accessibilityRole="button"
                   accessibilityLabel={`Close ${title}`}
                 >
-                  <Feather name="x" size={14} color={colors.inkSoft} />
+                  <Feather name="x" size={16} color={colors.inkSoft} />
                 </Pressable>
               </View>
               <View style={styles.cardBody}>
@@ -199,12 +206,16 @@ const makeStyles = (colors: Palette, type: TypeRoles) =>
     cardHead: {
       flexDirection: "row",
       alignItems: "center",
-      gap: spacing.sm,
-      paddingHorizontal: spacing.sm,
-      paddingVertical: spacing.sm,
+      paddingLeft: spacing.sm,
       borderBottomWidth: 1,
       borderBottomColor: colors.hairline,
       backgroundColor: colors.surfaceSunken,
+    },
+    cardClose: {
+      width: sizing.iconVisual,
+      height: sizing.iconVisual,
+      alignItems: "center",
+      justifyContent: "center",
     },
     cardTitle: { ...type.meta, flex: 1, color: colors.ink },
     cardTitleActive: { fontWeight: "600" },
