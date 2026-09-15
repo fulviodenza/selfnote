@@ -1307,18 +1307,6 @@ function ConnectedEditor({
   // Composer prefill for the selection bar's "Ask AI".
   const [assistPrefill, setAssistPrefill] = useState("");
 
-  // Load this page's task metadata (404 = not a task).
-  useEffect(() => {
-    let alive = true;
-    setTask(undefined);
-    api
-      .getTask(doc.id)
-      .then((t) => alive && setTask(t))
-      .catch(() => alive && setTask(null));
-    return () => {
-      alive = false;
-    };
-  }, [doc.id]);
 
   // Attach a file: pick → upload (multipart) → insert the matching block.
   const attachFile = async () => {
@@ -1347,6 +1335,27 @@ function ConnectedEditor({
   const [linksVersion, setLinksVersion] = useState(0);
   const editorRef = useRef<EditorHandle>(null);
   const toast = useToast();
+
+  // Load this page's task metadata (404 = not a task).
+  useEffect(() => {
+    let alive = true;
+    setTask(undefined);
+    api
+      .getTask(doc.id)
+      .then((t) => alive && setTask(t))
+      .catch((e: unknown) => {
+        if (!alive) return;
+        // Fall back to "not a task" either way, so the page stays usable, but
+        // say so when the reason was not a 404: silently offering "Make task"
+        // on a page that IS a task, because the server was unreachable, reads
+        // as data loss.
+        setTask(null);
+        if ((e as { status?: number }).status !== 404) toast("Couldn't load the task.");
+      });
+    return () => {
+      alive = false;
+    };
+  }, [doc.id, toast]);
 
   // Poll pending proposals for this doc — on open and after each assistant reply.
   const refreshProposals = useCallback(async () => {

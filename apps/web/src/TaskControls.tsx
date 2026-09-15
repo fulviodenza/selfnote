@@ -34,22 +34,34 @@ export function MakeTaskButton({
   onChange: (task: Task | null) => void;
 }) {
   const [busy, setBusy] = useState(false);
+  const [error, setError] = useState<string | null>(null);
   return (
-    <button
-      className="task-make"
-      disabled={busy}
-      onClick={async () => {
-        if (busy) return;
-        setBusy(true);
-        try {
-          onChange(await api.setTask(docId, {}));
-        } finally {
-          setBusy(false);
-        }
-      }}
-    >
-      <Icon name="check-square" size={12} /> Make task
-    </button>
+    <>
+      <button
+        className="task-make"
+        disabled={busy}
+        title={error ?? undefined}
+        onClick={async () => {
+          if (busy) return;
+          setBusy(true);
+          setError(null);
+          try {
+            onChange(await api.setTask(docId, {}));
+          } catch {
+            // Without this the rejection is unhandled and the chip just
+            // re-enables, which reads as "nothing happened" rather than
+            // "that failed". The message renders beside it, as LabelBar's
+            // own errors do.
+            setError("Couldn't make this page a task.");
+          } finally {
+            setBusy(false);
+          }
+        }}
+      >
+        <Icon name="check-square" size={12} /> Make task
+      </button>
+      {error && <span className="label-error">{error}</span>}
+    </>
   );
 }
 

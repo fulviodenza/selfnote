@@ -53,24 +53,46 @@ export function PresenceChips({ connection }: { connection: DocConnection }) {
 
   if (peers.length === 0) return null;
 
+  /*
+   * One name, then a count. The topbar is a non-wrapping row that also carries
+   * the title, the tab count and up to five icon buttons; three full chips at
+   * 120px each would eat a phone's whole width and push the trailing buttons
+   * off the right edge, where they cannot be tapped. The container also
+   * shrinks, so a long name yields before the buttons do.
+   */
+  const [first, ...rest] = peers;
+
   return (
     <View style={styles.wrap}>
-      {peers.map((p) => (
-        <View key={p.clientId} style={styles.chip}>
-          <View style={[styles.dot, { backgroundColor: p.color }]} />
-          <Text style={styles.name} numberOfLines={1}>
-            {p.name}
-          </Text>
-        </View>
-      ))}
+      <View style={styles.chip}>
+        <View style={[styles.dot, { backgroundColor: first.color }]} />
+        <Text style={styles.name} numberOfLines={1}>
+          {first.name}
+        </Text>
+      </View>
+      {rest.length > 0 ? (
+        <Text
+          style={styles.more}
+          accessibilityLabel={`and ${rest.length} more: ${rest.map((p) => p.name).join(", ")}`}
+        >
+          +{rest.length}
+        </Text>
+      ) : null}
     </View>
   );
 }
 
 const makeStyles = (colors: Palette, type: TypeRoles) =>
   StyleSheet.create({
-    wrap: { flexDirection: "row", alignItems: "center", gap: spacing.sm },
-    chip: { flexDirection: "row", alignItems: "center", gap: spacing.xs, maxWidth: 120 },
-    dot: { width: 8, height: 8, borderRadius: 999 },
+    wrap: {
+      flexDirection: "row",
+      alignItems: "center",
+      gap: spacing.xs,
+      flexShrink: 1,
+      maxWidth: 140,
+    },
+    chip: { flexDirection: "row", alignItems: "center", gap: spacing.xs, flexShrink: 1 },
+    dot: { width: 8, height: 8, borderRadius: 999, flexShrink: 0 },
     name: { ...type.meta, color: colors.ink, fontWeight: "600", flexShrink: 1 },
+    more: { ...type.meta, color: colors.inkSoft, flexShrink: 0 },
   });
