@@ -8,6 +8,10 @@
  * existing callout blocks and (b) turned `> [!NOTE]` alerts in incoming Markdown
  * into plain quote blocks.
  *
+ * The same applies to the `math` block and `inlineMath` inline content: their
+ * configs are CRDT-shared too, and the markdown round-trip for them lives in
+ * ./math.ts, composed into the two functions below.
+ *
  * This is a port of packages/editor/src/calloutMarkdown.ts (see also the mobile
  * twin in apps/mobile/src/editor/editorHtml.ts) — keep the three in sync:
  *
@@ -19,7 +23,14 @@
  *    `> [!KIND]` alerts.
  */
 /* eslint-disable @typescript-eslint/no-explicit-any */
-import { BlockNoteSchema, createBlockSpec, defaultBlockSpecs } from "@blocknote/core";
+import {
+  BlockNoteSchema,
+  createBlockSpec,
+  createInlineContentSpec,
+  defaultBlockSpecs,
+  defaultInlineContentSpecs,
+} from "@blocknote/core";
+import { prepareMathForImport, stripMathForExport } from "./math.js";
 
 // The render callback only runs inside server-util's DOM shim; Node's tsconfig
 // has no DOM lib, so declare the global loosely.
@@ -55,11 +66,62 @@ const calloutBlockFactory = createBlockSpec(CALLOUT_CONFIG, {
   },
 });
 
-/** The server schema: default blocks + callout (matches the clients' schemas). */
+/**
+ * SHARED math configs: byte-for-byte identical to MATH_BLOCK_CONFIG and
+ * MATH_INLINE_CONFIG on the clients (packages/editor/src/math.tsx).
+ */
+const MATH_BLOCK_CONFIG = {
+  type: "math" as const,
+  propSchema: {
+    latex: { default: "" as const },
+  },
+  content: "none" as const,
+};
+const MATH_INLINE_CONFIG = {
+  type: "inlineMath" as const,
+  propSchema: {
+    latex: { default: "" as const },
+  },
+  content: "none" as const,
+};
+
+/**
+ * Minimal vanilla renders, for the same reason as the callout one above: the
+ * markdown paths swap math out before BlockNote sees it, so these only matter
+ * if the server ever exports through HTML. The LaTeX is emitted as text rather
+ * than typeset, because KaTeX has no place in a headless write path.
+ */
+const mathBlockFactory = createBlockSpec(MATH_BLOCK_CONFIG, {
+  render: (block: any) => {
+    const dom = document.createElement("div");
+    dom.className = "math-block";
+    dom.textContent = (block?.props?.latex as string) || "";
+    return { dom };
+  },
+});
+
+const inlineMathSpec = (createInlineContentSpec as any)(MATH_INLINE_CONFIG, {
+  render: (inlineContent: any) => {
+    const dom = document.createElement("span");
+    dom.className = "math-inline";
+    dom.textContent = (inlineContent?.props?.latex as string) || "";
+    return { dom };
+  },
+});
+
+/**
+ * The server schema: default blocks + callout + math (matches the clients'
+ * schemas). Every entry here is part of the CRDT contract.
+ */
 export const calloutSchema = BlockNoteSchema.create({
   blockSpecs: {
     ...defaultBlockSpecs,
     callout: (calloutBlockFactory as any)(),
+    math: (mathBlockFactory as any)(),
+  },
+  inlineContentSpecs: {
+    ...defaultInlineContentSpecs,
+    inlineMath: inlineMathSpec,
   },
 } as any);
 
@@ -137,7 +199,10 @@ export async function blocksToMarkdownWithCallouts(
   editor: MarkdownEditor,
   blocks: unknown[],
 ): Promise<string> {
-  const list = blocks as Block[];
+  // Math first: the callout pass re-serializes a callout's own inline content,
+  // so inline math inside one must already be a sentinel by then.
+  const math = stripMathForExport(blocks);
+  const list = math.blocks as Block[];
   const callouts: string[] = [];
 
   // Sequential on purpose: an async map would read `callouts.length` for every
@@ -164,7 +229,7 @@ export async function blocksToMarkdownWithCallouts(
   for (let i = 0; i < callouts.length; i++) {
     md = md.replace(sentinelPattern(i), () => callouts[i]);
   }
-  return md;
+  return math.restore(md);
 }
 
 interface AlertMatch {
@@ -245,9 +310,12 @@ export async function markdownToBlocksWithCallouts(
   editor: MarkdownEditor,
   markdown: string,
 ): Promise<unknown[]> {
-  const { rewritten, alerts } = extractAlerts(markdown);
+  // Lift display math out first, so a `$$ … $$` run is never handed to the
+  // alert scanner or to BlockNote as prose.
+  const math = prepareMathForImport(markdown);
+  const { rewritten, alerts } = extractAlerts(math.markdown);
   const blocks = (await editor.tryParseMarkdownToBlocks(rewritten)) as Block[];
-  if (alerts.length === 0) return blocks;
+  if (alerts.length === 0) return math.restore(blocks);
 
   const bodyContent = await Promise.all(
     alerts.map(async (a) => {
@@ -264,12 +332,14 @@ export async function markdownToBlocksWithCallouts(
     }),
   );
 
-  return blocks.map((block) => {
+  const withCallouts = blocks.map((block) => {
     const text = soleText(block);
     const idx = text ? alerts.findIndex((a) => a.placeholder === text) : -1;
     if (idx === -1) return block;
     return { type: "callout", props: { kind: alerts[idx].kind }, content: bodyContent[idx] };
   });
+  // Restore math into whatever is left, including the callout bodies just built.
+  return math.restore(withCallouts);
 }
 
 /** If a block is a paragraph whose only inline content is one text run, return it. */

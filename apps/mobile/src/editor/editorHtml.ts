@@ -20,6 +20,7 @@ export function editorHtml(theme: "light" | "dark"): string {
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1" />
     <link rel="stylesheet" href="https://esm.sh/@blocknote/core@0.54.0/style.css" />
+    <link rel="stylesheet" href="https://esm.sh/katex@0.16.47/dist/katex.min.css" />
     <!--
       Force a SINGLE shared copy of the CRDT libs. Without this, esm.sh gives our
       direct yjs/lib0/y-protocols imports a different instance than the copies
@@ -74,6 +75,19 @@ export function editorHtml(theme: "light" | "dark"): string {
         background: var(--surface); color: var(--ink);
       }
       .bn-editor { background: var(--surface); color: var(--ink); }
+      /* Math (mirrors MATH_CSS in packages/editor/src/math.tsx). */
+      .math-block { margin: 10px 0; padding: 8px 12px; border-radius: 12px; overflow-x: auto; text-align: center; }
+      .math-inline { display: inline; }
+      .math-render { cursor: pointer; border-radius: 4px; }
+      .math-empty { cursor: pointer; color: var(--ink-faint); font-style: italic; }
+      .math-source {
+        width: 100%; min-height: 64px; box-sizing: border-box;
+        border: 1px solid var(--hairline); border-radius: 8px; padding: 8px 10px;
+        background: var(--surface); color: var(--ink);
+        font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: 16px;
+      }
+      .math-inline .math-source { width: auto; min-height: 0; padding: 1px 6px; display: inline-block; }
+      .katex-error { color: #c4392b; font-family: ui-monospace, SFMono-Regular, Menlo, monospace; }
       #fallback {
         position: fixed; inset: 0; display: flex; flex-direction: column;
         align-items: center; justify-content: center; gap: 14px; padding: 24px;
@@ -239,11 +253,14 @@ export function editorHtml(theme: "light" | "dark"): string {
         BlockNoteEditor,
         BlockNoteSchema,
         createBlockSpec,
+        createInlineContentSpec,
         defaultBlockSpecs,
+        defaultInlineContentSpecs,
         SuggestionMenu,
         getDefaultSlashMenuItems,
         filterSuggestionItems,
       } from "https://esm.sh/@blocknote/core@0.54.0?external=yjs";
+      import katex from "https://esm.sh/katex@0.16.47";
       import { withCollaboration } from "https://esm.sh/@blocknote/core@0.54.0/yjs?external=yjs";
       import { Awareness } from "https://esm.sh/y-protocols@1.0.7/awareness?external=yjs";
 
@@ -290,9 +307,140 @@ export function editorHtml(theme: "light" | "dark"): string {
           return { dom, contentDOM: body };
         },
       });
-      // Shared schema: default blocks + our callout (matches web schema.ts).
+      /* ---------------------------------------------------------- Math ---- */
+      // KaTeX-rendered display blocks and inline math. Both CONFIGS must match
+      // the web editor byte-for-byte (packages/editor/src/math.tsx
+      // MATH_BLOCK_CONFIG / MATH_INLINE_CONFIG) or the shared Yjs schema
+      // desyncs across web/mobile.
+      const MATH_BLOCK_CONFIG = {
+        type: "math",
+        propSchema: { latex: { default: "" } },
+        content: "none",
+      };
+      const MATH_INLINE_CONFIG = {
+        type: "inlineMath",
+        propSchema: { latex: { default: "" } },
+        content: "none",
+      };
+
+      // throwOnError:false is load-bearing, not defensive: pasted math is often
+      // malformed and must degrade to visible red source, never take the editor
+      // down. Mirrors renderMathHtml in math.tsx.
+      function renderMathHtml(latex, displayMode) {
+        try {
+          return katex.renderToString(latex || "", {
+            displayMode: displayMode,
+            throwOnError: false,
+            errorColor: "#c4392b",
+            strict: false,
+          });
+        } catch (e) {
+          const span = document.createElement("span");
+          span.textContent = latex || "";
+          return span.outerHTML;
+        }
+      }
+
+      /*
+       * Set by the insertion sites (the /math item and the "$$" input rule) just
+       * before they create a block, and consumed by that block's first render,
+       * which is the only one that should open its source field. Without it,
+       * every existing empty formula (one synced from a peer, one re-rendered on
+       * load) would raise the soft keyboard and steal the caret.
+       */
+      let mathJustInserted = false;
+      function markMathInserted() { mathJustInserted = true; }
+      function consumeMathInsertion() {
+        const was = mathJustInserted;
+        mathJustInserted = false;
+        return was;
+      }
+
+      // Tapping a formula opens its LaTeX in a field; blur commits. Shared by
+      // the block and the inline spec so the two behave identically.
+      function mathDom(latex, displayMode, commit) {
+        const dom = document.createElement(displayMode ? "div" : "span");
+        dom.className = displayMode ? "math-block" : "math-inline";
+        dom.setAttribute("contenteditable", "false");
+
+        const show = () => {
+          dom.innerHTML = "";
+          const view = document.createElement("span");
+          if (latex) {
+            view.className = "math-render";
+            view.innerHTML = renderMathHtml(latex, displayMode);
+          } else {
+            view.className = "math-empty";
+            view.textContent = "Empty formula";
+          }
+          view.addEventListener("click", (e) => { e.stopPropagation(); edit(); });
+          dom.appendChild(view);
+        };
+
+        const edit = () => {
+          dom.innerHTML = "";
+          const field = document.createElement(displayMode ? "textarea" : "input");
+          field.className = "math-source";
+          field.value = latex;
+          field.setAttribute("aria-label", "LaTeX source");
+          field.addEventListener("blur", () => {
+            const next = field.value.trim();
+            latex = next;
+            commit(next);
+            show();
+          });
+          dom.appendChild(field);
+          field.focus();
+        };
+
+        show();
+        // Only the formula this client just inserted opens straight into its
+        // source field, and never in a read-only render.
+        if (!latex && editable && consumeMathInsertion()) edit();
+        return dom;
+      }
+
+      const mathBlockFactory = createBlockSpec(MATH_BLOCK_CONFIG, {
+        render: (block, editor) => {
+          const latex = (block.props && block.props.latex) || "";
+          const dom = mathDom(latex, true, (next) => {
+            try {
+              if (!next) editor.removeBlocks([block]);
+              else editor.updateBlock(block, { props: { latex: next } });
+            } catch {}
+          });
+          return { dom };
+        },
+      });
+
+      const inlineMathSpec = createInlineContentSpec(MATH_INLINE_CONFIG, {
+        render: (inlineContent, updateInlineContent) => {
+          const latex = (inlineContent.props && inlineContent.props.latex) || "";
+          const dom = mathDom(latex, false, (next) => {
+            // An inline node cannot delete itself through updateInlineContent,
+            // so committing "" would strand an "Empty formula" chip that tapping
+            // only reopens. Refuse it; backspace removes the node as usual.
+            if (!next) return;
+            try {
+              updateInlineContent({ type: "inlineMath", props: { latex: next } });
+            } catch {}
+          });
+          return { dom };
+        },
+      });
+
+      // Shared schema: default blocks + our callout + math (matches web
+      // schema.ts). Every entry here is part of the CRDT contract.
       const bnSchema = BlockNoteSchema.create({
-        blockSpecs: { ...defaultBlockSpecs, callout: calloutBlockFactory() },
+        blockSpecs: {
+          ...defaultBlockSpecs,
+          callout: calloutBlockFactory(),
+          math: mathBlockFactory(),
+        },
+        inlineContentSpecs: {
+          ...defaultInlineContentSpecs,
+          inlineMath: inlineMathSpec,
+        },
       });
 
       // GitHub-alert marker helpers, mirroring callout.tsx parseCalloutMarker
@@ -337,6 +485,35 @@ export function editorHtml(theme: "light" | "dark"): string {
           if (!kind) return;
           e.preventDefault();
           try { editor.updateBlock(block, { type: "callout", props: { kind: kind } }); } catch {}
+        }, true);
+      }
+
+      // Input rule: "$$" then a space at the start of an empty paragraph makes
+      // it a math block. Same keydown approach as the callout rule, for the same
+      // reason (no prosemirror-inputrules in the WebView bundle).
+      //
+      // The web editor also has an inline "$ … $" rule; that one rewrites a text
+      // range, which needs the ProseMirror transaction, so it has no keydown
+      // equivalent. Inline math still reaches mobile through pasted or synced
+      // Markdown, and renders and edits identically once there.
+      function setupMathInputRule(editor) {
+        let dom = null;
+        try { dom = editor._tiptapEditor && editor._tiptapEditor.view && editor._tiptapEditor.view.dom; } catch {}
+        if (!dom) return;
+        dom.addEventListener("keydown", (e) => {
+          if (e.key !== " " && e.key !== "Spacebar") return;
+          let block;
+          try { block = editor.getTextCursorPosition().block; } catch { return; }
+          if (block.type && block.type !== "paragraph") return;
+          let text = "";
+          try {
+            const c = block.content;
+            if (Array.isArray(c)) text = c.map((n) => (n && n.text) || "").join("");
+          } catch {}
+          if (text !== "$$") return;
+          e.preventDefault();
+          markMathInserted();
+          try { editor.updateBlock(block, { type: "math", props: { latex: "" } }); } catch {}
         }, true);
       }
 
@@ -459,6 +636,155 @@ export function editorHtml(theme: "light" | "dark"): string {
       // Uppercase GitHub label for a kind (mirrors callout.tsx calloutLabel).
       function calloutLabel(kind) { return String(kind || "note").toUpperCase(); }
 
+      /* ------------------------------------------ math markdown port ---- */
+      // Mirrors packages/editor/src/mathMarkdown.ts; keep the two in sync.
+      // Sentinels rather than raw "$…$" text because the markdown serializer
+      // escapes backslashes, and a LaTeX body is mostly backslashes.
+      const mathBlockSentinel = (i) => "@@MATHB-" + i + "@@";
+      const mathInlineSentinel = (i) => "@@MATHI-" + i + "@@";
+      // A fenced code block opens or closes here.
+      const MATH_FENCE_RE = /^\\s*(?:\`\`\`|~~~)/;
+      const mathSentinelRe = (kind, i) =>
+        new RegExp("\\\\\\\\?@\\\\\\\\?@MATH" + kind + "-" + i + "\\\\\\\\?@\\\\\\\\?@", "g");
+
+      // Body must open and close on a non-space (the remark-math rule), which is
+      // why "$5 for lunch and $10 for dinner" survives.
+      const MATH_INLINE_RE = /(^|[^\\\\$])\\$([^\\s$][^$]*?[^\\s$]|[^\\s$])\\$/g;
+      // …and a body of only digits and arithmetic punctuation is money, not
+      // mathematics ("$5-$10 range").
+      const MATH_NOT_RE = /^[\\d.,\\-+/*\\s]*$/;
+      // Blocks whose content model is "plain" (text* only) cannot hold an
+      // inlineMath node, and code is where "$VAR" is routine. Mirrors
+      // PLAIN_CONTENT_TYPES in mathMarkdown.ts.
+      const MATH_PLAIN_TYPES = ["codeBlock"];
+      // Math nested under a list item or toggle must be handled like any other.
+      function mapMathBlocks(blocks, fn) {
+        return (blocks || []).map((block) => {
+          const mapped = fn(block);
+          const kids = block && block.children;
+          if (!Array.isArray(kids) || kids.length === 0) return mapped;
+          return Object.assign({}, mapped, { children: mapMathBlocks(kids, fn) });
+        });
+      }
+
+      function stripMathForExport(blocks) {
+        const blockMath = [];
+        const inlineMath = [];
+        const stripInline = (content) => {
+          if (!Array.isArray(content)) return content;
+          return content.map((n) => {
+            if (!n || n.type !== "inlineMath") return n;
+            const i = inlineMath.length;
+            inlineMath.push((n.props && n.props.latex) || "");
+            return { type: "text", text: mathInlineSentinel(i), styles: {} };
+          });
+        };
+        const out = mapMathBlocks(blocks, (b) => {
+          if (b && b.type === "math") {
+            const i = blockMath.length;
+            blockMath.push((b.props && b.props.latex) || "");
+            return { type: "paragraph", content: [{ type: "text", text: mathBlockSentinel(i), styles: {} }] };
+          }
+          const content = stripInline(b && b.content);
+          return b && content !== b.content ? Object.assign({}, b, { content: content }) : b;
+        });
+        const restore = (markdown) => {
+          let md = markdown;
+          for (let i = 0; i < blockMath.length; i++) {
+            md = md.replace(mathSentinelRe("B", i), () => "$$\\n" + blockMath[i] + "\\n$$");
+          }
+          for (let i = 0; i < inlineMath.length; i++) {
+            md = md.replace(mathSentinelRe("I", i), () => "$" + inlineMath[i] + "$");
+          }
+          return md;
+        };
+        return { blocks: out, restore: restore };
+      }
+
+      function splitInlineMath(node) {
+        const text = node && node.text;
+        if (typeof text !== "string" || text.indexOf("$") === -1) return [node];
+        const out = [];
+        let last = 0;
+        MATH_INLINE_RE.lastIndex = 0;
+        for (let m = MATH_INLINE_RE.exec(text); m; m = MATH_INLINE_RE.exec(text)) {
+          // Checked before anything is emitted, so a rejected match leaves
+          // "last" where it was and its text is written out exactly once.
+          if (MATH_NOT_RE.test(m[2])) continue;
+          const start = m.index + m[1].length;
+          if (start > last) out.push(Object.assign({}, node, { text: text.slice(last, start) }));
+          out.push({ type: "inlineMath", props: { latex: m[2] } });
+          last = m.index + m[0].length;
+        }
+        if (out.length === 0) return [node];
+        if (last < text.length) out.push(Object.assign({}, node, { text: text.slice(last) }));
+        return out;
+      }
+
+      function withInlineMath(content) {
+        if (!Array.isArray(content)) return content;
+        let changed = false;
+        const out = [];
+        for (const n of content) {
+          if (!n || n.type !== "text" || typeof n.text !== "string") { out.push(n); continue; }
+          const split = splitInlineMath(n);
+          if (split.length !== 1) changed = true;
+          for (const x of split) out.push(x);
+        }
+        return changed ? out : content;
+      }
+
+      // Lift "$$ … $$" runs (line-leading, not inside a blockquote) out of raw
+      // markdown into sentinel paragraphs, and restore them afterwards.
+      function prepareMathForImport(markdown) {
+        const lines = String(markdown || "").split("\\n");
+        const out = [];
+        const found = [];
+        const push = (raw) => {
+          const latex = raw.trim();
+          if (!latex) return; // "$$ $$" produces nothing rather than an empty box
+          out.push("", mathBlockSentinel(found.length), "");
+          found.push(latex);
+        };
+        let inFence = false;
+        for (let i = 0; i < lines.length; i++) {
+          const line = lines[i];
+          if (MATH_FENCE_RE.test(line)) { inFence = !inFence; out.push(line); continue; }
+          const opener = inFence ? null : /^\\s*\\$\\$(.*)$/.exec(line);
+          if (!opener || /^\\s*>/.test(line)) { out.push(line); continue; }
+          const oneLine = /^(.*?)\\$\\$\\s*$/.exec(opener[1]);
+          if (oneLine) { push(oneLine[1]); continue; }
+          const body = opener[1].trim() ? [opener[1]] : [];
+          let j = i + 1;
+          let closed = false;
+          for (; j < lines.length; j++) {
+            // Stop at a fence so a run can never swallow one.
+            if (MATH_FENCE_RE.test(lines[j])) break;
+            const close = /^(.*?)\\$\\$\\s*$/.exec(lines[j]);
+            if (close) { if (close[1].trim()) body.push(close[1]); closed = true; break; }
+            body.push(lines[j]);
+          }
+          // An unterminated "$$" is just text; do not swallow the rest of the note.
+          if (!closed) { out.push(line); continue; }
+          push(body.join("\\n"));
+          i = j;
+        }
+        const restore = (blocks) =>
+          mapMathBlocks(blocks, (b) => {
+            if (b && b.type === "paragraph" && Array.isArray(b.content) && b.content.length === 1) {
+              const t = ((b.content[0] && b.content[0].text) || "").trim();
+              for (let i = 0; i < found.length; i++) {
+                if (t === mathBlockSentinel(i)) return { type: "math", props: { latex: found[i] } };
+              }
+            }
+            // Code holds "$VAR" legitimately, and cannot hold an inline node.
+            if (b && b.type && MATH_PLAIN_TYPES.indexOf(b.type) !== -1) return b;
+            const content = withInlineMath(b && b.content);
+            return b && content !== b.content ? Object.assign({}, b, { content: content }) : b;
+          });
+        return { markdown: out.join("\\n"), restore: restore };
+      }
+
       // Export blocks to markdown, emitting callouts as GitHub alerts. Callout
       // blocks are swapped for a sentinel paragraph so BlockNote lays them out in
       // order; each sentinel is then replaced with the rendered alert. Mirrors
@@ -468,7 +794,10 @@ export function editorHtml(theme: "light" | "dark"): string {
       const calloutSentinel = (i) => "@@CALLOUT-" + i + "@@";
 
       async function calloutBlocksToMarkdown(editor, blocks) {
-        const list = blocks || editor.document || [];
+        // Math first: the callout pass re-serializes a callout's own inline
+        // content, so inline math inside one must already be a sentinel by then.
+        const math = stripMathForExport(blocks || editor.document || []);
+        const list = math.blocks;
         const alerts = [];
         const patched = [];
         for (const block of list) {
@@ -495,7 +824,7 @@ export function editorHtml(theme: "light" | "dark"): string {
           // Tolerate serializer escaping around the sentinel characters.
           md = md.replace(new RegExp("\\\\\\\\?@\\\\\\\\?@CALLOUT-" + i + "\\\\\\\\?@\\\\\\\\?@"), () => alerts[i]);
         }
-        return md;
+        return math.restore(md);
       }
 
       // Flatten a multi-line alert body into ONE markdown paragraph joined by
@@ -517,7 +846,10 @@ export function editorHtml(theme: "light" | "dark"): string {
       // The WHOLE alert body lands inside the callout; a bodyless marker
       // produces nothing (no empty box). Mirrors calloutMarkdown.ts.
       async function calloutMarkdownToBlocks(editor, markdown) {
-        const lines = String(markdown || "").split("\\n");
+        // Lift display math out first, so a "$$ … $$" run is never handed to
+        // the alert scanner or to BlockNote as prose.
+        const math = prepareMathForImport(markdown);
+        const lines = String(math.markdown).split("\\n");
         const out = [];
         const alerts = [];
         // Marker line, optionally with trailing text ("> [!NOTE] Title …").
@@ -549,7 +881,7 @@ export function editorHtml(theme: "light" | "dark"): string {
           i = j - 1;
         }
         const blocks = await editor.tryParseMarkdownToBlocks(out.join("\\n"));
-        if (alerts.length === 0) return blocks;
+        if (alerts.length === 0) return math.restore(blocks);
         // Parse each flattened body for inline content (styling survives).
         const bodyContent = [];
         for (const a of alerts) {
@@ -562,7 +894,7 @@ export function editorHtml(theme: "light" | "dark"): string {
           } catch {}
           bodyContent.push(content);
         }
-        return blocks.map((block) => {
+        const withCallouts = blocks.map((block) => {
           if (!block || block.type !== "paragraph") return block;
           const c = block.content;
           if (!Array.isArray(c) || c.length !== 1) return block;
@@ -574,6 +906,9 @@ export function editorHtml(theme: "light" | "dark"): string {
           }
           return block;
         });
+        // Restore math into whatever is left, including the callout bodies
+        // just built.
+        return math.restore(withCallouts);
       }
 
       const RN = window.ReactNativeWebView;
@@ -884,6 +1219,7 @@ export function editorHtml(theme: "light" | "dark"): string {
           editor.mount(document.getElementById("root"));
           setupSlashMenu(editor);
           setupCalloutInputRule(editor);
+          setupMathInputRule(editor);
           setupSelectAll(editor);
           setupSelectionToolbar(editor);
           setupUndoShortcut(editor);
@@ -1011,6 +1347,24 @@ export function editorHtml(theme: "light" | "dark"): string {
           aliases: ["callout", "note", "admonition", "alert"],
           group: "Blocks",
           onItemClick: () => insertCallout("note"),
+        });
+        // /math: a display formula. Created empty, so it opens straight into
+        // its source field (mirrors the web "Math block" item).
+        items.push({
+          title: "Math block",
+          aliases: ["math", "latex", "formula", "equation", "katex"],
+          group: "Blocks",
+          onItemClick: () => {
+            const block = editor.getTextCursorPosition().block;
+            const content = block.content;
+            const isEmpty = block.type === "paragraph" && (!Array.isArray(content) || content.length === 0);
+            markMathInserted();
+            if (isEmpty) {
+              editor.updateBlock(block, { type: "math", props: { latex: "" } });
+            } else {
+              editor.insertBlocks([{ type: "math", props: { latex: "" } }], block, "after");
+            }
+          },
         });
         CALLOUT_KINDS.forEach((kind) => {
           items.push({

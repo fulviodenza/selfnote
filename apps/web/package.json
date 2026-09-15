@@ -12,10 +12,13 @@
   "dependencies": {
     "@selfnote/core": "workspace:*",
     "@selfnote/editor": "workspace:*",
+    "katex": "^0.16.47",
     "react": "^19.0.0",
     "react-dom": "^19.0.0",
     "react-markdown": "^9.0.1",
+    "rehype-katex": "^7.0.1",
     "remark-gfm": "^4.0.0",
+    "remark-math": "^6.0.0",
     "yjs": "^13.6.18"
   },
   "devDependencies": {
