@@ -196,16 +196,21 @@ body {
 
 .row-icon {
   color: var(--muted);
-  width: 16px;
+  /* Matches .row-toggle so leaf and container titles share one left edge. */
+  width: 28px;
   text-align: center;
   flex: none;
   font-size: 13px;
 }
 
-/* Chevron toggle for pages with children — clickable without opening the page. */
+/*
+ * Chevron toggle for pages with children. A real control, not a decoration:
+ * 28px of hit target and full-ink contrast, because the row body it shares
+ * space with now toggles too and the glyph has to read as the thing you aim at.
+ */
 .row-toggle {
-  width: 16px;
-  height: 16px;
+  width: 28px;
+  height: 28px;
   flex: none;
   display: flex;
   align-items: center;
@@ -213,14 +218,38 @@ body {
   padding: 0;
   border: none;
   background: none;
-  color: var(--muted);
+  color: var(--fg);
   cursor: pointer;
   border-radius: var(--radius-sm);
 }
 
 .row-toggle:hover {
   color: var(--fg);
-  background: var(--hover);
+  background: var(--hover-strong);
+}
+
+/*
+ * Opens a container page, whose row body toggles rather than opens. Always
+ * visible, never hover-gated: it is the only route to that page.
+ */
+.row-open {
+  flex: none;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 28px;
+  height: 28px;
+  padding: 0;
+  border: none;
+  background: transparent;
+  color: var(--muted);
+  cursor: pointer;
+  border-radius: var(--radius-sm);
+}
+
+.row-open:hover {
+  background: var(--hover-strong);
+  color: var(--fg);
 }
 
 .row-title {

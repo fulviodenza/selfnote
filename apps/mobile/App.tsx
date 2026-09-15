@@ -49,7 +49,7 @@ import {
   defaults,
   type ServerSettings,
 } from "./src/settings";
-import { colors as lightPalette, radius, shadow, sizing, spacing } from "./src/theme";
+import { colors as lightPalette, hitSlop, radius, shadow, sizing, spacing } from "./src/theme";
 import type { Palette, TypeRoles } from "./src/theme";
 import {
   Button,
@@ -1014,18 +1014,39 @@ function DocListScreen({
           renderItem={({ item }) => (
             <Row
               indent={item.depth * 20}
-              onPress={() => onOpen(item.doc)}
+              /*
+               * A page with children is a container, and a tap on one almost
+               * always means "show me what is inside" rather than "open this
+               * mostly empty container note". Container rows therefore toggle,
+               * and the trailing button opens the page. Leaf rows still open on
+               * tap. Search and label-filter rows are built with
+               * hasChildren: false, so those flat lists need no special case.
+               */
+              onPress={() =>
+                item.hasChildren ? toggleCollapse(item.doc.id) : onOpen(item.doc)
+              }
               onLongPress={() => setActionsDoc(item.doc)}
               accessibilityLabel={item.doc.title || "Untitled"}
               trailing={
-                <IconButton icon="plus" label="Add subpage" onPress={() => createDoc(item.doc.id)} />
+                // "Add subpage" already lives in the long-press sheet, so the
+                // trailing slot means exactly one thing: open this page. It is
+                // present precisely where a tap does not open it.
+                item.hasChildren ? (
+                  <IconButton
+                    icon="file-text"
+                    label="Open page"
+                    onPress={() => onOpen(item.doc)}
+                  />
+                ) : null
               }
             >
               <View style={styles.rowInner}>
                 {item.hasChildren ? (
                   <Pressable
                     onPress={() => toggleCollapse(item.doc.id)}
-                    hitSlop={12}
+                    hitSlop={hitSlop(24)}
+                    accessibilityRole="button"
+                    accessibilityState={{ expanded: !collapsed.has(item.doc.id) }}
                     accessibilityLabel={collapsed.has(item.doc.id) ? "Expand" : "Collapse"}
                     style={styles.chevron}
                   >
