@@ -16,6 +16,7 @@ import * as Y from "yjs";
 import { fromBase64, toBase64 } from "lib0/buffer";
 import type { DocConnection } from "@selfnote/core";
 import { api, type DocumentRef, type OutgoingLinkInput } from "../api";
+import { resolveColors } from "../theme";
 import { editorHtml } from "./editorHtml";
 
 export interface EditorUser {
@@ -329,6 +330,20 @@ export const WebViewEditor = forwardRef<EditorHandle, WebViewEditorProps>(
     // eslint-disable-next-line react-hooks/exhaustive-deps
     const html = useMemo(() => editorHtml(theme), []);
 
+    /*
+     * The document boots with the right `data-theme`, but that only governs the
+     * *web* content. A native WebView paints its own opaque white background as
+     * soon as it is attached, which is before the web content has produced a
+     * first frame, so dark mode flashed white for that one frame, most visibly
+     * on an empty page where nothing is drawn afterwards to mask it.
+     *
+     * Painting the native view (and the wrapper react-native-webview inserts)
+     * with the theme surface closes that gap. This one follows `theme` live,
+     * unlike `html` above: a color change is just a style prop, so the
+     * reload-free theme swap keeps working.
+     */
+    const surface = resolveColors(theme).surface;
+
     return (
       <WebView
         ref={ref}
@@ -336,7 +351,8 @@ export const WebViewEditor = forwardRef<EditorHandle, WebViewEditorProps>(
         source={{ html }}
         onMessage={onMessage}
         webviewDebuggingEnabled
-        style={{ flex: 1 }}
+        style={{ flex: 1, backgroundColor: surface }}
+        containerStyle={{ backgroundColor: surface }}
       />
     );
   },
