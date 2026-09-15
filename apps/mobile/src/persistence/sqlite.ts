@@ -39,6 +39,31 @@ export async function loadCachedState(docId: string): Promise<string | null> {
 }
 
 /**
+ * Read several docs' last-saved states in one go, as an id -> state map (ids
+ * with nothing cached are simply absent). The tab switcher reads a preview per
+ * open tab, and doing that through `loadCachedState` would open the database
+ * once per tab; this opens it once.
+ */
+export async function loadCachedStates(
+  docIds: readonly string[],
+): Promise<Map<string, string>> {
+  const out = new Map<string, string>();
+  if (docIds.length === 0) return out;
+  try {
+    const db = await openDb();
+    const holes = docIds.map(() => "?").join(", ");
+    const rows = await db.getAllAsync<{ id: string; state: string }>(
+      `SELECT id, state FROM ydoc WHERE id IN (${holes})`,
+      ...docIds,
+    );
+    for (const row of rows) out.set(row.id, row.state);
+  } catch {
+    /* nothing cached on this device */
+  }
+  return out;
+}
+
+/**
  * Delete the on-device note cache (Settings → "Delete all data on this phone").
  * Dropping the table instead of the database file keeps any open connection
  * valid; the file itself stays but holds nothing.
@@ -90,10 +115,13 @@ export const sqlitePersistence: PersistenceFactory = (docId, doc): DocPersistenc
   return {
     whenSynced,
     async destroy() {
-      destroyed = true;
       if (saveTimer) clearTimeout(saveTimer);
       doc.off("update", onUpdate);
+      // Flush before latching `destroyed`: `persist` early-returns on it, so
+      // setting it first made this final save a no-op and dropped whatever was
+      // still inside the 400ms debounce window.
       persist();
+      destroyed = true;
     },
   };
 };

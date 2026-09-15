@@ -15,7 +15,7 @@ import { useEffect, useMemo, useState } from "react";
 import { FlatList, Pressable, StyleSheet, Text, View } from "react-native";
 import { Feather } from "@expo/vector-icons";
 import type { Document } from "../api";
-import { loadCachedState } from "../persistence/sqlite";
+import { loadCachedStates } from "../persistence/sqlite";
 import { hitSlop, radius, spacing } from "../theme";
 import type { Palette, TypeRoles } from "../theme";
 import { useTheme } from "../theme-context";
@@ -45,24 +45,45 @@ export function TabSwitcherScreen({
   const styles = useMemo(() => makeStyles(colors, type), [colors, type]);
 
   /*
-   * Card excerpts, read once per switcher open and keyed by doc id. Reading is
-   * best-effort and off the render path: a card shows its title immediately and
-   * gains its excerpt when the cache answers.
+   * Card excerpts, keyed by doc id. Reading is best-effort and off the render
+   * path: a card shows its title immediately and gains its excerpt when the
+   * cache answers.
+   *
+   * Only ids we have not excerpted yet are read, and results are merged rather
+   * than replacing the map, so closing one card does not re-read every other
+   * tab's body. The whole batch is one database round trip.
    */
   const [previews, setPreviews] = useState<Map<string, string>>(new Map());
+  const ids = tabs.map((d) => d.id).join(",");
   useEffect(() => {
     let alive = true;
     (async () => {
-      const entries = await Promise.all(
-        tabs.map(async (doc) => [doc.id, previewFromState(await loadCachedState(doc.id))] as const),
-      );
-      if (alive) setPreviews(new Map(entries));
+      const missing = tabs.filter((d) => !previews.has(d.id)).map((d) => d.id);
+      if (missing.length === 0) return;
+      const states = await loadCachedStates(missing);
+      if (!alive) return;
+      setPreviews((cur) => {
+        const next = new Map(cur);
+        for (const id of missing) next.set(id, previewFromState(states.get(id) ?? null));
+        return next;
+      });
     })();
     return () => {
       alive = false;
     };
-    // Re-read when the open set changes, not on every render of the same set.
-  }, [tabs.map((d) => d.id).join(",")]);
+    // Keyed on the open set, not on `previews`: merging into it here would
+    // otherwise re-run this effect on its own result.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [ids]);
+
+  /*
+   * A trailing odd card would stretch to the full row width under `flex: 1`,
+   * and `aspectRatio` would then make it roughly twice the size of every other
+   * card. An invisible spacer keeps the last row's geometry identical to the
+   * rest, and keeps the gap arithmetic exact in a way a percentage maxWidth
+   * cannot.
+   */
+  const cells: (Document | null)[] = tabs.length % 2 === 1 ? [...tabs, null] : tabs;
 
   return (
     <View style={styles.root}>
@@ -83,12 +104,13 @@ export function TabSwitcherScreen({
       </View>
 
       <FlatList
-        data={tabs}
-        keyExtractor={(doc) => doc.id}
+        data={cells}
+        keyExtractor={(doc, i) => doc?.id ?? `spacer-${i}`}
         numColumns={2}
         columnWrapperStyle={styles.column}
         contentContainerStyle={styles.grid}
         renderItem={({ item }) => {
+          if (!item) return <View style={styles.spacer} />;
           const active = item.id === activeId;
           const title = item.title || "Untitled";
           const excerpt = previews.get(item.id) ?? "";
@@ -187,6 +209,7 @@ const makeStyles = (colors: Palette, type: TypeRoles) =>
     cardTitle: { ...type.meta, flex: 1, color: colors.ink },
     cardTitleActive: { fontWeight: "600" },
     cardBody: { flex: 1, padding: spacing.sm },
+    spacer: { flex: 1 },
     cardExcerpt: { ...type.meta, color: colors.inkSoft },
     countBtn: {
       minWidth: 26,

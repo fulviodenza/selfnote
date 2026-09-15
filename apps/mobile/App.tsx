@@ -232,6 +232,18 @@ function AppInner() {
   );
   const openDoc = activeId ? docsById.get(activeId) ?? null : null;
 
+  /*
+   * Keep `showTabs` honest. Tabs can empty from several directions: closing the
+   * last card, "close all", or syncDocs dropping pages that left the active
+   * shelf. Deriving the dismissal from the rendered tab list covers all of them,
+   * where comparing raw `tabIds` would miss the case of an id with no Document
+   * yet and leave the flag set, swallowing the next back press and popping the
+   * switcher open again once the ids resolved.
+   */
+  useEffect(() => {
+    if (tabs.length === 0) setShowTabs(false);
+  }, [tabs.length]);
+
   const goPostConfig = useCallback(async () => {
     await loadSession();
     const restored = isAuthed() ? await api.restore() : false;
@@ -314,24 +326,7 @@ function AppInner() {
         )}
 
         {phase === "app" &&
-          (showTabs && tabs.length > 0 ? (
-            <TabSwitcherScreen
-              tabs={tabs}
-              activeId={activeId}
-              onSelect={openPage}
-              onClose={(id) => {
-                closeTab(id);
-                // Closing the last card leaves nothing to switch between.
-                if (tabIds.length <= 1) setShowTabs(false);
-              }}
-              onCloseAll={() => {
-                clearTabs();
-                setShowTabs(false);
-              }}
-              onNew={() => void createPage()}
-              onDismiss={() => setShowTabs(false)}
-            />
-          ) : openDoc ? (
+          (openDoc ? (
             <EditorScreen
               key={openDoc.id}
               doc={openDoc}
@@ -381,6 +376,29 @@ function AppInner() {
               }}
             />
           ))}
+
+      {/*
+        An overlay, not a sibling branch of the editor. Rendering it as a branch
+        unmounted EditorScreen, tearing down the WebView, the Yjs provider and
+        the socket on every visit, so glancing at the tabs and dismissing cost a
+        full reload: spinner, resync, lost scroll position and undo history.
+      */}
+      {phase === "app" && showTabs && tabs.length > 0 && (
+        <View style={styles.overlay}>
+          <TabSwitcherScreen
+            tabs={tabs}
+            activeId={activeId}
+            onSelect={openPage}
+            onClose={closeTab}
+            onCloseAll={() => {
+              clearTabs();
+              setShowTabs(false);
+            }}
+            onNew={() => void createPage()}
+            onDismiss={() => setShowTabs(false)}
+          />
+        </View>
+      )}
 
       {showSettings && (
         <SettingsScreen
@@ -1749,6 +1767,8 @@ const makeStyles = (colors: Palette, type: TypeRoles) =>
   searchSnippet: { fontSize: 12, color: colors.inkSoft, marginTop: 2 },
   searchMark: { color: colors.ink, fontWeight: "600" },
   chevron: { width: 28, height: 28, alignItems: "center", justifyContent: "center" },
+  // Covers the mounted screen rather than replacing it (see the tab switcher).
+  overlay: { ...StyleSheet.absoluteFillObject, backgroundColor: colors.paper },
   error: { ...type.body, color: colors.danger },
   listPad: { paddingBottom: 96 },
   offlineBanner: {
