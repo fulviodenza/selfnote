@@ -81,6 +81,10 @@ export const sqlitePersistence: PersistenceFactory = (docId, doc): DocPersistenc
   let db: SQLite.SQLiteDatabase | null = null;
   let saveTimer: ReturnType<typeof setTimeout> | null = null;
   let destroyed = false;
+  // True once the cached state has been applied to `doc`. Until then the doc
+  // does not contain the cached history, so writing it back would not be a
+  // save: it would be an erasure. See destroy().
+  let hydrated = false;
 
   const persist = () => {
     if (!db || destroyed) return;
@@ -116,6 +120,7 @@ export const sqlitePersistence: PersistenceFactory = (docId, doc): DocPersistenc
     if (row?.state) {
       Y.applyUpdate(doc, fromBase64(row.state), "sqlite");
     }
+    hydrated = true;
     doc.on("update", onUpdate);
   })();
 
@@ -126,13 +131,22 @@ export const sqlitePersistence: PersistenceFactory = (docId, doc): DocPersistenc
       doc.off("update", onUpdate);
       if (destroyed) return;
       /*
-       * Encode synchronously, write asynchronously.
-       *
-       * The caller does not await this and destroys the doc immediately after,
-       * so the state has to be read out before yielding. The database may not
-       * be open yet either: opening a page, typing, and leaving inside the
-       * open-and-hydrate window used to drop those edits from the cache
-       * entirely, because the flush ran while `db` was still null.
+       * Only ever flush a hydrated doc. Leaving a page before the open and
+       * SELECT resolve means `doc` never received the cached state, so it holds
+       * at most this session's edits; an INSERT OR REPLACE of that would
+       * overwrite a good cache with a near-empty one and lose the page's
+       * offline body. Those few edits are not dropped on the floor either: they
+       * have already gone to the server over the socket.
+       */
+      if (!hydrated) {
+        destroyed = true;
+        return;
+      }
+      /*
+       * Encode synchronously, write asynchronously. The caller does not await
+       * this and destroys the doc immediately after, so the state has to be
+       * read out before yielding, and the write cannot assume `db` is still the
+       * only route to the database.
        */
       const state = toBase64(Y.encodeStateAsUpdate(doc));
       destroyed = true;

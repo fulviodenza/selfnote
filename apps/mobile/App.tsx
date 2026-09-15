@@ -154,6 +154,18 @@ function AppInner() {
     AsyncStorage.setItem(TABS_KEY, JSON.stringify(tabIds)).catch(() => undefined);
   }, [tabIds]);
 
+  /*
+   * Where activeId should land once the switcher closes. `undefined` means
+   * nothing is pending.
+   *
+   * Re-pointing activeId while the switcher is open would remount EditorScreen
+   * under the overlay (its key is the doc id), spinning up a WebView, a Yjs
+   * provider and a socket for a page nobody is looking at, once per close.
+   * Closing five tabs in one visit would build and tear down five editors,
+   * which is exactly the cost the overlay exists to avoid.
+   */
+  const deferredActive = useRef<string | null | undefined>(undefined);
+
   /** Show a page: it joins the tab strip if it isn't already open. */
   const openPage = useCallback((doc: Document) => {
     setDocsById((cur) => (cur.get(doc.id) === doc ? cur : new Map(cur).set(doc.id, doc)));
@@ -162,20 +174,37 @@ function AppInner() {
     setShowGraph(false);
     setSystemView(null);
     setShowTabs(false);
+    deferredActive.current = undefined;
     setActiveId(doc.id);
   }, []);
 
-  /** Closing the active tab shows its right neighbour, or the last one left. */
-  const closeTab = useCallback((id: string) => {
+  /**
+   * Closing the active tab shows its right neighbour, or the last one left.
+   * `defer` holds that move until the switcher is dismissed.
+   */
+  const closeTab = useCallback((id: string, defer = false) => {
     setTabIds((cur) => {
       const idx = cur.indexOf(id);
       if (idx === -1) return cur;
       const next = cur.filter((t) => t !== id);
-      setActiveId((active) =>
-        active === id ? next[Math.min(idx, next.length - 1)] ?? null : active,
-      );
+      setActiveId((active) => {
+        if (active !== id) return active;
+        const replacement = next[Math.min(idx, next.length - 1)] ?? null;
+        if (!defer) return replacement;
+        deferredActive.current = replacement;
+        return active; // still mounted, but hidden behind the switcher
+      });
       return next;
     });
+  }, []);
+
+  /** Leave the switcher, applying whichever tab the closes settled on. */
+  const dismissTabs = useCallback(() => {
+    setShowTabs(false);
+    if (deferredActive.current !== undefined) {
+      setActiveId(deferredActive.current);
+      deferredActive.current = undefined;
+    }
   }, []);
 
   /**
@@ -195,6 +224,7 @@ function AppInner() {
 
   const clearTabs = useCallback(() => {
     setTabIds([]);
+    deferredActive.current = undefined;
     setActiveId(null);
     setDocsById(new Map());
   }, []);
@@ -241,8 +271,8 @@ function AppInner() {
    * switcher open again once the ids resolved.
    */
   useEffect(() => {
-    if (tabs.length === 0) setShowTabs(false);
-  }, [tabs.length]);
+    if (tabs.length === 0) dismissTabs();
+  }, [tabs.length, dismissTabs]);
 
   const goPostConfig = useCallback(async () => {
     await loadSession();
@@ -274,7 +304,7 @@ function AppInner() {
       }
       // The switcher sits above the editor, so it takes back first.
       if (showTabs) {
-        setShowTabs(false);
+        dismissTabs();
         return true;
       }
       if (openDoc) {
@@ -294,7 +324,7 @@ function AppInner() {
         return true;
       }
       return false;
-    }, [showSettings, showTabs, openDoc, showGraph, showTasks, systemView]),
+    }, [showSettings, showTabs, dismissTabs, openDoc, showGraph, showTasks, systemView]),
   );
 
   // Hold at the boot spinner until the icon font is ready — but never brick
@@ -389,13 +419,13 @@ function AppInner() {
             tabs={tabs}
             activeId={activeId}
             onSelect={openPage}
-            onClose={closeTab}
+            onClose={(id) => closeTab(id, true)}
             onCloseAll={() => {
               clearTabs();
               setShowTabs(false);
             }}
             onNew={() => void createPage()}
-            onDismiss={() => setShowTabs(false)}
+            onDismiss={dismissTabs}
           />
         </View>
       )}
