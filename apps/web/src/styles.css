@@ -207,6 +207,37 @@ body {
   font-size: 13px;
 }
 
+/* ---------------- sidebar drag and drop ----------------
+ * The row being dragged fades; a drop that would nest shows a tinted target,
+ * and one that would reorder shows a line on the edge it would land against.
+ * Rows that cannot accept the drop (the dragged page and its own subtree) get
+ * no affordance at all and the cursor shows "no drop", because the gesture is
+ * genuinely unavailable rather than merely ineffective. */
+.row.dragging {
+  opacity: 0.4;
+}
+
+.row.drop-target,
+.nav-item.sys.drop-target {
+  background: var(--accent-wash);
+  box-shadow: inset 0 0 0 1px var(--accent);
+}
+
+/* The insertion line sits on the row's edge, inset to clear the indent guide. */
+.row.drop-before::after,
+.row.drop-after::after {
+  content: "";
+  position: absolute;
+  left: 4px;
+  right: 4px;
+  height: 2px;
+  background: var(--accent);
+  border-radius: var(--radius-full);
+  pointer-events: none;
+}
+.row.drop-before::after { top: -1px; }
+.row.drop-after::after { bottom: -1px; }
+
 /*
  * Chevron toggle for pages with children. A real control, not a decoration:
  * 28px of hit target and full-ink contrast, because the row body it shares

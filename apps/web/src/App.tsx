@@ -46,6 +46,11 @@ import { MakeTaskButton, TaskControls } from "./TaskControls";
 import { PresenceChips } from "./Presence";
 import { Icon } from "./Icon";
 import type { Task } from "./api";
+import {
+  computeMove,
+  isSelfOrDescendant,
+  type DropPlacement,
+} from "@selfnote/core";
 import { syncUrl, needsOnboarding, saveServer, deriveFromBase } from "./server";
 import { closeDesktopWindow, isDesktop } from "./desktop";
 
@@ -234,6 +239,24 @@ function AppRoot() {
     await api.updateDocument(id, { title: title.trim() || "Untitled" });
     if (workspaceId) await reload(workspaceId);
   };
+  /*
+   * Reparent and/or reorder a page. Optimistic: the tree is reordered locally
+   * so the row lands where it was dropped without waiting for a round trip,
+   * then reconciled from the server. A refused move (into its own subtree, or
+   * across workspaces) comes back 400 and the reload puts the row back.
+   */
+  const movePage = async (id: string, patch: { parent_id: string | null; position: number }) => {
+    setDocs((cur) =>
+      cur
+        .map((d) => (d.id === id ? { ...d, ...patch } : d))
+        .sort((a, b) => a.position - b.position),
+    );
+    try {
+      await api.updateDocument(id, patch);
+    } finally {
+      if (workspaceId) await reload(workspaceId);
+    }
+  };
   const archive = async (id: string) => {
     await api.updateDocument(id, { archived: true });
     closeTab(id);
@@ -393,6 +416,7 @@ function AppRoot() {
         onRename={rename}
         onArchive={archive}
         onTrash={trash}
+        onMove={(id, patch) => void movePage(id, patch)}
         onLogout={logout}
         onOpenImport={() => setShowImport(true)}
         onOpenSearch={() => setShowSearch(true)}
@@ -959,6 +983,7 @@ function Sidebar({
   onRename,
   onArchive,
   onTrash,
+  onMove,
   onLogout,
   onOpenImport,
   onOpenSearch,
@@ -975,6 +1000,8 @@ function Sidebar({
   onRename: (id: string, title: string) => void;
   onArchive: (id: string) => void;
   onTrash: (id: string) => void;
+  /** Reparent and/or reorder a page (sidebar drag and drop). */
+  onMove: (id: string, patch: { parent_id: string | null; position: number }) => void;
   onLogout: () => void;
   onOpenImport: () => void;
   onOpenSearch: () => void;
@@ -1104,6 +1131,32 @@ function Sidebar({
     return map;
   }, [docs, activeIds]);
 
+  /*
+   * Drag state for the tree.
+   *
+   * `dragId` is the page being dragged and `dropHint` is where it would land.
+   * Both live here rather than in Row because a drop target has to know what is
+   * being dragged in order to refuse itself and its own descendants, and
+   * dataTransfer cannot be read during dragover in every browser.
+   */
+  const [dragId, setDragId] = useState<string | null>(null);
+  const [dropHint, setDropHint] = useState<{ id: string | null; at: DropPlacement } | null>(null);
+
+  const endDrag = () => {
+    setDragId(null);
+    setDropHint(null);
+  };
+
+  const dropOn = (targetId: string | null, at: DropPlacement) => {
+    const id = dragId;
+    endDrag();
+    if (!id) return;
+    const patch = computeMove(docs, id, targetId, at);
+    // null means the move is refused (into its own subtree) or changes nothing,
+    // so there is no request worth making.
+    if (patch) onMove(id, patch);
+  };
+
   // Collapsed page ids (default: everything expanded). Persisted so the tree
   // keeps its shape across reloads.
   const [collapsed, setCollapsed] = useState<Set<string>>(() => {
@@ -1162,6 +1215,13 @@ function Sidebar({
           onRename={onRename}
           onArchive={onArchive}
           onTrash={onTrash}
+          dragId={dragId}
+          dropHint={dropHint}
+          allDocs={docs}
+          onDragStart={setDragId}
+          onDragEnd={endDrag}
+          onDragOverRow={(id, at) => setDropHint({ id, at })}
+          onDropRow={dropOn}
         >
           {hasChildren && expanded ? renderTree(d.id, depth + 1) : null}
         </Row>
@@ -1242,7 +1302,24 @@ function Sidebar({
           )}
         </div>
       )}
-      <div className="tree">
+      <div
+        className="tree"
+        /*
+         * Empty space below the tree is the way back out to the top level: a
+         * nested page otherwise has no drop target for "no parent", since every
+         * row means "inside this one".
+         */
+        onDragOver={(e) => {
+          if (!dragId || e.target !== e.currentTarget) return;
+          e.preventDefault();
+          setDropHint({ id: null, at: "inside" });
+        }}
+        onDrop={(e) => {
+          if (!dragId || e.target !== e.currentTarget) return;
+          e.preventDefault();
+          dropOn(null, "inside");
+        }}
+      >
         {filteredDocs ? (
           filteredDocs.length === 0 ? (
             <div className="tree-empty">No pages with this label</div>
@@ -1283,15 +1360,45 @@ function Sidebar({
           Assets
         </button>
         <button
-          className={view === "archive" ? "nav-item sys active" : "nav-item sys"}
+          className={
+            (view === "archive" ? "nav-item sys active" : "nav-item sys") +
+            (dropHint?.id === "__archive" ? " drop-target" : "")
+          }
           onClick={() => onOpenView("archive")}
+          onDragOver={(e) => {
+            if (!dragId) return;
+            e.preventDefault();
+            setDropHint({ id: "__archive", at: "inside" });
+          }}
+          onDragLeave={() => setDropHint(null)}
+          onDrop={(e) => {
+            e.preventDefault();
+            const id = dragId;
+            endDrag();
+            if (id) onArchive(id);
+          }}
         >
           <span className="nav-item-icon"><Icon name="archive" size={15} /></span>
           Archive
         </button>
         <button
-          className={view === "trash" ? "nav-item sys active" : "nav-item sys"}
+          className={
+            (view === "trash" ? "nav-item sys active" : "nav-item sys") +
+            (dropHint?.id === "__trash" ? " drop-target" : "")
+          }
           onClick={() => onOpenView("trash")}
+          onDragOver={(e) => {
+            if (!dragId) return;
+            e.preventDefault();
+            setDropHint({ id: "__trash", at: "inside" });
+          }}
+          onDragLeave={() => setDropHint(null)}
+          onDrop={(e) => {
+            e.preventDefault();
+            const id = dragId;
+            endDrag();
+            if (id) onTrash(id);
+          }}
         >
           <span className="nav-item-icon"><Icon name="trash-2" size={15} /></span>
           Trash
@@ -1374,6 +1481,13 @@ function Row({
   onRename,
   onArchive,
   onTrash,
+  dragId,
+  dropHint,
+  allDocs,
+  onDragStart,
+  onDragEnd,
+  onDragOverRow,
+  onDropRow,
   children,
 }: {
   doc: Document;
@@ -1387,6 +1501,19 @@ function Row({
   onRename: (id: string, title: string) => void;
   onArchive: (id: string) => void;
   onTrash: (id: string) => void;
+  /*
+   * Drag wiring. Omitted by the label-filtered view, which is a flat list
+   * rather than the tree: reordering it would not mean anything, so those rows
+   * are simply not draggable.
+   */
+  dragId?: string | null;
+  dropHint?: { id: string | null; at: DropPlacement } | null;
+  /** The whole tree, needed to refuse a drop into the dragged page's subtree. */
+  allDocs?: Document[];
+  onDragStart?: (id: string) => void;
+  onDragEnd?: () => void;
+  onDragOverRow?: (id: string, at: DropPlacement) => void;
+  onDropRow?: (id: string, at: DropPlacement) => void;
   children: ReactNode;
 }) {
   const [editing, setEditing] = useState(false);
@@ -1397,11 +1524,58 @@ function Row({
     if (draft !== doc.title) onRename(doc.id, draft);
   };
 
+  /*
+   * A row refuses itself and anything inside the dragged page: dropping a
+   * parent into its own subtree would strand that subtree. The server rejects
+   * it too, but refusing here means the gesture visibly cannot be made rather
+   * than appearing to work and then failing.
+   */
+  const draggable = !!onDragStart && !editing;
+  const dragging = !!dragId && dragId === doc.id;
+  const canDrop =
+    !!dragId && !!allDocs && !!onDropRow && !isSelfOrDescendant(allDocs, dragId, doc.id);
+  const hint = canDrop && dropHint?.id === doc.id ? dropHint.at : null;
+
+  const rowClass = [
+    "row",
+    active ? "active" : "",
+    dragging ? "dragging" : "",
+    hint === "inside" ? "drop-target" : "",
+    hint === "before" ? "drop-before" : "",
+    hint === "after" ? "drop-after" : "",
+  ]
+    .filter(Boolean)
+    .join(" ");
+
   return (
     <>
       <div
-        className={active ? "row active" : "row"}
+        className={rowClass}
         style={{ paddingLeft: 8 + depth * 16 }}
+        draggable={draggable}
+        onDragStart={(e) => {
+          // Some browsers cancel a drag with no payload, and the id is useful
+          // to anything outside the tree that might accept one later.
+          e.dataTransfer.setData("text/plain", doc.id);
+          e.dataTransfer.effectAllowed = "move";
+          onDragStart?.(doc.id);
+        }}
+        onDragEnd={onDragEnd}
+        onDragOver={(e) => {
+          if (!canDrop) return; // no preventDefault: the cursor shows "no drop"
+          e.preventDefault();
+          e.stopPropagation();
+          e.dataTransfer.dropEffect = "move";
+          const r = e.currentTarget.getBoundingClientRect();
+          const y = (e.clientY - r.top) / r.height;
+          onDragOverRow?.(doc.id, y < 0.25 ? "before" : y > 0.75 ? "after" : "inside");
+        }}
+        onDrop={(e) => {
+          if (!canDrop || !hint) return;
+          e.preventDefault();
+          e.stopPropagation();
+          onDropRow?.(doc.id, hint);
+        }}
         /*
          * A page with children is a container, and the reason to click one is
          * almost always to see what is inside it rather than to open a mostly

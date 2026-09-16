@@ -33,6 +33,8 @@ export interface Document {
   icon: string | null;
   archived: boolean;
   trashed: boolean;
+  /** Sort key among siblings; fractional so a page can be dropped between two. */
+  position: number;
   created_at: string;
   updated_at: string;
 }
@@ -455,7 +457,13 @@ export const api = {
     }),
   updateDocument: (
     id: string,
-    patch: Partial<{ title: string; parent_id: string | null; archived: boolean; trashed: boolean }>,
+    patch: Partial<{
+      title: string;
+      parent_id: string | null;
+      archived: boolean;
+      trashed: boolean;
+      position: number;
+    }>,
   ) => req<Document>(`/documents/${id}`, { method: "PATCH", body: JSON.stringify(patch) }),
   /** Permanently delete a page (Trash → "Delete forever"). */
   deleteDocument: (id: string) =>
