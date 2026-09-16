@@ -1,6 +1,23 @@
-//! Calendar & task sync. Any document can be promoted to a *task* (a 1:1 sidecar
-//! row in `document_tasks`) with a status, priority, and due date; those tasks are
-//! surfaced by an agenda query (`GET /tasks`) and published as a per-workspace
+//! Calendar and task sync.
+//!
+//! A task is a row in `tasks` with a status, priority and due date, and every
+//! task has a provenance:
+//!
+//!   * a **page task** (`block_id is null`) is a whole document promoted to a
+//!     task, which is what this module modelled exclusively before;
+//!   * an **inline task** is anchored to one block inside a page, so a note can
+//!     hold many.
+//!
+//! The anchor itself lives in the note's CRDT as a prop on a `taskItem` block,
+//! not here: `block_id` is for lookup and uniqueness. That direction matters.
+//! Task state lives only in this table, so changing a status never requires the
+//! server to write into a document, which it deliberately does not do outside
+//! the proposals path. The converse is that only a client can tell whether an
+//! anchoring block still exists, which is why `detached` is reported inward
+//! rather than discovered here.
+//!
+//! Tasks are surfaced by an agenda query (`GET /tasks`, which also drives the
+//! board and its page and label filters) and published as a per-workspace
 //! read-only iCal feed subscribable from Google/Apple/Outlook calendars.
 
 use axum::body::Body;
@@ -20,13 +37,25 @@ use crate::error::{ApiResult, AppError};
 use crate::state::AppState;
 use crate::workspaces::member_role;
 
-/// A task: the sidecar `document_tasks` row joined with its document's title/icon.
+/// A task, joined with the page it came from.
+///
+/// `block_id` carries the provenance: `None` means the page itself is the task
+/// (what `document_tasks` used to model), `Some` means the task is anchored to
+/// one block inside the page and the page may hold others.
 #[derive(Debug, Serialize, FromRow)]
 pub struct Task {
+    pub id: Uuid,
     pub doc_id: Uuid,
+    /// The anchoring block, or `None` for a page task.
+    pub block_id: Option<String>,
     pub workspace_id: Uuid,
-    /// Mirrored from `documents.title` (read-only here).
+    /// The page title for a page task, the anchored block's text for an inline
+    /// one. The latter is a cache the editing client refreshes, so the board can
+    /// list tasks without opening any document.
     pub title: String,
+    /// The containing page's title. Equal to `title` for a page task; for an
+    /// inline task this is the provenance shown on its board card.
+    pub doc_title: String,
     /// Mirrored from `documents.icon` (read-only here).
     pub icon: Option<String>,
     pub status: String,
@@ -34,14 +63,27 @@ pub struct Task {
     pub due_at: Option<DateTime<Utc>>,
     pub due_all_day: bool,
     pub completed_at: Option<DateTime<Utc>>,
+    /// The anchoring block is gone from the page. Only a client can observe
+    /// this, since the server never parses CRDT content.
+    pub detached: bool,
+    /// The containing page's labels. Labels are page-scoped, so an inline task
+    /// inherits them; there are no per-task labels.
+    pub label_ids: Vec<Uuid>,
     pub created_at: DateTime<Utc>,
     pub updated_at: DateTime<Utc>,
 }
 
-const TASK_SELECT: &str = "select t.doc_id, t.workspace_id, d.title, d.icon, \
+const TASK_SELECT: &str = "select t.id, t.doc_id, t.block_id, t.workspace_id, \
+     case when t.block_id is null then d.title else t.title end as title, \
+     d.title as doc_title, d.icon, \
      t.status, t.priority, t.due_at, t.due_all_day, t.completed_at, \
+     (t.detached_at is not null) as detached, \
+     coalesce(( \
+         select array_agg(dl.label_id) from document_labels dl \
+         where dl.document_id = t.doc_id \
+     ), '{}') as label_ids, \
      t.created_at, t.updated_at \
-     from document_tasks t join documents d on d.id = t.doc_id";
+     from tasks t join documents d on d.id = t.doc_id";
 
 fn valid_status(s: &str) -> bool {
     matches!(s, "todo" | "in_progress" | "done")
@@ -65,12 +107,32 @@ async fn authorize_writer(state: &AppState, user_id: Uuid, doc_id: Uuid) -> ApiR
     }
 }
 
+/// The page task for a document, if it has one.
+///
+/// Strictly `block_id is null`. `/documents/:id/task` is the old page-task API
+/// and must never reach an inline task through it: a client built before inline
+/// tasks existed would otherwise toggle an arbitrary one.
 async fn load_task(state: &AppState, doc_id: Uuid) -> ApiResult<Task> {
-    let task: Option<Task> = sqlx::query_as(&format!("{TASK_SELECT} where t.doc_id = $1"))
-        .bind(doc_id)
+    let task: Option<Task> = sqlx::query_as(&format!(
+        "{TASK_SELECT} where t.doc_id = $1 and t.block_id is null"
+    ))
+    .bind(doc_id)
+    .fetch_optional(&state.pool)
+    .await?;
+    task.ok_or(AppError::NotFound)
+}
+
+/// One task by id, with the caller's read access checked.
+async fn load_task_by_id(state: &AppState, user_id: Uuid, id: Uuid) -> ApiResult<Task> {
+    let task: Option<Task> = sqlx::query_as(&format!("{TASK_SELECT} where t.id = $1"))
+        .bind(id)
         .fetch_optional(&state.pool)
         .await?;
-    task.ok_or(AppError::NotFound)
+    let task = task.ok_or(AppError::NotFound)?;
+    if member_role(state, task.workspace_id, user_id).await?.is_none() {
+        return Err(AppError::Forbidden);
+    }
+    Ok(task)
 }
 
 /* ---------------------------------------------------------- promote / get -- */
@@ -106,10 +168,12 @@ pub async fn set_task(
         }
     }
 
-    let existing: Option<Task> = sqlx::query_as(&format!("{TASK_SELECT} where t.doc_id = $1"))
-        .bind(doc_id)
-        .fetch_optional(&state.pool)
-        .await?;
+    let existing: Option<Task> = sqlx::query_as(&format!(
+        "{TASK_SELECT} where t.doc_id = $1 and t.block_id is null"
+    ))
+    .bind(doc_id)
+    .fetch_optional(&state.pool)
+    .await?;
 
     let status = body
         .status
@@ -141,11 +205,14 @@ pub async fn set_task(
         None
     };
 
+    // The conflict target names the partial index, which is what preserves the
+    // one-page-task-per-document invariant without constraining inline tasks.
     sqlx::query(
-        "insert into document_tasks \
-             (doc_id, workspace_id, status, priority, due_at, due_all_day, completed_at, updated_at) \
-         values ($1, $2, $3, $4, $5, $6, $7, now()) \
-         on conflict (doc_id) do update set \
+        "insert into tasks \
+             (doc_id, workspace_id, block_id, status, priority, due_at, due_all_day, \
+              completed_at, updated_at) \
+         values ($1, $2, null, $3, $4, $5, $6, $7, now()) \
+         on conflict (doc_id) where block_id is null do update set \
              status = excluded.status, priority = excluded.priority, \
              due_at = excluded.due_at, due_all_day = excluded.due_all_day, \
              completed_at = excluded.completed_at, updated_at = now()",
@@ -232,10 +299,10 @@ pub async fn update_task(
     };
 
     sqlx::query(
-        "update document_tasks set \
+        "update tasks set \
              status = $2, priority = $3, due_at = $4, due_all_day = $5, \
              completed_at = $6, updated_at = now() \
-         where doc_id = $1",
+         where doc_id = $1 and block_id is null",
     )
     .bind(doc_id)
     .bind(&status)
@@ -257,8 +324,243 @@ pub async fn delete_task(
     Path(doc_id): Path<Uuid>,
 ) -> ApiResult<StatusCode> {
     authorize_writer(&state, user.id, doc_id).await?;
-    sqlx::query("delete from document_tasks where doc_id = $1")
+    sqlx::query("delete from tasks where doc_id = $1 and block_id is null")
         .bind(doc_id)
+        .execute(&state.pool)
+        .await?;
+    Ok(StatusCode::NO_CONTENT)
+}
+
+/* ------------------------------------------------------------ inline tasks -- */
+
+/// `GET /documents/:id/tasks` - every task on a page, the page task included.
+///
+/// The editor calls this on open to hydrate its `taskItem` blocks, and to
+/// reconcile: any task whose block is no longer in the document is detached.
+pub async fn list_doc_tasks(
+    State(state): State<AppState>,
+    user: AuthUser,
+    Path(doc_id): Path<Uuid>,
+) -> ApiResult<Json<ListTasksResponse>> {
+    let ws: Option<(Uuid,)> = sqlx::query_as("select workspace_id from documents where id = $1")
+        .bind(doc_id)
+        .fetch_optional(&state.pool)
+        .await?;
+    let workspace_id = ws.ok_or(AppError::NotFound)?.0;
+    if member_role(&state, workspace_id, user.id).await?.is_none() {
+        return Err(AppError::Forbidden);
+    }
+    let tasks: Vec<Task> = sqlx::query_as(&format!(
+        "{TASK_SELECT} where t.doc_id = $1 order by t.block_id nulls first, t.created_at"
+    ))
+    .bind(doc_id)
+    .fetch_all(&state.pool)
+    .await?;
+    Ok(Json(ListTasksResponse { tasks }))
+}
+
+#[derive(Debug, Deserialize)]
+pub struct CreateInlineTask {
+    /// The BlockNote block id this task is anchored to.
+    pub block_id: String,
+    /// The block's text, cached so the board need not open the document.
+    pub title: Option<String>,
+    pub status: Option<String>,
+    pub priority: Option<String>,
+    #[serde(default, with = "serde_with_due")]
+    pub due_at: DueField,
+    pub due_all_day: Option<bool>,
+}
+
+/// `POST /documents/:id/tasks` - make a task out of a block inside the page.
+pub async fn create_inline_task(
+    State(state): State<AppState>,
+    user: AuthUser,
+    Path(doc_id): Path<Uuid>,
+    Json(body): Json<CreateInlineTask>,
+) -> ApiResult<Json<Task>> {
+    let workspace_id = authorize_writer(&state, user.id, doc_id).await?;
+    if body.block_id.trim().is_empty() {
+        return Err(AppError::BadRequest("block_id is required".into()));
+    }
+    let status = body.status.clone().unwrap_or_else(|| "todo".to_string());
+    let priority = body.priority.clone().unwrap_or_else(|| "none".to_string());
+    if !valid_status(&status) {
+        return Err(AppError::BadRequest("invalid status".into()));
+    }
+    if !valid_priority(&priority) {
+        return Err(AppError::BadRequest("invalid priority".into()));
+    }
+    let due_at = match &body.due_at {
+        DueField::Missing | DueField::Null => None,
+        DueField::Set(v) => Some(*v),
+    };
+    let completed_at = if status == "done" { Some(Utc::now()) } else { None };
+
+    // The unique index does the work: a second task on the same block is a
+    // conflict rather than a silent duplicate, which is what makes the editor's
+    // create-on-convert safe to retry.
+    let created: Option<(Uuid,)> = sqlx::query_as(
+        "insert into tasks \
+             (doc_id, workspace_id, block_id, title, status, priority, due_at, \
+              due_all_day, completed_at) \
+         values ($1, $2, $3, $4, $5, $6, $7, $8, $9) \
+         on conflict do nothing \
+         returning id",
+    )
+    .bind(doc_id)
+    .bind(workspace_id)
+    .bind(body.block_id.trim())
+    .bind(body.title.clone().unwrap_or_default())
+    .bind(&status)
+    .bind(&priority)
+    .bind(due_at)
+    .bind(body.due_all_day.unwrap_or(false))
+    .bind(completed_at)
+    .fetch_optional(&state.pool)
+    .await?;
+
+    let id = match created {
+        Some((id,)) => id,
+        None => {
+            return Err(AppError::Conflict(
+                "that block is already a task".into(),
+            ))
+        }
+    };
+    Ok(Json(load_task_by_id(&state, user.id, id).await?))
+}
+
+#[derive(Debug, Deserialize)]
+pub struct UpdateTaskById {
+    pub status: Option<String>,
+    pub priority: Option<String>,
+    #[serde(default, with = "serde_with_due")]
+    pub due_at: DueField,
+    pub due_all_day: Option<bool>,
+    pub title: Option<String>,
+    /// Marks the anchoring block as gone, or back. Clients report this; the
+    /// server cannot see it.
+    pub detached: Option<bool>,
+    /// Re-anchor, for a block cut from one page and pasted into another. Both
+    /// are sent together, and the new page must be in the same workspace.
+    pub doc_id: Option<Uuid>,
+    pub block_id: Option<String>,
+}
+
+/// `PATCH /tasks/:id` - update any task by id, page or inline.
+pub async fn update_task_by_id(
+    State(state): State<AppState>,
+    user: AuthUser,
+    Path(id): Path<Uuid>,
+    Json(body): Json<UpdateTaskById>,
+) -> ApiResult<Json<Task>> {
+    let existing = load_task_by_id(&state, user.id, id).await?;
+    // Read access got us here; writing needs more.
+    authorize_writer(&state, user.id, existing.doc_id).await?;
+
+    if let Some(s) = &body.status {
+        if !valid_status(s) {
+            return Err(AppError::BadRequest("invalid status".into()));
+        }
+    }
+    if let Some(p) = &body.priority {
+        if !valid_priority(p) {
+            return Err(AppError::BadRequest("invalid priority".into()));
+        }
+    }
+
+    // Re-anchoring is only meaningful for an inline task, and only within the
+    // workspace: a task must never follow a block into someone else's pages.
+    let (doc_id, block_id) = match (body.doc_id, &body.block_id) {
+        (Some(new_doc), Some(new_block)) => {
+            if existing.block_id.is_none() {
+                return Err(AppError::BadRequest(
+                    "a page task cannot be re-anchored".into(),
+                ));
+            }
+            let ws = authorize_writer(&state, user.id, new_doc).await?;
+            if ws != existing.workspace_id {
+                return Err(AppError::BadRequest(
+                    "cannot move a task to another workspace".into(),
+                ));
+            }
+            (new_doc, Some(new_block.clone()))
+        }
+        (None, None) => (existing.doc_id, existing.block_id.clone()),
+        _ => {
+            return Err(AppError::BadRequest(
+                "doc_id and block_id must be sent together".into(),
+            ))
+        }
+    };
+
+    let status = body.status.clone().unwrap_or(existing.status.clone());
+    let priority = body.priority.clone().unwrap_or(existing.priority.clone());
+    let due_all_day = body.due_all_day.unwrap_or(existing.due_all_day);
+    let due_at = match &body.due_at {
+        DueField::Missing => existing.due_at,
+        DueField::Null => None,
+        DueField::Set(v) => Some(*v),
+    };
+    let completed_at: Option<DateTime<Utc>> = if status == "done" {
+        if existing.status == "done" {
+            existing.completed_at
+        } else {
+            Some(Utc::now())
+        }
+    } else {
+        None
+    };
+    // A page task's title mirrors the document, so it is never written here.
+    let title = if existing.block_id.is_some() {
+        body.title.clone().unwrap_or(existing.title.clone())
+    } else {
+        String::new()
+    };
+    let detached_at: Option<DateTime<Utc>> = match body.detached {
+        Some(true) => Some(Utc::now()),
+        Some(false) => None,
+        // Re-anchoring implies the block was found again.
+        None if body.block_id.is_some() => None,
+        None if existing.detached => Some(Utc::now()),
+        None => None,
+    };
+
+    sqlx::query(
+        "update tasks set \
+             doc_id = $2, block_id = $3, title = $4, status = $5, priority = $6, \
+             due_at = $7, due_all_day = $8, completed_at = $9, detached_at = $10, \
+             updated_at = now() \
+         where id = $1",
+    )
+    .bind(id)
+    .bind(doc_id)
+    .bind(block_id)
+    .bind(&title)
+    .bind(&status)
+    .bind(&priority)
+    .bind(due_at)
+    .bind(due_all_day)
+    .bind(completed_at)
+    .bind(detached_at)
+    .execute(&state.pool)
+    .await?;
+
+    Ok(Json(load_task_by_id(&state, user.id, id).await?))
+}
+
+/// `DELETE /tasks/:id` - remove a task. The anchoring block, if still in the
+/// page, degrades to a plain checkbox the next time a client opens it.
+pub async fn delete_task_by_id(
+    State(state): State<AppState>,
+    user: AuthUser,
+    Path(id): Path<Uuid>,
+) -> ApiResult<StatusCode> {
+    let existing = load_task_by_id(&state, user.id, id).await?;
+    authorize_writer(&state, user.id, existing.doc_id).await?;
+    sqlx::query("delete from tasks where id = $1")
+        .bind(id)
         .execute(&state.pool)
         .await?;
     Ok(StatusCode::NO_CONTENT)
@@ -275,6 +577,13 @@ pub struct ListTasksQuery {
     pub include_undated: Option<bool>,
     pub sort: Option<String>,
     pub limit: Option<i64>,
+    /// Restrict to a page **and its subtree**, which is what makes "filter by
+    /// project" work: a project is a page, and its tasks are everything under it.
+    pub doc_id: Option<Uuid>,
+    /// Restrict to pages carrying any of these labels (CSV of uuids).
+    pub label_id: Option<String>,
+    /// Tasks whose anchoring block is gone. Hidden unless asked for.
+    pub include_detached: Option<bool>,
 }
 
 #[derive(Debug, Serialize)]
@@ -306,6 +615,21 @@ pub async fn list_tasks(
                 }
             }
             list
+        }
+        None => Vec::new(),
+    };
+
+    // Label filter CSV, validated up front like the status filter.
+    let labels: Vec<Uuid> = match &q.label_id {
+        Some(s) => {
+            let mut out = Vec::new();
+            for raw in s.split(',').map(str::trim).filter(|v| !v.is_empty()) {
+                out.push(
+                    Uuid::parse_str(raw)
+                        .map_err(|_| AppError::BadRequest("invalid label_id".into()))?,
+                );
+            }
+            out
         }
         None => Vec::new(),
     };
@@ -365,6 +689,38 @@ pub async fn list_tasks(
     if !include_undated {
         sql.push_str(" and t.due_at is not null");
     }
+    let doc_idx;
+    if q.doc_id.is_some() {
+        doc_idx = next;
+        // The same recursive shape the shelf cascade uses: a page's tasks are
+        // its own plus every descendant's, so filtering by a project page picks
+        // up the whole project.
+        sql.push_str(&format!(
+            " and t.doc_id in ( \
+                 with recursive sub as ( \
+                     select id from documents where id = ${doc_idx} \
+                     union all \
+                     select d.id from documents d join sub s on d.parent_id = s.id \
+                 ) select id from sub)"
+        ));
+        next += 1;
+    } else {
+        doc_idx = 0;
+    }
+    let label_idx;
+    if !labels.is_empty() {
+        label_idx = next;
+        sql.push_str(&format!(
+            " and exists (select 1 from document_labels dl \
+                 where dl.document_id = t.doc_id and dl.label_id = any(${label_idx}))"
+        ));
+        next += 1;
+    } else {
+        label_idx = 0;
+    }
+    if !q.include_detached.unwrap_or(false) {
+        sql.push_str(" and t.detached_at is null");
+    }
     let limit_idx = next;
     sql.push_str(&format!(" order by {order} limit ${limit_idx}"));
 
@@ -377,6 +733,12 @@ pub async fn list_tasks(
     }
     if due_after_idx != 0 {
         query = query.bind(q.due_after);
+    }
+    if doc_idx != 0 {
+        query = query.bind(q.doc_id);
+    }
+    if label_idx != 0 {
+        query = query.bind(labels);
     }
     query = query.bind(limit);
 
@@ -501,8 +863,18 @@ pub async fn get_feed(
 /// A dated task plus its workspace name, projected for the ICS feed.
 #[derive(Debug, FromRow)]
 struct IcsTask {
-    doc_id: Uuid,
+    /// The event's stable identity.
+    ///
+    /// A page task keeps using its `doc_id`, which is what the feed emitted
+    /// before tasks had ids of their own: a calendar that already subscribed
+    /// then updates its existing events instead of duplicating every one. An
+    /// inline task, which never had an event before, uses its task id.
+    uid: Uuid,
     title: String,
+    /// The page an inline task came from, shown after the title so a bare
+    /// "Call the landlord" in a calendar still says where it lives. Empty for a
+    /// page task, whose title already is the page.
+    doc_title: String,
     status: String,
     priority: String,
     due_at: DateTime<Utc>,
@@ -541,9 +913,14 @@ pub async fn ics_feed(
         .await?;
 
     let tasks: Vec<IcsTask> = sqlx::query_as(
-        "select t.doc_id, d.title, t.status, t.priority, t.due_at, t.due_all_day, t.updated_at \
-         from document_tasks t join documents d on d.id = t.doc_id \
-         where t.workspace_id = $1 and not d.archived and not d.trashed and t.due_at is not null \
+        "select \
+             case when t.block_id is null then t.doc_id else t.id end as uid, \
+             case when t.block_id is null then d.title else t.title end as title, \
+             case when t.block_id is null then '' else d.title end as doc_title, \
+             t.status, t.priority, t.due_at, t.due_all_day, t.updated_at \
+         from tasks t join documents d on d.id = t.doc_id \
+         where t.workspace_id = $1 and not d.archived and not d.trashed \
+           and t.due_at is not null and t.detached_at is null \
          order by t.due_at",
     )
     .bind(workspace_id)
@@ -599,13 +976,21 @@ fn render_ics(workspace_name: &str, tasks: &[IcsTask]) -> String {
 
     for t in tasks {
         out.push_str("BEGIN:VEVENT\r\n");
-        out.push_str(&format!("UID:{}@selfnote\r\n", t.doc_id));
+        out.push_str(&format!("UID:{}@selfnote\r\n", t.uid));
 
         let marker = if t.status == "done" { "✔ " } else { "" };
+        // An inline task's title is a line out of a note, so the page it came
+        // from is appended: "Call the landlord (Flat move)".
+        let provenance = if t.doc_title.is_empty() {
+            String::new()
+        } else {
+            format!(" ({})", t.doc_title)
+        };
         out.push_str(&format!(
-            "SUMMARY:{}{}\r\n",
+            "SUMMARY:{}{}{}\r\n",
             marker,
-            ics_escape(&t.title)
+            ics_escape(&t.title),
+            ics_escape(&provenance)
         ));
 
         if t.due_all_day {

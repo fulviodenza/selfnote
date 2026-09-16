@@ -179,3 +179,168 @@ async fn document_rows_decode_fully() {
         .expect("every selected column must decode");
     assert!(row.is_some(), "the seeded page should be readable");
 }
+
+/* ------------------------------------------------------------------ tasks -- */
+
+/// Seed a workspace with a page tree and a label, returning
+/// (workspace, parent doc, child doc, label).
+async fn seed_tasks(pool: &PgPool) -> (Uuid, Uuid, Uuid, Uuid) {
+    let user: (Uuid,) = sqlx::query_as(
+        "insert into users (email, password_hash) values ($1, 'x') returning id",
+    )
+    .bind(format!("{}@test.local", Uuid::new_v4()))
+    .fetch_one(pool)
+    .await
+    .unwrap();
+    let ws: (Uuid,) =
+        sqlx::query_as("insert into workspaces (owner_id, name) values ($1, 'w') returning id")
+            .bind(user.0)
+            .fetch_one(pool)
+            .await
+            .unwrap();
+    let parent: (Uuid,) = sqlx::query_as(
+        "insert into documents (workspace_id, title) values ($1, 'Project') returning id",
+    )
+    .bind(ws.0)
+    .fetch_one(pool)
+    .await
+    .unwrap();
+    let child: (Uuid,) = sqlx::query_as(
+        "insert into documents (workspace_id, parent_id, title) values ($1, $2, 'Meeting') returning id",
+    )
+    .bind(ws.0)
+    .bind(parent.0)
+    .fetch_one(pool)
+    .await
+    .unwrap();
+    let label: (Uuid,) = sqlx::query_as(
+        "insert into labels (workspace_id, name, color) values ($1, 'urgent', '#f00') returning id",
+    )
+    .bind(ws.0)
+    .fetch_one(pool)
+    .await
+    .unwrap();
+    (ws.0, parent.0, child.0, label.0)
+}
+
+/// The TASK_SELECT projection, decoded into the same shape the handler uses.
+///
+/// This is the check that would have caught the INT4/i64 bug in one run: it
+/// exercises every column, including the `array_agg` for labels and the boolean
+/// derived from `detached_at`, against real types.
+#[tokio::test]
+async fn task_select_projection_decodes() {
+    let Some(pool) = pool().await else { return };
+    let (ws, parent, child, label) = seed_tasks(&pool).await;
+
+    sqlx::query("insert into tasks (workspace_id, doc_id, block_id) values ($1, $2, null)")
+        .bind(ws)
+        .bind(parent)
+        .execute(&pool)
+        .await
+        .unwrap();
+    sqlx::query(
+        "insert into tasks (workspace_id, doc_id, block_id, title) values ($1, $2, 'blk-1', 'Call the landlord')",
+    )
+    .bind(ws)
+    .bind(child)
+    .execute(&pool)
+    .await
+    .unwrap();
+    sqlx::query("insert into document_labels (document_id, label_id) values ($1, $2)")
+        .bind(child)
+        .bind(label)
+        .execute(&pool)
+        .await
+        .unwrap();
+
+    let rows: Vec<(Uuid, Uuid, Option<String>, Uuid, String, String, Option<String>, String, String, Option<chrono::DateTime<chrono::Utc>>, bool, Option<chrono::DateTime<chrono::Utc>>, bool, Vec<Uuid>, chrono::DateTime<chrono::Utc>, chrono::DateTime<chrono::Utc>)> =
+        sqlx::query_as(
+            "select t.id, t.doc_id, t.block_id, t.workspace_id, \
+             case when t.block_id is null then d.title else t.title end as title, \
+             d.title as doc_title, d.icon, \
+             t.status, t.priority, t.due_at, t.due_all_day, t.completed_at, \
+             (t.detached_at is not null) as detached, \
+             coalesce(( \
+                 select array_agg(dl.label_id) from document_labels dl \
+                 where dl.document_id = t.doc_id \
+             ), '{}') as label_ids, \
+             t.created_at, t.updated_at \
+             from tasks t join documents d on d.id = t.doc_id \
+             where t.workspace_id = $1 order by t.block_id nulls first",
+        )
+        .bind(ws)
+        .fetch_all(&pool)
+        .await
+        .expect("every column in TASK_SELECT must decode");
+
+    assert_eq!(rows.len(), 2);
+    // Page task: title mirrors the document, no labels on that page.
+    assert_eq!(rows[0].4, "Project");
+    assert!(rows[0].2.is_none());
+    // Inline task: its own title, the page as provenance, the page's labels.
+    assert_eq!(rows[1].4, "Call the landlord");
+    assert_eq!(rows[1].5, "Meeting");
+    assert_eq!(rows[1].13, vec![label]);
+}
+
+/// The board's page filter takes a page **and its subtree**, which is what makes
+/// filtering by a project pick up the tasks of everything under it.
+#[tokio::test]
+async fn doc_filter_includes_the_subtree() {
+    let Some(pool) = pool().await else { return };
+    let (ws, parent, child, _label) = seed_tasks(&pool).await;
+    sqlx::query("insert into tasks (workspace_id, doc_id, block_id, title) values ($1, $2, 'b', 'child task')")
+        .bind(ws)
+        .bind(child)
+        .execute(&pool)
+        .await
+        .unwrap();
+
+    let (count,): (i64,) = sqlx::query_as(
+        "select count(*) from tasks t where t.workspace_id = $1 and t.doc_id in ( \
+             with recursive sub as ( \
+                 select id from documents where id = $2 \
+                 union all \
+                 select d.id from documents d join sub s on d.parent_id = s.id \
+             ) select id from sub)",
+    )
+    .bind(ws)
+    .bind(parent)
+    .fetch_one(&pool)
+    .await
+    .unwrap();
+
+    assert_eq!(count, 1, "the parent's filter must reach the child's task");
+}
+
+/// The upsert that promotes a page relies on the partial index as its conflict
+/// target. If that inference ever breaks, promoting a page twice starts failing.
+#[tokio::test]
+async fn page_task_upsert_conflicts_on_the_partial_index() {
+    let Some(pool) = pool().await else { return };
+    let (ws, parent, _child, _label) = seed_tasks(&pool).await;
+
+    for status in ["todo", "done"] {
+        sqlx::query(
+            "insert into tasks (doc_id, workspace_id, block_id, status) \
+             values ($1, $2, null, $3) \
+             on conflict (doc_id) where block_id is null do update set status = excluded.status",
+        )
+        .bind(parent)
+        .bind(ws)
+        .bind(status)
+        .execute(&pool)
+        .await
+        .expect("the promote upsert must be idempotent");
+    }
+
+    let (n, status): (i64, String) =
+        sqlx::query_as("select count(*), max(status) from tasks where doc_id = $1")
+            .bind(parent)
+            .fetch_one(&pool)
+            .await
+            .unwrap();
+    assert_eq!(n, 1, "promoting twice must not create a second task");
+    assert_eq!(status, "done", "the second promote must have updated it");
+}

@@ -151,15 +151,29 @@ export type TaskPriority = "none" | "low" | "medium" | "high";
  * them through the document endpoints. `due_at` is nullable everywhere.
  */
 export interface Task {
+  id: string;
   doc_id: string;
+  /**
+   * The provenance. `null` means the page itself is the task; a block id means
+   * the task is anchored to one block inside the page, and the page may hold
+   * others.
+   */
+  block_id: string | null;
   workspace_id: string;
+  /** The page title for a page task, the anchored text for an inline one. */
   title: string;
+  /** The containing page, shown as provenance on a board card. */
+  doc_title: string;
   icon: string | null;
   status: TaskStatus;
   priority: TaskPriority;
   due_at: string | null;
   due_all_day: boolean;
   completed_at: string | null;
+  /** The anchoring block is gone from the page. Hidden from the board by default. */
+  detached: boolean;
+  /** The containing page's labels; labels are page-scoped, not per-task. */
+  label_ids: string[];
   created_at: string;
   updated_at: string;
 }
@@ -189,6 +203,38 @@ export interface ListTasksParams {
   include_undated?: boolean;
   sort?: "due_at" | "priority" | "created_at";
   limit?: number;
+  /**
+   * Restrict to a page and everything under it. This is how "filter by project"
+   * works: a project is just a page, and its tasks are the whole subtree's.
+   */
+  doc_id?: string;
+  /** Restrict to pages carrying any of these labels. */
+  label_id?: string[];
+  /** Tasks whose anchoring block is gone. Hidden unless asked for. */
+  include_detached?: boolean;
+}
+
+/** Body for POST /documents/:id/tasks (make a block into a task). */
+export interface CreateInlineTaskInput {
+  block_id: string;
+  title?: string;
+  status?: TaskStatus;
+  priority?: TaskPriority;
+  due_at?: string | null;
+  due_all_day?: boolean;
+}
+
+/** Body for PATCH /tasks/:id. Only present keys change. */
+export interface UpdateTaskByIdInput {
+  status?: TaskStatus;
+  priority?: TaskPriority;
+  due_at?: string | null;
+  due_all_day?: boolean;
+  title?: string;
+  detached?: boolean;
+  /** Re-anchor after a block was cut and pasted; send both together. */
+  doc_id?: string;
+  block_id?: string;
 }
 
 /** State of a workspace's ICS calendar feed (GET /workspaces/:id/calendar-feed). */
@@ -738,6 +784,26 @@ export const api = {
   deleteTask: (docId: string) => req<void>(`/documents/${docId}/task`, { method: "DELETE" }),
 
   /** List/agenda query. `status` is sent as a CSV; nulls sort last. */
+  /** Every task on a page, the page task included. */
+  listDocTasks: (docId: string) =>
+    req<{ tasks: Task[] }>(`/documents/${docId}/tasks`).then((r) => r.tasks),
+
+  /** Make a block inside a page into a task. 409 if that block already is one. */
+  createInlineTask: (docId: string, body: CreateInlineTaskInput) =>
+    req<Task>(`/documents/${docId}/tasks`, {
+      method: "POST",
+      body: JSON.stringify(body),
+    }),
+
+  /**
+   * Update any task by id, page or inline. The board uses this so a card can be
+   * edited without caring which kind it came from.
+   */
+  updateTaskById: (id: string, patch: UpdateTaskByIdInput) =>
+    req<Task>(`/tasks/${id}`, { method: "PATCH", body: JSON.stringify(patch) }),
+
+  deleteTaskById: (id: string) => req<void>(`/tasks/${id}`, { method: "DELETE" }),
+
   listTasks: (params: ListTasksParams) => {
     const qs = new URLSearchParams();
     qs.set("workspace_id", params.workspace_id);
@@ -746,6 +812,9 @@ export const api = {
     if (params.due_after) qs.set("due_after", params.due_after);
     if (params.include_undated != null) qs.set("include_undated", String(params.include_undated));
     if (params.sort) qs.set("sort", params.sort);
+    if (params.doc_id) qs.set("doc_id", params.doc_id);
+    if (params.label_id && params.label_id.length) qs.set("label_id", params.label_id.join(","));
+    if (params.include_detached) qs.set("include_detached", "true");
     if (params.limit != null) qs.set("limit", String(params.limit));
     return req<{ tasks: Task[] }>(`/tasks?${qs.toString()}`).then((r) => r.tasks);
   },
