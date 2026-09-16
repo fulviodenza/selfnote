@@ -517,6 +517,99 @@ export function editorHtml(theme: "light" | "dark"): string {
         }, true);
       }
 
+      /*
+       * Markdown paste, for the nodes BlockNote does not know about. Mirrors
+       * packages/editor/src/markdownPaste.ts.
+       *
+       * Not a general takeover: BlockNote's own markdown paste stays in charge
+       * and this only intervenes when the clipboard holds "$$ … $$", an inline
+       * "$ … $" run, or a "> [!kind]" marker, which it would otherwise land as
+       * literal text. Pasting is how a formula-heavy note usually arrives.
+       */
+      // What, if anything, in this text needs our converter. Inline is reported
+      // separately from the block-level constructs because the two justify
+      // different amounts of interference (see the handler). The inline test
+      // asks the importer's own predicate, per line, so it cannot match a run
+      // spanning a newline that the importer would never convert.
+      function classifyPaste(text) {
+        if (!text) return "none";
+        if (/^[ \\t]*\\$\\$/m.test(text)) return "block";
+        if (/^[ \\t]*>[ \\t]*\\[!\\w+\\]/m.test(text)) return "block";
+        for (const line of text.split("\\n")) {
+          MATH_INLINE_RE.lastIndex = 0;
+          for (let m = MATH_INLINE_RE.exec(line); m; m = MATH_INLINE_RE.exec(line)) {
+            if (!MATH_NOT_RE.test(m[2])) return "inline";
+          }
+        }
+        return "none";
+      }
+
+      function setupMarkdownPaste(editor) {
+        let dom = null;
+        try { dom = editor._tiptapEditor && editor._tiptapEditor.view && editor._tiptapEditor.view.dom; } catch {}
+        if (!dom) return;
+        dom.addEventListener("paste", (e) => {
+          // Writes through replaceBlocks/insertBlocks rather than ProseMirror,
+          // so BlockNote's own editable guard does not cover it.
+          if (!editable) return;
+          let text = "";
+          try { text = (e.clipboardData && e.clipboardData.getData("text/plain")) || ""; } catch {}
+          const kind = classifyPaste(text);
+          if (kind === "none") return; // BlockNote handles it
+
+          let current = null;
+          try { current = editor.getTextCursorPosition().block; } catch { return; }
+          // Never take over a paste into code: "export PATH=$PATH:$HOME/bin"
+          // looks like inline math by any delimiter rule, and the point of a
+          // code block is that its contents are not interpreted.
+          if (current && current.type === "codeBlock") return;
+
+          // Inline math alone is not worth discarding a rich paste for:
+          // preventing the default throws away the text/html flavour.
+          let types = [];
+          try { types = (e.clipboardData && e.clipboardData.types) || []; } catch {}
+          if (kind === "inline" && Array.prototype.indexOf.call(types, "text/html") !== -1) return;
+
+          // The parse is async and the default cannot be prevented once the
+          // event returns, so commit here; a failed parse leaves the document
+          // unchanged rather than half-pasted.
+          e.preventDefault();
+          (async () => {
+            try {
+              const blocks = await calloutMarkdownToBlocks(editor, text);
+              if (!blocks || !blocks.length) return;
+
+              // One paragraph is inline content, and belongs at the caret
+              // rather than as a new block after it. Also what keeps a
+              // mid-sentence paste from jumping to the end of the paragraph.
+              const sole = blocks.length === 1 ? blocks[0] : null;
+              if (sole && sole.type === "paragraph" && Array.isArray(sole.content) && editor.insertInlineContent) {
+                editor.insertInlineContent(sole.content);
+                return;
+              }
+
+              // Pasting over a selection replaces it, as BlockNote would have.
+              let selected = null;
+              try { selected = editor.getSelection() && editor.getSelection().blocks; } catch {}
+              if (Array.isArray(selected) && selected.length > 0) {
+                editor.replaceBlocks(selected, blocks);
+                return;
+              }
+
+              let empty = false;
+              try {
+                const md = await calloutBlocksToMarkdown(editor, [current]);
+                empty = md.trim() === "";
+              } catch {}
+              if (empty) editor.replaceBlocks([current], blocks);
+              else editor.insertBlocks(blocks, current, "after");
+            } catch (err) {
+              send({ type: "console", level: "error", text: "markdown paste failed: " + err });
+            }
+          })();
+        }, true);
+      }
+
       // Ctrl/Cmd+A, Notion-style: first press selects the current block's
       // content; when the block is already fully selected (or empty), select
       // the whole document. Capture-phase so it beats ProseMirror's handler.
@@ -785,6 +878,75 @@ export function editorHtml(theme: "light" | "dark"): string {
         return { markdown: out.join("\\n"), restore: restore };
       }
 
+      /*
+       * In-place conversion of literal math, for pages written before the
+       * feature existed. Mirrors findLiteralMathEdits in mathMarkdown.ts.
+       *
+       * Deliberately not a markdown round-trip: blocksToMarkdownLossy goes
+       * through external HTML, so file/audio/video blocks, colours and
+       * highlights do not survive it. A "Render math" action must not delete a
+       * note's attachments, so only the blocks holding literal math are
+       * replaced and everything else is never converted at all.
+       */
+      function mathSoleText(block) {
+        if (!block || block.type !== "paragraph") return null;
+        const c = block.content;
+        if (!Array.isArray(c) || c.length !== 1) return null;
+        return typeof c[0].text === "string" ? c[0].text.trim() : null;
+      }
+      function mathBlockText(block) {
+        const c = block && block.content;
+        if (!Array.isArray(c)) return "";
+        return c.map((n) => (n && typeof n.text === "string" ? n.text : "")).join("");
+      }
+      function findLiteralMathEdits(blocks) {
+        const edits = [];
+        const walk = (list) => {
+          for (let i = 0; i < list.length; i++) {
+            const b = list[i];
+            if (b && Array.isArray(b.children) && b.children.length) walk(b.children);
+            if (!b || b.type === "math") continue;
+            if (b.type && MATH_PLAIN_TYPES.indexOf(b.type) !== -1) continue;
+            if (mathSoleText(b) === "$$") {
+              // Collect to the closing fence. An unclosed run is not a formula;
+              // rewriting it would eat the rest of the note.
+              let j = i + 1;
+              const body = [];
+              for (; j < list.length; j++) {
+                if (mathSoleText(list[j]) === "$$") break;
+                body.push(mathBlockText(list[j]));
+              }
+              if (j < list.length) {
+                const latex = body.join("\\n").trim();
+                if (latex) {
+                  edits.push({ target: list.slice(i, j + 1), replacement: [{ type: "math", props: { latex: latex } }] });
+                }
+                i = j;
+                continue;
+              }
+            }
+            const content = withInlineMath(b.content);
+            if (content !== b.content) {
+              edits.push({ target: [b], replacement: [Object.assign({}, b, { content: content })] });
+            }
+          }
+        };
+        walk(blocks || []);
+        return edits.reverse();
+      }
+      function countEditedMath(edits) {
+        let n = 0;
+        for (const edit of edits) {
+          for (const b of edit.replacement) {
+            if (b && b.type === "math") n++;
+            if (b && Array.isArray(b.content)) {
+              for (const c of b.content) if (c && c.type === "inlineMath") n++;
+            }
+          }
+        }
+        return n;
+      }
+
       // Export blocks to markdown, emitting callouts as GitHub alerts. Callout
       // blocks are swapped for a sentinel paragraph so BlockNote lays them out in
       // order; each sentinel is then replaced with the rendered alert. Mirrors
@@ -1039,6 +1201,29 @@ export function editorHtml(theme: "light" | "dark"): string {
           // A reply to a WebView-initiated bridge call (link search / summarize).
           const fn = bridgePending.get(msg.requestId);
           if (fn) { bridgePending.delete(msg.requestId); fn(msg); }
+        } else if (msg.type === "renderMath") {
+          /*
+           * Convert literal math in a page written before the feature existed.
+           * Those notes hold their "$$" as ordinary paragraph text, and nothing
+           * migrates them. Export to markdown and re-import: the round-trip is
+           * already the code that understands "$$" runs and inline "$ … $", and
+           * leaves everything else byte-identical. A page with nothing to
+           * convert is left completely alone.
+           */
+          const reqId = msg.reqId;
+          (() => {
+            let count = 0;
+            try {
+              const edits = findLiteralMathEdits(bnEditor.document);
+              count = countEditedMath(edits);
+              // Reverse document order, so each replace leaves later targets valid.
+              for (const edit of edits) bnEditor.replaceBlocks(edit.target, edit.replacement);
+            } catch (err) {
+              send({ type: "console", level: "error", text: "renderMath failed: " + err });
+              count = -1;
+            }
+            send({ type: "renderMathResult", reqId: reqId, count: count });
+          })();
         } else if (msg.type === "update" && msg.update) {
           Y.applyUpdate(doc, fromBase64(msg.update), "rn");
         } else if (msg.type === "getText") {
@@ -1220,6 +1405,7 @@ export function editorHtml(theme: "light" | "dark"): string {
           setupSlashMenu(editor);
           setupCalloutInputRule(editor);
           setupMathInputRule(editor);
+          setupMarkdownPaste(editor);
           setupSelectAll(editor);
           setupSelectionToolbar(editor);
           setupUndoShortcut(editor);

@@ -15,6 +15,10 @@ import remarkGfm from "remark-gfm";
 import remarkMath from "remark-math";
 import rehypeKatex from "rehype-katex";
 import "katex/dist/katex.min.css";
+import {
+  markdownToBlocksWithCallouts,
+  type MarkdownEditor,
+} from "@selfnote/editor";
 import { api, type AiActionKind, type AiActionScope } from "./api";
 import { Icon } from "./Icon";
 
@@ -238,7 +242,12 @@ function AiActionResult({
   const insert = async () => {
     if (!editor || !canApply) return;
     try {
-      const blocks = await editor.tryParseMarkdownToBlocks(result);
+      // Not editor.tryParseMarkdownToBlocks: the raw parser knows nothing
+      // about our math and callout nodes and silently drops both.
+      const blocks = await markdownToBlocksWithCallouts(
+        editor as unknown as MarkdownEditor,
+        result,
+      );
       // Anchor at the end of the current selection if any, else the cursor block.
       const anchor =
         (pending.selectedBlocks && pending.selectedBlocks[pending.selectedBlocks.length - 1]) ||
@@ -259,7 +268,12 @@ function AiActionResult({
       return;
     }
     try {
-      const blocks = await editor.tryParseMarkdownToBlocks(result);
+      // Not editor.tryParseMarkdownToBlocks: the raw parser knows nothing
+      // about our math and callout nodes and silently drops both.
+      const blocks = await markdownToBlocksWithCallouts(
+        editor as unknown as MarkdownEditor,
+        result,
+      );
       const target =
         pending.scope === "selection" && pending.selectedBlocks?.length
           ? pending.selectedBlocks

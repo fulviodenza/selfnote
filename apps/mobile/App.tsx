@@ -1294,6 +1294,10 @@ function ConnectedEditor({
   const [task, setTask] = useState<Task | null | undefined>(undefined);
   const [showAssist, setShowAssist] = useState(false);
   const [showActions, setShowActions] = useState(false);
+  // The topbar's overflow sheet: every page action that used to be its own icon.
+  const [showPageMenu, setShowPageMenu] = useState(false);
+  // "Render math" is in flight; the result itself is reported by a toast.
+  const [mathBusy, setMathBusy] = useState(false);
   // Version history (docs/features/version-history.md §5): the timeline modal and
   // the checkpoint currently open in the read-only preview overlay.
   const [showHistory, setShowHistory] = useState(false);
@@ -1450,6 +1454,10 @@ function ConnectedEditor({
         setShowShares(false);
         return true;
       }
+      if (showPageMenu) {
+        setShowPageMenu(false);
+        return true;
+      }
       if (showActions) {
         setShowActions(false);
         return true;
@@ -1459,7 +1467,7 @@ function ConnectedEditor({
         return true;
       }
       return false;
-    }, [previewCheckpoint, showHistory, reviewing, showShares, showActions, showAssist, refreshProposals]),
+    }, [previewCheckpoint, showHistory, reviewing, showShares, showPageMenu, showActions, showAssist, refreshProposals]),
   );
 
   return (
@@ -1471,11 +1479,7 @@ function ConnectedEditor({
         onShowTabs={onShowTabs}
         onBack={onBack}
         status={status}
-        onShare={() => setShowShares(true)}
-        onHistory={() => setShowHistory(true)}
-        onActions={ai?.available ? () => setShowActions(true) : undefined}
-        onAssist={ai?.available ? () => setShowAssist(true) : undefined}
-        onAttach={canWrite ? () => void attachFile() : undefined}
+        onMenu={() => setShowPageMenu(true)}
       />
       {offline ? (
         <Pressable style={styles.offlineBanner} onPress={() => connection.goOnline()}>
@@ -1580,6 +1584,85 @@ function ConnectedEditor({
           onClose={() => setShowAssist(false)}
         />
       ) : null}
+      {showPageMenu ? (
+        <Sheet title="Page" onClose={() => setShowPageMenu(false)}>
+          {canWrite ? (
+            <Button
+              variant="secondary"
+              icon="paperclip"
+              label="Attach file"
+              onPress={() => {
+                setShowPageMenu(false);
+                void attachFile();
+              }}
+            />
+          ) : null}
+          <Button
+            variant="secondary"
+            icon="clock"
+            label="Version history"
+            onPress={() => {
+              setShowPageMenu(false);
+              setShowHistory(true);
+            }}
+          />
+          <Button
+            variant="secondary"
+            icon="share"
+            label="Share"
+            onPress={() => {
+              setShowPageMenu(false);
+              setShowShares(true);
+            }}
+          />
+          {ai?.available ? (
+            <Button
+              variant="secondary"
+              icon="zap"
+              label="AI actions"
+              onPress={() => {
+                setShowPageMenu(false);
+                setShowActions(true);
+              }}
+            />
+          ) : null}
+          {ai?.available ? (
+            <Button
+              variant="secondary"
+              icon="star"
+              label="AI Assist"
+              onPress={() => {
+                setShowPageMenu(false);
+                setShowAssist(true);
+              }}
+            />
+          ) : null}
+          {canWrite ? (
+            <Button
+              variant="secondary"
+              icon="hash"
+              label="Render math"
+              loading={mathBusy}
+              onPress={async () => {
+                setMathBusy(true);
+                const n = (await editorRef.current?.renderMath()) ?? -1;
+                setMathBusy(false);
+                setShowPageMenu(false);
+                toast(
+                  n === -2
+                    ? "Still working; the page may update in a moment."
+                    : n < 0
+                      ? "Couldn't convert this page."
+                      : n === 0
+                        ? "No literal math found in this page."
+                        : `Rendered ${n} formula${n === 1 ? "" : "s"}.`,
+                );
+              }}
+            />
+          ) : null}
+        </Sheet>
+      ) : null}
+
       {showActions && ai ? (
         <NoteAiActions
           status={ai}
@@ -1653,6 +1736,16 @@ function ConnectedEditor({
   );
 }
 
+/*
+ * Note topbar: back, title, tab count, overflow.
+ *
+ * Every page action used to sit here as its own icon. On a phone that was seven
+ * controls competing with the title: the title was squeezed to nothing and the
+ * last icon was clipped off the right edge, so AI Assist could not be tapped at
+ * all. They live in the overflow sheet now, which also gives each one a label
+ * instead of a bare glyph. The tab count stays out, immediately left of the
+ * overflow, because it is a state readout as much as a button.
+ */
 function EditorTopbar({
   title,
   presence,
@@ -1660,11 +1753,7 @@ function EditorTopbar({
   onShowTabs,
   onBack,
   status,
-  onHistory,
-  onActions,
-  onAssist,
-  onShare,
-  onAttach,
+  onMenu,
 }: {
   title: string;
   /** Other editors in the room; absent when alone. See PresenceChips. */
@@ -1674,11 +1763,8 @@ function EditorTopbar({
   onShowTabs?: () => void;
   onBack: () => void;
   status?: ConnectionStatus;
-  onHistory?: () => void;
-  onActions?: () => void;
-  onAssist?: () => void;
-  onShare?: () => void;
-  onAttach?: () => void;
+  /** Opens the page-actions sheet. Omitted where there are no page actions. */
+  onMenu?: () => void;
 }) {
   const { colors, type } = useTheme();
   const styles = useMemo(() => makeStyles(colors, type), [colors, type]);
@@ -1689,13 +1775,9 @@ function EditorTopbar({
         {title || "Untitled"}
       </Text>
       {presence}
-      {onShowTabs && tabCount ? <TabCountButton count={tabCount} onPress={onShowTabs} /> : null}
-      {onAttach ? <IconButton icon="paperclip" label="Attach file" onPress={onAttach} /> : null}
-      {onHistory ? <IconButton icon="clock" label="Version history" onPress={onHistory} /> : null}
-      {onShare ? <IconButton icon="share" label="Share" onPress={onShare} /> : null}
-      {onActions ? <IconButton icon="zap" label="AI actions" onPress={onActions} /> : null}
-      {onAssist ? <IconButton icon="star" label="AI Assist" onPress={onAssist} active /> : null}
       {status ? <StatusDot state={status} /> : null}
+      {onShowTabs && tabCount ? <TabCountButton count={tabCount} onPress={onShowTabs} /> : null}
+      {onMenu ? <IconButton icon="more-vertical" label="Page actions" onPress={onMenu} /> : null}
     </View>
   );
 }

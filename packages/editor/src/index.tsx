@@ -36,6 +36,7 @@ import { CALLOUT_KINDS, ensureCalloutStyles, type CalloutKind } from "./callout"
 import { registerCalloutInputRule } from "./calloutInputRule";
 import { ensureMathStyles, markMathInserted } from "./math";
 import { registerMathInputRules } from "./mathInputRule";
+import { registerMarkdownPaste } from "./markdownPaste";
 import { registerSelectAllShortcut } from "./selectAll";
 import { registerUndoShortcut } from "./undoShortcut";
 import {
@@ -44,6 +45,27 @@ import {
   type MarkdownEditor,
 } from "./calloutMarkdown";
 
+/*
+ * The Markdown round-trip, re-exported for hosts that own their own insert
+ * paths. Anything turning Markdown into blocks must go through these rather
+ * than BlockNote's own parser, or it silently drops math and callouts: the
+ * custom nodes are invisible to the default converters.
+ */
+export {
+  blocksToMarkdownWithCallouts,
+  markdownToBlocksWithCallouts,
+  type MarkdownEditor,
+} from "./calloutMarkdown";
+/*
+ * In-place math conversion for pages written before the feature existed. Not a
+ * Markdown round-trip: see findLiteralMathEdits for why a whole-document
+ * rewrite is the wrong tool here.
+ */
+export {
+  countEditedMath,
+  findLiteralMathEdits,
+  type MathEdit,
+} from "./mathMarkdown";
 export { externalPageHref } from "./LinkNotePopover";
 export type { LinkNoteDoc, LinkNoteProvider } from "./LinkNotePopover";
 export {
@@ -306,11 +328,24 @@ export function CollaborativeEditor({
     ensureMathStyles();
     registerCalloutInputRule(editor as unknown as Parameters<typeof registerCalloutInputRule>[0]);
     registerMathInputRules(editor as unknown as Parameters<typeof registerMathInputRules>[0]);
+    // Gated on `editable`: the handler writes through replaceBlocks/insertBlocks
+    // rather than ProseMirror, so BlockNote's own editable guard does not cover
+    // it, and a read-only share would otherwise accept pastes.
+    const offPaste = registerMarkdownPaste(
+      editor as unknown as Parameters<typeof registerMarkdownPaste>[0],
+      editable,
+    );
     registerSelectAllShortcut(
       editor as unknown as Parameters<typeof registerSelectAllShortcut>[0],
     );
-    return registerUndoShortcut(editor as unknown as Parameters<typeof registerUndoShortcut>[0]);
-  }, [editor]);
+    const offUndo = registerUndoShortcut(
+      editor as unknown as Parameters<typeof registerUndoShortcut>[0],
+    );
+    return () => {
+      offPaste();
+      offUndo?.();
+    };
+  }, [editor, editable]);
 
   // Anchored `/link-note` picker; null when closed. Coordinates come from the
   // caret's client rect at the moment the command runs.

@@ -41,6 +41,7 @@ import { GraphView } from "./GraphView";
 import { importObsidianVault, type ImportProgress } from "./obsidian";
 import { ConnectionsModal } from "./Connections";
 import { TaskView } from "./TaskView";
+import { countEditedMath, findLiteralMathEdits } from "@selfnote/editor";
 import { MakeTaskButton, TaskControls } from "./TaskControls";
 import { PresenceChips } from "./Presence";
 import { Icon } from "./Icon";
@@ -1850,6 +1851,39 @@ function EditorPaneInner({
     };
   }, [doc.id]);
 
+  /*
+   * Convert literal math in a page written before the feature existed. Those
+   * notes hold their `$$` as ordinary paragraph text in the CRDT, and nothing
+   * migrates them, so they stay literal forever.
+   *
+   * Only the blocks that actually hold literal math are replaced; every other
+   * block is never touched. See findLiteralMathEdits for why this is not the
+   * obvious Markdown round-trip, which would silently drop the page's
+   * attachments, colours and highlights.
+   *
+   * Manual rather than automatic on open: even a targeted rewrite is an edit
+   * the user did not ask for, and doing it to every note on load is not a trade
+   * worth making.
+   */
+  const [mathNotice, setMathNotice] = useState<string | null>(null);
+  const renderMath = () => {
+    setMenuOpen(false);
+    if (!editor || mode !== "rw") return;
+    try {
+      const edits = findLiteralMathEdits(editor.document);
+      const found = countEditedMath(edits);
+      if (found === 0) {
+        setMathNotice("No literal math found in this page.");
+        return;
+      }
+      // Reverse document order, so each replace leaves later targets valid.
+      for (const edit of edits) editor.replaceBlocks(edit.target, edit.replacement);
+      setMathNotice(`Rendered ${found} formula${found === 1 ? "" : "s"}.`);
+    } catch {
+      setMathNotice("Couldn't convert this page.");
+    }
+  };
+
   const removeTask = async () => {
     setMenuOpen(false);
     await api.deleteTask(doc.id).catch(() => undefined);
@@ -1957,27 +1991,32 @@ function EditorPaneInner({
           >
             Share
           </button>
-          {task && (
-            <div className="page-menu">
-              <button
-                className="toggle"
-                title="Page menu"
-                onClick={() => setMenuOpen((v) => !v)}
-              >
-                <Icon name="more-horizontal" size={16} />
-              </button>
-              {menuOpen && (
-                <>
-                  <div className="page-menu-scrim" onClick={() => setMenuOpen(false)} />
-                  <div className="page-menu-pop">
+          <div className="page-menu">
+            <button
+              className="toggle"
+              title="Page menu"
+              onClick={() => setMenuOpen((v) => !v)}
+            >
+              <Icon name="more-horizontal" size={16} />
+            </button>
+            {menuOpen && (
+              <>
+                <div className="page-menu-scrim" onClick={() => setMenuOpen(false)} />
+                <div className="page-menu-pop">
+                  {mode === "rw" && (
+                    <button className="page-menu-item" onClick={renderMath}>
+                      Render math
+                    </button>
+                  )}
+                  {task && (
                     <button className="page-menu-item danger" onClick={removeTask}>
                       Remove task
                     </button>
-                  </div>
-                </>
-              )}
-            </div>
-          )}
+                  )}
+                </div>
+              </>
+            )}
+          </div>
         </div>
       </div>
 
@@ -1996,6 +2035,12 @@ function EditorPaneInner({
       />
 
       {task && <TaskControls docId={doc.id} task={task} onChange={setTask} />}
+
+      {mathNotice && (
+        <div className="page-notice" onClick={() => setMathNotice(null)}>
+          {mathNotice}
+        </div>
+      )}
 
       {showShares && <ShareAnalyticsPanel docId={doc.id} />}
 

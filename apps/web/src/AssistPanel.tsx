@@ -58,6 +58,8 @@ export interface AiEditor {
   blocksToMarkdownLossy: (blocks?: unknown[]) => Promise<string>;
   tryParseMarkdownToBlocks: (markdown: string) => Promise<unknown[]>;
   insertBlocks: (blocks: unknown[], referenceBlock: unknown, placement: "before" | "after") => void;
+  /** Used by the page menu's "Render math" to rewrite the whole document. */
+  replaceBlocks: (target: unknown[], blocks: unknown[]) => void;
 }
 
 interface Msg {
