@@ -397,15 +397,24 @@ pub async fn create_inline_task(
     };
     let completed_at = if status == "done" { Some(Utc::now()) } else { None };
 
-    // The unique index does the work: a second task on the same block is a
-    // conflict rather than a silent duplicate, which is what makes the editor's
-    // create-on-convert safe to retry.
+    /*
+     * Idempotent on the block, which is what makes create-on-convert safe to
+     * retry. `do nothing` was not: a first request that succeeds but whose
+     * response is lost leaves the retry with a conflict and no id, so the block
+     * never learns which task it anchors and no client can recover it. Returning
+     * the existing row instead means a retry converges.
+     *
+     * Only the title is refreshed on conflict. Status, priority and due date
+     * belong to whoever has been editing the task since, and a retried create
+     * must not reset them.
+     */
     let created: Option<(Uuid,)> = sqlx::query_as(
         "insert into tasks \
              (doc_id, workspace_id, block_id, title, status, priority, due_at, \
               due_all_day, completed_at) \
          values ($1, $2, $3, $4, $5, $6, $7, $8, $9) \
-         on conflict do nothing \
+         on conflict (doc_id, block_id) where block_id is not null do update set \
+             title = excluded.title, updated_at = now() \
          returning id",
     )
     .bind(doc_id)
@@ -420,14 +429,9 @@ pub async fn create_inline_task(
     .fetch_optional(&state.pool)
     .await?;
 
-    let id = match created {
-        Some((id,)) => id,
-        None => {
-            return Err(AppError::Conflict(
-                "that block is already a task".into(),
-            ))
-        }
-    };
+    let id = created
+        .ok_or_else(|| AppError::Conflict("that block is already a task".into()))?
+        .0;
     Ok(Json(load_task_by_id(&state, user.id, id).await?))
 }
 
@@ -470,6 +474,32 @@ pub async fn update_task_by_id(
         }
     }
 
+    /*
+     * A page task has no anchoring block, so it can never be detached.
+     *
+     * Refusing this is not pedantry. `list_doc_tasks` deliberately returns the
+     * page task alongside the inline ones, so a client running the documented
+     * reconcile ("anything with no matching block is detached") finds no block
+     * for it and would mark it detached. That hides it from the board and drops
+     * it out of the subscribed calendar, and neither promote nor the page-task
+     * PATCH clears `detached_at`, so there is no way back.
+     */
+    if body.detached.is_some() && existing.block_id.is_none() {
+        return Err(AppError::BadRequest(
+            "a page task has no block to detach from".into(),
+        ));
+    }
+    /*
+     * A page task's title mirrors its document, so accepting one here would
+     * silently discard it: the caller would get a 200 and the old title back.
+     * Rename the page instead.
+     */
+    if body.title.is_some() && existing.block_id.is_none() {
+        return Err(AppError::BadRequest(
+            "a page task's title follows its page; rename the page".into(),
+        ));
+    }
+
     // Re-anchoring is only meaningful for an inline task, and only within the
     // workspace: a task must never follow a block into someone else's pages.
     let (doc_id, block_id) = match (body.doc_id, &body.block_id) {
@@ -479,13 +509,20 @@ pub async fn update_task_by_id(
                     "a page task cannot be re-anchored".into(),
                 ));
             }
+            let trimmed = new_block.trim();
+            // Same check the create path makes: a task anchored to an empty
+            // block id is still "inline" and can never be matched to a block
+            // again, which is a task nothing can ever reach.
+            if trimmed.is_empty() {
+                return Err(AppError::BadRequest("block_id is required".into()));
+            }
             let ws = authorize_writer(&state, user.id, new_doc).await?;
             if ws != existing.workspace_id {
                 return Err(AppError::BadRequest(
                     "cannot move a task to another workspace".into(),
                 ));
             }
-            (new_doc, Some(new_block.clone()))
+            (new_doc, Some(trimmed.to_string()))
         }
         (None, None) => (existing.doc_id, existing.block_id.clone()),
         _ => {
@@ -512,22 +549,37 @@ pub async fn update_task_by_id(
     } else {
         None
     };
-    // A page task's title mirrors the document, so it is never written here.
-    let title = if existing.block_id.is_some() {
-        body.title.clone().unwrap_or(existing.title.clone())
-    } else {
-        String::new()
-    };
+    // Page tasks were refused a title above, so this only ever runs for inline
+    // ones; a page task's stored title stays empty and its document supplies it.
+    let title = body.title.clone().unwrap_or(existing.title.clone());
+    // The struct exposes only the boolean, but preserving the instant needs the
+    // instant, so read it alongside.
+    let (existing_detached_at,): (Option<DateTime<Utc>>,) =
+        sqlx::query_as("select detached_at from tasks where id = $1")
+            .bind(id)
+            .fetch_one(&state.pool)
+            .await?;
+    /*
+     * `detached_at` records when the block actually went missing, so it must
+     * survive every later write: a task re-reported as detached on each editor
+     * open, or simply dragged between board columns, would otherwise keep
+     * resetting to now and lose the only timestamp that means anything.
+     */
     let detached_at: Option<DateTime<Utc>> = match body.detached {
-        Some(true) => Some(Utc::now()),
+        Some(true) => existing_detached_at.or_else(|| Some(Utc::now())),
         Some(false) => None,
-        // Re-anchoring implies the block was found again.
+        // Re-anchoring found the block again.
         None if body.block_id.is_some() => None,
-        None if existing.detached => Some(Utc::now()),
-        None => None,
+        None => existing_detached_at,
     };
 
-    sqlx::query(
+    /*
+     * A re-anchor can land on a block that already has a task: the same
+     * `taskItem` copied rather than cut, or two clients racing the reconcile
+     * after one cut and paste. That is the unique index doing its job, and it
+     * deserves a 409 rather than surfacing as an internal error.
+     */
+    let written = sqlx::query(
         "update tasks set \
              doc_id = $2, block_id = $3, title = $4, status = $5, priority = $6, \
              due_at = $7, due_all_day = $8, completed_at = $9, detached_at = $10, \
@@ -545,7 +597,13 @@ pub async fn update_task_by_id(
     .bind(completed_at)
     .bind(detached_at)
     .execute(&state.pool)
-    .await?;
+    .await;
+    if let Err(sqlx::Error::Database(db)) = &written {
+        if db.constraint() == Some("tasks_block_unique") {
+            return Err(AppError::Conflict("that block is already a task".into()));
+        }
+    }
+    written?;
 
     Ok(Json(load_task_by_id(&state, user.id, id).await?))
 }
@@ -655,7 +713,17 @@ pub async fn list_tasks(
     };
 
     // Build the WHERE clause with numbered binds. $1 is always workspace_id.
-    let mut sql = format!("{TASK_SELECT} where t.workspace_id = $1");
+    /*
+     * Shelved pages are not on the agenda.
+     *
+     * This gap predates inline tasks, but they make it bite: a trashed meeting
+     * note used to contribute one phantom card, and now contributes one per
+     * task inside it. The ICS feed already filtered this way, so the board was
+     * the surface disagreeing with the calendar.
+     */
+    let mut sql = format!(
+        "{TASK_SELECT} where t.workspace_id = $1 and not d.archived and not d.trashed"
+    );
     let mut next = 2;
     let (status_placeholder, due_before_idx, due_after_idx);
     if !statuses.is_empty() {
@@ -695,12 +763,18 @@ pub async fn list_tasks(
         // The same recursive shape the shelf cascade uses: a page's tasks are
         // its own plus every descendant's, so filtering by a project page picks
         // up the whole project.
+        // The depth cap is not optional. A parent cycle is reachable (see the
+        // TOCTOU note in documents.rs), and without the cap this CTE never
+        // returns: it pins one of ten pool connections and grows temp memory
+        // until the API is unreachable. Every other recursive walk over the
+        // tree carries the same bound.
         sql.push_str(&format!(
             " and t.doc_id in ( \
                  with recursive sub as ( \
-                     select id from documents where id = ${doc_idx} \
+                     select id, 1 as depth from documents where id = ${doc_idx} \
                      union all \
-                     select d.id from documents d join sub s on d.parent_id = s.id \
+                     select d.id, s.depth + 1 from documents d join sub s on d.parent_id = s.id \
+                     where s.depth < 100 \
                  ) select id from sub)"
         ));
         next += 1;

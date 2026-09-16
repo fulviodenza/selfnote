@@ -146,9 +146,12 @@ export type TaskStatus = "todo" | "in_progress" | "done";
 export type TaskPriority = "none" | "low" | "medium" | "high";
 
 /**
- * A document promoted to a task (row in `document_tasks`, 1:1 with a document).
- * `title`/`icon` mirror the underlying document and are read-only here; edit
- * them through the document endpoints. `due_at` is nullable everywhere.
+ * A task, with the page it came from. `block_id` is the provenance: null means
+ * the page itself is the task, a block id means it is anchored inside one and
+ * the page may hold others.
+ *
+ * For a page task, `title` and `icon` mirror the document and are read-only
+ * here; rename the page instead. `due_at` is nullable everywhere.
  */
 export interface Task {
   id: string;
@@ -783,7 +786,6 @@ export const api = {
   /** Demote a task (removes task metadata; the document is untouched). Idempotent. */
   deleteTask: (docId: string) => req<void>(`/documents/${docId}/task`, { method: "DELETE" }),
 
-  /** List/agenda query. `status` is sent as a CSV; nulls sort last. */
   /** Every task on a page, the page task included. */
   listDocTasks: (docId: string) =>
     req<{ tasks: Task[] }>(`/documents/${docId}/tasks`).then((r) => r.tasks),
@@ -804,6 +806,10 @@ export const api = {
 
   deleteTaskById: (id: string) => req<void>(`/tasks/${id}`, { method: "DELETE" }),
 
+  /**
+   * The agenda and the board. `status` and `label_id` are sent as CSVs;
+   * undated tasks sort last.
+   */
   listTasks: (params: ListTasksParams) => {
     const qs = new URLSearchParams();
     qs.set("workspace_id", params.workspace_id);

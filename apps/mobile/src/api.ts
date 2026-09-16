@@ -154,8 +154,8 @@ export type TaskStatus = "todo" | "in_progress" | "done";
 export type TaskPriority = "none" | "low" | "medium" | "high";
 
 /**
- * Task metadata attached to a document (a document is a task iff this row
- * exists). `title`/`icon` are mirrored read-only from the document. See
+ * A task, with the page it came from. `block_id` is the provenance: null means
+ * the page itself is the task, a block id means it is anchored inside one. See
  * docs/features/calendar-task-sync.md.
  */
 export interface Task {
@@ -733,7 +733,6 @@ export const api = {
   /** Demote — remove task metadata (204, idempotent). The document is untouched. */
   deleteTask: (docId: string) => req<void>(`/documents/${docId}/task`, { method: "DELETE" }),
 
-  /** Agenda query. Scoped to `workspace_id`; see the doc for filter semantics. */
   /** Every task on a page, the page task included. */
   listDocTasks: (docId: string) =>
     req<{ tasks: Task[] }>(`/documents/${docId}/tasks`).then((r) => r.tasks),
@@ -754,6 +753,10 @@ export const api = {
 
   deleteTaskById: (id: string) => req<void>(`/tasks/${id}`, { method: "DELETE" }),
 
+  /**
+   * The agenda and the board. Scoped to `workspace_id`; `status` and
+   * `label_id` are sent as CSVs.
+   */
   listTasks: (params: ListTasksParams) => {
     const qs = new URLSearchParams();
     qs.set("workspace_id", params.workspace_id);
