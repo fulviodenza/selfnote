@@ -340,12 +340,15 @@ export function CollaborativeEditor({
     );
     const offUndo = registerUndoShortcut(
       editor as unknown as Parameters<typeof registerUndoShortcut>[0],
+      // Reported, not swallowed: a silent catch is why "Ctrl+Z does nothing"
+      // could not be diagnosed from the outside.
+      (message) => onError?.(`Undo failed: ${message}`),
     );
     return () => {
       offPaste();
       offUndo?.();
     };
-  }, [editor, editable]);
+  }, [editor, editable, onError]);
 
   // Anchored `/link-note` picker; null when closed. Coordinates come from the
   // caret's client rect at the moment the command runs.

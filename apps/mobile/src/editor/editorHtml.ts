@@ -643,6 +643,32 @@ export function editorHtml(theme: "light" | "dark"): string {
       // focus; routes to the Yjs UndoManager (only LOCAL changes are undone).
       // Mirrors packages/editor/src/undoShortcut.ts.
       function setupUndoShortcut(editor) {
+        // Drive the UndoManager directly: editor.undo() goes through
+        // BlockNote's extension registry, which looks up yUndo then history and
+        // throws when neither is found, and withCollaboration deliberately
+        // disables history. That path has one point of failure and no fallback.
+        const viewOf = () => {
+          try { return editor.prosemirrorView || (editor._tiptapEditor && editor._tiptapEditor.view); } catch { return null; }
+        };
+        /*
+         * Find the UndoManager by scanning plugin states, not via
+         * yUndoPluginKey. A PluginKey matches by identity, and importing
+         * y-prosemirror from the CDN alongside the copy BlockNote bundles would
+         * give us a different instance whose key never matches: the same class
+         * of bug as the "single shared yjs" note at the top of this file, and
+         * the failure mode is exactly the silent no-op this change removes.
+         */
+        const undoManagerOf = (view) => {
+          const plugins = view && view.state && view.state.plugins;
+          if (!Array.isArray(plugins)) return null;
+          for (const plugin of plugins) {
+            try {
+              const st = plugin && plugin.getState && plugin.getState(view.state);
+              if (st && st.undoManager && typeof st.undoManager.undo === "function") return st.undoManager;
+            } catch {}
+          }
+          return null;
+        };
         window.addEventListener("keydown", (e) => {
           if (!(e.metaKey || e.ctrlKey) || e.altKey) return;
           const key = String(e.key || "").toLowerCase();
@@ -651,9 +677,19 @@ export function editorHtml(theme: "light" | "dark"): string {
           if (!isUndo && !isRedo) return;
           e.preventDefault();
           try {
+            const manager = undoManagerOf(viewOf());
+            if (manager) {
+              if (isUndo) manager.undo();
+              else manager.redo();
+              return;
+            }
             if (isUndo) editor.undo && editor.undo();
             else editor.redo && editor.redo();
-          } catch {}
+          } catch (err) {
+            // Reported rather than swallowed: a silent catch on a user-facing
+            // shortcut is how "Ctrl+Z does nothing" stayed undiagnosable.
+            send({ type: "console", level: "error", text: "undo failed: " + err });
+          }
         }, true);
       }
 
