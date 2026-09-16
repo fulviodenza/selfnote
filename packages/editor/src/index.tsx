@@ -56,6 +56,16 @@ export {
   markdownToBlocksWithCallouts,
   type MarkdownEditor,
 } from "./calloutMarkdown";
+/*
+ * In-place math conversion for pages written before the feature existed. Not a
+ * Markdown round-trip: see findLiteralMathEdits for why a whole-document
+ * rewrite is the wrong tool here.
+ */
+export {
+  countEditedMath,
+  findLiteralMathEdits,
+  type MathEdit,
+} from "./mathMarkdown";
 export { externalPageHref } from "./LinkNotePopover";
 export type { LinkNoteDoc, LinkNoteProvider } from "./LinkNotePopover";
 export {
@@ -318,8 +328,12 @@ export function CollaborativeEditor({
     ensureMathStyles();
     registerCalloutInputRule(editor as unknown as Parameters<typeof registerCalloutInputRule>[0]);
     registerMathInputRules(editor as unknown as Parameters<typeof registerMathInputRules>[0]);
+    // Gated on `editable`: the handler writes through replaceBlocks/insertBlocks
+    // rather than ProseMirror, so BlockNote's own editable guard does not cover
+    // it, and a read-only share would otherwise accept pastes.
     const offPaste = registerMarkdownPaste(
       editor as unknown as Parameters<typeof registerMarkdownPaste>[0],
+      editable,
     );
     registerSelectAllShortcut(
       editor as unknown as Parameters<typeof registerSelectAllShortcut>[0],
@@ -331,7 +345,7 @@ export function CollaborativeEditor({
       offPaste();
       offUndo?.();
     };
-  }, [editor]);
+  }, [editor, editable]);
 
   // Anchored `/link-note` picker; null when closed. Coordinates come from the
   // caret's client rect at the moment the command runs.

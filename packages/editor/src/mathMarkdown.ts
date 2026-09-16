@@ -322,3 +322,115 @@ function soleText(block: Block): string | null {
   const node = content[0] as InlineNode;
   return typeof node.text === "string" ? node.text.trim() : null;
 }
+
+/* ------------------------------------------------- in-place conversion ----- */
+
+/**
+ * One surgical edit: replace `target` blocks with `replacement`.
+ *
+ * Deliberately not a whole-document rewrite. The obvious implementation of
+ * "convert the math in this page" is export to Markdown and re-import, but
+ * `blocksToMarkdownLossy` goes through external HTML, so anything Markdown
+ * cannot express does not come back: file, audio and video blocks (the very
+ * attachments the paperclip panel is built from), text and background colours,
+ * highlights. A menu item called "Render math" must not delete a note's
+ * attachments, so instead we locate exactly the blocks holding literal math and
+ * touch only those. Everything else is never passed through a converter at all.
+ */
+export interface MathEdit {
+  /** The existing blocks to replace, in document order. */
+  target: unknown[];
+  /** What to put in their place. */
+  replacement: unknown[];
+}
+
+/** A block whose entire text is exactly `$$`, opening or closing a display run. */
+function isFenceBlock(block: Block): boolean {
+  return soleText(block) === "$$";
+}
+
+/** All text in a block's inline content, ignoring marks. */
+function blockText(block: Block): string {
+  const content = block?.content;
+  if (!Array.isArray(content)) return "";
+  return content
+    .map((n) => {
+      const node = n as InlineNode;
+      return typeof node.text === "string" ? node.text : "";
+    })
+    .join("");
+}
+
+/**
+ * Find the edits that would turn literal math in `blocks` into math nodes.
+ *
+ * Two shapes are recognised, matching what a pre-feature paste left behind:
+ *
+ *  - a `$$` block, some blocks of LaTeX, a closing `$$` block: the whole run
+ *    becomes one math block;
+ *  - inline `$ … $` inside a block's text: that block's content is rewritten.
+ *
+ * Returns edits in reverse document order, so a caller applying them in
+ * sequence never invalidates a later target.
+ */
+export function findLiteralMathEdits(blocks: unknown[]): MathEdit[] {
+  const edits: MathEdit[] = [];
+
+  const walk = (list: unknown[]): void => {
+    for (let i = 0; i < list.length; i++) {
+      const b = list[i] as Block;
+
+      // Children first, so their edits are applied before the parent's.
+      if (Array.isArray(b?.children) && b.children.length) walk(b.children);
+
+      // Already a formula, or code: leave it entirely alone.
+      if (b?.type === "math") continue;
+      if (b?.type && PLAIN_CONTENT_TYPES.has(b.type)) continue;
+
+      if (isFenceBlock(b)) {
+        // Collect up to the closing fence. An unclosed run is not a formula;
+        // rewriting it would eat the rest of the note.
+        let j = i + 1;
+        const body: string[] = [];
+        for (; j < list.length; j++) {
+          if (isFenceBlock(list[j] as Block)) break;
+          body.push(blockText(list[j] as Block));
+        }
+        if (j < list.length) {
+          const latex = body.join("\n").trim();
+          if (latex) {
+            edits.push({
+              target: list.slice(i, j + 1),
+              replacement: [{ type: "math", props: { latex } }],
+            });
+          }
+          i = j;
+          continue;
+        }
+      }
+
+      const content = withInlineMath(b?.content);
+      if (content !== b?.content) {
+        edits.push({ target: [b], replacement: [{ ...b, content }] });
+      }
+    }
+  };
+
+  walk(blocks);
+  return edits.reverse();
+}
+
+/** Math nodes an edit set would create, for reporting to the user. */
+export function countEditedMath(edits: MathEdit[]): number {
+  let n = 0;
+  for (const edit of edits) {
+    for (const block of edit.replacement) {
+      const b = block as Block;
+      if (b?.type === "math") n++;
+      if (Array.isArray(b?.content)) {
+        n += b.content.filter((c) => (c as InlineNode)?.type === "inlineMath").length;
+      }
+    }
+  }
+  return n;
+}

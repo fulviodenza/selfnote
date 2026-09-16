@@ -49,9 +49,10 @@ export interface EditorHandle {
    */
   preview(state: string): void;
   /**
-   * Convert literal math in a page written before the feature existed, by
-   * exporting to Markdown and re-importing. Resolves with the number of
-   * formulas found: 0 means the page was left untouched, -1 means it failed.
+   * Convert literal math in a page written before the feature existed, in
+   * place. Resolves with the number of formulas converted: 0 means the page had
+   * none and was left untouched, -1 means it failed, -2 means the WebView did
+   * not answer in time and may still be working.
    */
   renderMath(): Promise<number>;
   /** Dismiss the read-only version-history preview overlay. */
@@ -170,10 +171,14 @@ export const WebViewEditor = forwardRef<EditorHandle, WebViewEditorProps>(
         return new Promise<number>((resolve) => {
           pendingCounts.current.set(id, resolve);
           post({ type: "renderMath", reqId: id });
-          // Fail open: a whole-document round-trip is slower than a read, so
-          // this waits longer than the 4s used elsewhere.
+          /*
+           * Fail open, but distinctly from a real failure. The WebView keeps
+           * working after this fires and may still rewrite the document, so
+           * reporting "couldn't convert" would be a lie: -2 lets the caller say
+           * the honest thing instead.
+           */
           setTimeout(() => {
-            if (pendingCounts.current.delete(id)) resolve(-1);
+            if (pendingCounts.current.delete(id)) resolve(-2);
           }, 15000);
         });
       },

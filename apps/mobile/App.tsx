@@ -1296,7 +1296,7 @@ function ConnectedEditor({
   const [showActions, setShowActions] = useState(false);
   // The topbar's overflow sheet: every page action that used to be its own icon.
   const [showPageMenu, setShowPageMenu] = useState(false);
-  // Result of "Render math", shown once and dismissed with the sheet.
+  // "Render math" is in flight; the result itself is reported by a toast.
   const [mathBusy, setMathBusy] = useState(false);
   // Version history (docs/features/version-history.md §5): the timeline modal and
   // the checkpoint currently open in the read-only preview overlay.
@@ -1649,11 +1649,13 @@ function ConnectedEditor({
                 setMathBusy(false);
                 setShowPageMenu(false);
                 toast(
-                  n < 0
-                    ? "Couldn't convert this page."
-                    : n === 0
-                      ? "No math found in this page."
-                      : `Rendered ${n} formula${n === 1 ? "" : "s"}.`,
+                  n === -2
+                    ? "Still working; the page may update in a moment."
+                    : n < 0
+                      ? "Couldn't convert this page."
+                      : n === 0
+                        ? "No literal math found in this page."
+                        : `Rendered ${n} formula${n === 1 ? "" : "s"}.`,
                 );
               }}
             />
