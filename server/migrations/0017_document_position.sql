@@ -31,6 +31,9 @@ set position = ranked.rn
 from ranked
 where d.id = ranked.id;
 
--- The tree lists one parent's children at a time, in position order.
-create index documents_sibling_order_idx
-    on documents (workspace_id, parent_id, position);
+-- Matches how the tree is actually fetched: `list` selects a whole workspace
+-- and orders by (position, created_at), assembling the hierarchy client-side.
+-- It does not filter by parent_id, so an index led by parent_id could not serve
+-- that sort; this one can.
+create index documents_workspace_order_idx
+    on documents (workspace_id, position, created_at);

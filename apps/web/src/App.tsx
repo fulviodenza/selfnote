@@ -46,11 +46,14 @@ import { MakeTaskButton, TaskControls } from "./TaskControls";
 import { PresenceChips } from "./Presence";
 import { Icon } from "./Icon";
 import type { Task } from "./api";
-import {
-  computeMove,
-  isSelfOrDescendant,
-  type DropPlacement,
-} from "@selfnote/core";
+import { computeMove, descendantIds, type DropPlacement } from "@selfnote/core";
+
+/**
+ * Private drag payload for a sidebar page. Deliberately not text/plain: the
+ * editor accepts that natively, so a row dropped on the note body would insert
+ * its contents into the document.
+ */
+const PAGE_DRAG_TYPE = "application/x-selfnote-page";
 import { syncUrl, needsOnboarding, saveServer, deriveFromBase } from "./server";
 import { closeDesktopWindow, isDesktop } from "./desktop";
 
@@ -253,8 +256,15 @@ function AppRoot() {
     );
     try {
       await api.updateDocument(id, patch);
+    } catch (e) {
+      // Without this the rejection escapes as an unhandled promise rejection
+      // and the row simply snaps back with no explanation. The server refuses
+      // moves for real reasons (a loop, another workspace), so say which.
+      setError(e instanceof Error ? e.message : "Couldn't move that page.");
     } finally {
-      if (workspaceId) await reload(workspaceId);
+      // Reconcile either way, and never let a failing reload mask the original
+      // error by throwing out of the finally.
+      if (workspaceId) await reload(workspaceId).catch(() => undefined);
     }
   };
   const archive = async (id: string) => {
@@ -1142,6 +1152,20 @@ function Sidebar({
   const [dragId, setDragId] = useState<string | null>(null);
   const [dropHint, setDropHint] = useState<{ id: string | null; at: DropPlacement } | null>(null);
 
+  /*
+   * The dragged page's subtree, computed once per drag.
+   *
+   * Every row has to know whether it may accept the drop, and dragover fires
+   * about sixty times a second while re-rendering the whole sidebar. Asking
+   * "is this row a descendant" per row per frame walks the tree n times per
+   * frame, which is quadratic work on every pixel of a drag and visibly stutters
+   * on a large workspace.
+   */
+  const dragBlocked = useMemo(
+    () => (dragId ? descendantIds(docs, dragId) : null),
+    [docs, dragId],
+  );
+
   const endDrag = () => {
     setDragId(null);
     setDropHint(null);
@@ -1217,7 +1241,7 @@ function Sidebar({
           onTrash={onTrash}
           dragId={dragId}
           dropHint={dropHint}
-          allDocs={docs}
+          dragBlocked={dragBlocked}
           onDragStart={setDragId}
           onDragEnd={endDrag}
           onDragOverRow={(id, at) => setDropHint({ id, at })}
@@ -1483,7 +1507,7 @@ function Row({
   onTrash,
   dragId,
   dropHint,
-  allDocs,
+  dragBlocked,
   onDragStart,
   onDragEnd,
   onDragOverRow,
@@ -1508,8 +1532,8 @@ function Row({
    */
   dragId?: string | null;
   dropHint?: { id: string | null; at: DropPlacement } | null;
-  /** The whole tree, needed to refuse a drop into the dragged page's subtree. */
-  allDocs?: Document[];
+  /** The dragged page's subtree, which may not accept the drop. */
+  dragBlocked?: Set<string> | null;
   onDragStart?: (id: string) => void;
   onDragEnd?: () => void;
   onDragOverRow?: (id: string, at: DropPlacement) => void;
@@ -1533,7 +1557,7 @@ function Row({
   const draggable = !!onDragStart && !editing;
   const dragging = !!dragId && dragId === doc.id;
   const canDrop =
-    !!dragId && !!allDocs && !!onDropRow && !isSelfOrDescendant(allDocs, dragId, doc.id);
+    !!dragId && !!onDropRow && dragId !== doc.id && !dragBlocked?.has(doc.id);
   const hint = canDrop && dropHint?.id === doc.id ? dropHint.at : null;
 
   const rowClass = [
@@ -1554,9 +1578,16 @@ function Row({
         style={{ paddingLeft: 8 + depth * 16 }}
         draggable={draggable}
         onDragStart={(e) => {
-          // Some browsers cancel a drag with no payload, and the id is useful
-          // to anything outside the tree that might accept one later.
-          e.dataTransfer.setData("text/plain", doc.id);
+          /*
+           * The id goes in a private type, not text/plain. The editor sits
+           * directly right of the tree and accepts external text/plain drops
+           * natively, so a near miss while dragging a row used to insert a raw
+           * UUID into the note. text/plain still carries the title, because
+           * some browsers cancel a drag with no standard payload, and a title
+           * is at least a sane thing to land in a document.
+           */
+          e.dataTransfer.setData(PAGE_DRAG_TYPE, doc.id);
+          e.dataTransfer.setData("text/plain", doc.title || "Untitled");
           e.dataTransfer.effectAllowed = "move";
           onDragStart?.(doc.id);
         }}

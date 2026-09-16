@@ -198,25 +198,41 @@ export interface MoveResult {
  * it too; this exists so the UI can refuse the drop rather than let the user
  * make a gesture that is going to fail.
  */
-export function isSelfOrDescendant(
+export function descendantIds(
   pages: readonly MovablePage[],
   pageId: string,
-  targetId: string,
-): boolean {
-  if (pageId === targetId) return true;
+): Set<string> {
   const childrenOf = new Map<string | null, MovablePage[]>();
   for (const p of pages) {
     const list = childrenOf.get(p.parent_id) ?? [];
     list.push(p);
     childrenOf.set(p.parent_id, list);
   }
+  const out = new Set<string>();
   const stack = [...(childrenOf.get(pageId) ?? [])];
   while (stack.length) {
     const next = stack.pop()!;
-    if (next.id === targetId) return true;
+    // Guards against a cycle that reached the client: without it a corrupt
+    // tree would spin here forever rather than merely rendering oddly.
+    if (out.has(next.id)) continue;
+    out.add(next.id);
     stack.push(...(childrenOf.get(next.id) ?? []));
   }
-  return false;
+  return out;
+}
+
+/**
+ * Convenience for a single question. Callers asking about many targets at once
+ * (every row during a drag, every candidate in a move picker) must use
+ * `descendantIds` once instead: this walks the whole tree per call, and doing
+ * that per row per dragover frame is quadratic work on every pixel of a drag.
+ */
+export function isSelfOrDescendant(
+  pages: readonly MovablePage[],
+  pageId: string,
+  targetId: string,
+): boolean {
+  return pageId === targetId || descendantIds(pages, pageId).has(targetId);
 }
 
 /** Siblings under `parentId`, in display order, excluding `excludeId`. */
@@ -266,8 +282,14 @@ export function computeMove(
   // Dropping on empty space below the tree: move to the top level, at the end.
   if (targetId === null) {
     const roots = siblingsOf(pages, null, pageId);
-    if (page.parent_id === null && roots[roots.length - 1]?.position === undefined) return null;
-    return { parent_id: null, position: between(roots[roots.length - 1]?.position, undefined) };
+    const last = roots[roots.length - 1];
+    // Already the last top-level page, so the drop changes nothing. The
+    // previous form only caught the case where it was the *only* top-level
+    // page, so every other drop into empty space sent a pointless write.
+    if (page.parent_id === null && (last === undefined || page.position > last.position)) {
+      return null;
+    }
+    return { parent_id: null, position: between(last?.position, undefined) };
   }
 
   if (isSelfOrDescendant(pages, pageId, targetId)) return null;

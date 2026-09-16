@@ -21,7 +21,7 @@ import {
   activeUsedLabels,
   computeMove,
   createDocConnection,
-  isSelfOrDescendant,
+  descendantIds,
   type ConnectionStatus,
 } from "@selfnote/core";
 import { sqlitePersistence, loadCachedState, wipeLocalCache } from "./src/persistence/sqlite";
@@ -839,7 +839,10 @@ function DocListScreen({
     try {
       await api.updateDocument(doc.id, patch);
     } catch (e) {
-      setError(friendly(e));
+      // A toast, not setError: refresh() below starts with setError(null), so
+      // the message would be cleared in the same tick it was set and the row
+      // would just snap back with no explanation.
+      toast(friendly(e));
     } finally {
       refresh();
     }
@@ -911,6 +914,19 @@ function DocListScreen({
       setFilterLabel(null);
     }
   }, [filterLabel, usedLabels]);
+
+  /*
+   * Destinations the "Move to…" picker may offer: everything except the page
+   * being moved and its own subtree, since a page cannot be moved inside
+   * itself. The subtree is computed once here rather than per candidate, which
+   * would walk the whole tree for every row and block the JS thread before the
+   * sheet paints on a large workspace.
+   */
+  const moveCandidates = useMemo(() => {
+    if (!moveDoc) return [];
+    const blocked = descendantIds(docs ?? [], moveDoc.id);
+    return (docs ?? []).filter((d) => d.id !== moveDoc.id && !blocked.has(d.id));
+  }, [moveDoc, docs]);
 
   // Search / label filter show a flat list; otherwise the collapsible tree.
   const q = query.trim().toLowerCase();
@@ -1226,20 +1242,15 @@ function DocListScreen({
               label="Top level"
               onPress={() => void moveUnder(moveDoc, null)}
             />
-            {(docs ?? [])
-              // A page cannot move inside itself or its own subtree, so those
-              // destinations are not offered at all rather than offered and
-              // then refused.
-              .filter((d) => !isSelfOrDescendant(docs ?? [], moveDoc.id, d.id))
-              .map((d) => (
-                <Button
-                  key={d.id}
-                  variant="secondary"
-                  icon="file-text"
-                  label={d.title || "Untitled"}
-                  onPress={() => void moveUnder(moveDoc, d.id)}
-                />
-              ))}
+            {moveCandidates.map((d) => (
+              <Button
+                key={d.id}
+                variant="secondary"
+                icon="file-text"
+                label={d.title || "Untitled"}
+                onPress={() => void moveUnder(moveDoc, d.id)}
+              />
+            ))}
           </ScrollView>
         </Sheet>
       ) : null}

@@ -285,6 +285,16 @@ pub async fn update(
     let archived = body.archived.unwrap_or(doc.archived);
     let trashed = body.trashed.unwrap_or(doc.trashed);
     let position = body.position.unwrap_or(doc.position);
+    /*
+     * serde_json parses an overflowing literal such as 1e400 as f64::INFINITY
+     * rather than failing, and Postgres stores Infinity in a double precision
+     * column happily. From then on every GET /documents for that workspace has
+     * to serialise a non-finite f64 back to JSON, which serde_json cannot do,
+     * so the whole tree 500s and there is no way to fix it from the UI.
+     */
+    if !position.is_finite() {
+        return Err(AppError::BadRequest("position must be a finite number".into()));
+    }
 
     /*
      * Guard the new parent before anything is written.
@@ -295,6 +305,18 @@ pub async fn update(
      * only ever rendered from the root, and the recursive CTE further down
      * would follow the cycle.
      */
+    /*
+     * One transaction from here to the cascade.
+     *
+     * The descendant guard, the update and the subtree cascade used to be three
+     * separate round trips, which is a time-of-check/time-of-use race: two
+     * devices moving A under B and B under A at the same moment each check
+     * against the pre-move tree, each pass, and both commit, producing a real
+     * cycle. The guard below is still the fast path that returns a useful
+     * error; the re-check after the write is what makes the race impossible.
+     */
+    let mut tx = state.pool.begin().await?;
+
     if let Some(pid) = parent_id {
         if pid == doc_id {
             return Err(AppError::BadRequest("a page cannot be its own parent".into()));
@@ -302,7 +324,7 @@ pub async fn update(
         let parent_ws: Option<(Uuid,)> =
             sqlx::query_as("select workspace_id from documents where id = $1")
                 .bind(pid)
-                .fetch_optional(&state.pool)
+                .fetch_optional(&mut *tx)
                 .await?;
         match parent_ws {
             None => return Err(AppError::BadRequest("parent page not found".into())),
@@ -313,17 +335,20 @@ pub async fn update(
             }
             Some(_) => {}
         }
+        // The depth cap is what stops a pre-existing cycle from spinning this
+        // CTE forever and pinning a connection. No real tree is this deep.
         let is_descendant: Option<(bool,)> = sqlx::query_as(
             "with recursive sub as ( \
-                 select id from documents where parent_id = $1 \
+                 select id, 1 as depth from documents where parent_id = $1 \
                  union all \
-                 select d.id from documents d join sub s on d.parent_id = s.id \
+                 select d.id, s.depth + 1 from documents d join sub s on d.parent_id = s.id \
+                 where s.depth < 100 \
              ) \
              select true from sub where id = $2 limit 1",
         )
         .bind(doc_id)
         .bind(pid)
-        .fetch_optional(&state.pool)
+        .fetch_optional(&mut *tx)
         .await?;
         if is_descendant.is_some() {
             return Err(AppError::BadRequest(
@@ -340,7 +365,7 @@ pub async fn update(
             let parent_shelved: Option<(bool, bool)> =
                 sqlx::query_as("select archived, trashed from documents where id = $1")
                     .bind(pid)
-                    .fetch_optional(&state.pool)
+                    .fetch_optional(&mut *tx)
                     .await?;
             if parent_shelved != Some((false, false)) {
                 parent_id = None;
@@ -361,8 +386,36 @@ pub async fn update(
     .bind(archived)
     .bind(trashed)
     .bind(position)
-    .fetch_one(&state.pool)
+    .fetch_one(&mut *tx)
     .await?;
+
+    /*
+     * Re-check the invariant after the write, inside the same transaction.
+     *
+     * Walking up from this page must reach a root within the depth cap. If it
+     * does not, some concurrent move closed a loop that neither transaction
+     * could see when it ran its own guard, so this one rolls back rather than
+     * leaving a cycle behind. Checking after the write is what makes this
+     * race-proof: the tree being validated is the committed one.
+     */
+    let (depth,): (i64,) = sqlx::query_as(
+        "with recursive anc as ( \
+             select id, parent_id, 1 as depth from documents where id = $1 \
+             union all \
+             select d.id, d.parent_id, a.depth + 1 from documents d join anc a on d.id = a.parent_id \
+             where a.depth < 100 \
+         ) \
+         select coalesce(max(depth), 0) from anc",
+    )
+    .bind(doc_id)
+    .fetch_one(&mut *tx)
+    .await?;
+    if depth >= 100 {
+        tx.rollback().await?;
+        return Err(AppError::Conflict(
+            "that move would create a loop in the page tree; reload and try again".into(),
+        ));
+    }
 
     // Shelf state applies to the whole subtree: archiving/trashing a page (or
     // restoring it) would otherwise strand its children as active-but-invisible
@@ -372,9 +425,10 @@ pub async fn update(
     if flags_changed {
         sqlx::query(
             "with recursive sub as ( \
-                 select id from documents where parent_id = $1 \
+                 select id, 1 as depth from documents where parent_id = $1 \
                  union all \
-                 select d.id from documents d join sub s on d.parent_id = s.id \
+                 select d.id, s.depth + 1 from documents d join sub s on d.parent_id = s.id \
+                 where s.depth < 100 \
              ) \
              update documents set archived = $2, trashed = $3, updated_at = now() \
              where id in (select id from sub)",
@@ -382,9 +436,10 @@ pub async fn update(
         .bind(doc_id)
         .bind(archived)
         .bind(trashed)
-        .execute(&state.pool)
+        .execute(&mut *tx)
         .await?;
     }
+    tx.commit().await?;
     Ok(Json(updated))
 }
 
