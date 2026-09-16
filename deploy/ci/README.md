@@ -11,6 +11,72 @@ cluster is the source of truth.
 | --- | --- |
 | `android-runner.Dockerfile` | Runner image: stock GitHub runner plus JDK 17, Node 20, `gh`, and the Android SDK |
 | `runner-selfnote.yaml` | PVC and Deployment for `github-runner-selfnote` (the Secrets are created out of band, see below) |
+| `build-push-job.yaml` | Builds a Selfnote image inside the cluster and pushes it to Harbor (see "Building an image", below) |
+
+## Building an image
+
+`build-push-job.yaml` builds any of the Selfnote images on a cluster node and
+pushes it straight to Harbor.
+
+Two reasons it runs here rather than on a laptop. The nodes are amd64, so there
+is no cross-compilation: the api image is a Rust release build, and doing that
+from an arm64 Mac through QEMU is slow enough to discourage deploying at all.
+And `registry.fulvio.dev` sits behind Cloudflare, which caps upload size, so a
+push of anything large dies with `413`. Talking to Harbor's ClusterIP never
+touches Cloudflare, which is the same problem the port-forward below solves for
+the runner image, solved without the port-forward.
+
+### Once, per cluster
+
+Harbor serves a certificate signed by its own CA. Externally that never shows,
+because Cloudflare terminates TLS with a public certificate; in-cluster it does.
+Secrets do not cross namespaces and a CA certificate is public material, so copy
+it into `ci` as a ConfigMap:
+
+```sh
+kubectl get secret harbor-nginx -n harbor -o jsonpath='{.data.ca\.crt}' \
+  | base64 -d > /tmp/harbor-ca.crt
+kubectl create configmap harbor-ca -n ci --from-file=ca.crt=/tmp/harbor-ca.crt
+```
+
+The `harbor` secret in `ci` (created below as a pull secret) is reused for the
+push, so that account needs push rights on `selfnote/*`.
+
+### Per build
+
+```sh
+IMAGE=selfnote-api            # or sync / web / website / operator / mcp
+TAG=0.1.17                    # the new version
+REF=$(git rev-parse HEAD)     # build a merged main SHA, never a branch
+NAME=build-${IMAGE#selfnote-}-$(echo "$TAG" | tr -d .)
+HARBOR_IP=$(kubectl get svc harbor -n harbor -o jsonpath='{.spec.clusterIP}')
+
+sed -e "s/__NAME__/$NAME/" -e "s/__IMAGE__/$IMAGE/" -e "s/__TAG__/$TAG/" \
+    -e "s/__REF__/$REF/"   -e "s/__HARBOR_IP__/$HARBOR_IP/" \
+    deploy/ci/build-push-job.yaml | kubectl apply -f -
+
+kubectl logs -n ci -l job-name=$NAME -f
+```
+
+`REF` is a commit, and it should be one that is on `main`. Building a branch
+puts an image in Harbor that no longer corresponds to anything once the branch
+is deleted, and the deployed tag then traces to nothing.
+
+Then roll it, checking first that no AI bulk-label job is mid-flight, since that
+job holds its state in memory:
+
+```sh
+kubectl exec -n selfnote deploy/selfnote-api -c api -- \
+  sh -c 'ls /proc/*/cmdline | while read f; do tr "\0" " " < "$f"; echo; done' \
+  | grep -c claude          # 0 = safe to roll
+kubectl set image deployment/selfnote-api -n selfnote \
+  api=registry.fulvio.dev/selfnote/$IMAGE:$TAG
+kubectl rollout status deployment/selfnote-api -n selfnote
+```
+
+That process check reads `/proc` rather than running `ps`, which the image does
+not ship: `ps: not found` exits non-zero and reads as "nothing running", which
+is the wrong answer to a question about whether it is safe to restart.
 
 ## Bootstrap
 
