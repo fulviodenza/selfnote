@@ -517,6 +517,60 @@ export function editorHtml(theme: "light" | "dark"): string {
         }, true);
       }
 
+      /*
+       * Markdown paste, for the nodes BlockNote does not know about. Mirrors
+       * packages/editor/src/markdownPaste.ts.
+       *
+       * Not a general takeover: BlockNote's own markdown paste stays in charge
+       * and this only intervenes when the clipboard holds "$$ … $$", an inline
+       * "$ … $" run, or a "> [!kind]" marker, which it would otherwise land as
+       * literal text. Pasting is how a formula-heavy note usually arrives.
+       */
+      function pasteNeedsCustomParse(text) {
+        if (!text) return false;
+        if (/^[ \\t]*\\$\\$/m.test(text)) return true;
+        if (/^[ \\t]*>[ \\t]*\\[!\\w+\\]/m.test(text)) return true;
+        // Ask the importer's own predicate rather than approximating it: a
+        // looser pattern claims "$5 for lunch and $10", and taking over that
+        // paste would discard the richer clipboard flavour BlockNote would use.
+        MATH_INLINE_RE.lastIndex = 0;
+        for (let m = MATH_INLINE_RE.exec(text); m; m = MATH_INLINE_RE.exec(text)) {
+          if (!MATH_NOT_RE.test(m[2])) return true;
+        }
+        return false;
+      }
+
+      function setupMarkdownPaste(editor) {
+        let dom = null;
+        try { dom = editor._tiptapEditor && editor._tiptapEditor.view && editor._tiptapEditor.view.dom; } catch {}
+        if (!dom) return;
+        dom.addEventListener("paste", (e) => {
+          let text = "";
+          try { text = (e.clipboardData && e.clipboardData.getData("text/plain")) || ""; } catch {}
+          if (!pasteNeedsCustomParse(text)) return; // BlockNote handles it
+          // The parse is async and the default cannot be prevented once the
+          // event returns, so commit here; a failed parse leaves the document
+          // unchanged rather than half-pasted.
+          e.preventDefault();
+          (async () => {
+            try {
+              const blocks = await calloutMarkdownToBlocks(editor, text);
+              if (!blocks || !blocks.length) return;
+              const current = editor.getTextCursorPosition().block;
+              let empty = false;
+              try {
+                const md = await calloutBlocksToMarkdown(editor, [current]);
+                empty = md.trim() === "";
+              } catch {}
+              if (empty) editor.replaceBlocks([current], blocks);
+              else editor.insertBlocks(blocks, current, "after");
+            } catch (err) {
+              send({ type: "console", level: "error", text: "markdown paste failed: " + err });
+            }
+          })();
+        }, true);
+      }
+
       // Ctrl/Cmd+A, Notion-style: first press selects the current block's
       // content; when the block is already fully selected (or empty), select
       // the whole document. Capture-phase so it beats ProseMirror's handler.
@@ -1039,6 +1093,38 @@ export function editorHtml(theme: "light" | "dark"): string {
           // A reply to a WebView-initiated bridge call (link search / summarize).
           const fn = bridgePending.get(msg.requestId);
           if (fn) { bridgePending.delete(msg.requestId); fn(msg); }
+        } else if (msg.type === "renderMath") {
+          /*
+           * Convert literal math in a page written before the feature existed.
+           * Those notes hold their "$$" as ordinary paragraph text, and nothing
+           * migrates them. Export to markdown and re-import: the round-trip is
+           * already the code that understands "$$" runs and inline "$ … $", and
+           * leaves everything else byte-identical. A page with nothing to
+           * convert is left completely alone.
+           */
+          const reqId = msg.reqId;
+          (async () => {
+            let count = 0;
+            try {
+              const md = await calloutBlocksToMarkdown(bnEditor);
+              const blocks = await calloutMarkdownToBlocks(bnEditor, md);
+              const tally = (bs) => {
+                for (const b of bs || []) {
+                  if (b && b.type === "math") count++;
+                  if (b && Array.isArray(b.content)) {
+                    for (const c of b.content) if (c && c.type === "inlineMath") count++;
+                  }
+                  if (b && Array.isArray(b.children)) tally(b.children);
+                }
+              };
+              tally(blocks);
+              if (count > 0) bnEditor.replaceBlocks(bnEditor.document, blocks);
+            } catch (err) {
+              send({ type: "console", level: "error", text: "renderMath failed: " + err });
+              count = -1;
+            }
+            send({ type: "renderMathResult", reqId: reqId, count: count });
+          })();
         } else if (msg.type === "update" && msg.update) {
           Y.applyUpdate(doc, fromBase64(msg.update), "rn");
         } else if (msg.type === "getText") {
@@ -1220,6 +1306,7 @@ export function editorHtml(theme: "light" | "dark"): string {
           setupSlashMenu(editor);
           setupCalloutInputRule(editor);
           setupMathInputRule(editor);
+          setupMarkdownPaste(editor);
           setupSelectAll(editor);
           setupSelectionToolbar(editor);
           setupUndoShortcut(editor);

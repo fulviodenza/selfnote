@@ -41,6 +41,11 @@ import { GraphView } from "./GraphView";
 import { importObsidianVault, type ImportProgress } from "./obsidian";
 import { ConnectionsModal } from "./Connections";
 import { TaskView } from "./TaskView";
+import {
+  blocksToMarkdownWithCallouts,
+  markdownToBlocksWithCallouts,
+  type MarkdownEditor,
+} from "@selfnote/editor";
 import { MakeTaskButton, TaskControls } from "./TaskControls";
 import { PresenceChips } from "./Presence";
 import { Icon } from "./Icon";
@@ -1489,6 +1494,20 @@ function Row({
   );
 }
 
+/** Math nodes in a block tree, counted through `children` as well. */
+function countMath(blocks: unknown[]): number {
+  let n = 0;
+  for (const block of blocks ?? []) {
+    const b = block as { type?: string; content?: unknown; children?: unknown };
+    if (b?.type === "math") n++;
+    if (Array.isArray(b?.content)) {
+      n += b.content.filter((c) => (c as { type?: string })?.type === "inlineMath").length;
+    }
+    if (Array.isArray(b?.children)) n += countMath(b.children);
+  }
+  return n;
+}
+
 /* ======================= share link analytics ======================= */
 
 /** Human-friendly "N units ago" for an ISO timestamp; "Never" when null. */
@@ -1850,6 +1869,41 @@ function EditorPaneInner({
     };
   }, [doc.id]);
 
+  /*
+   * Convert literal math in a page written before the feature existed.
+   *
+   * Those notes hold their `$$` as ordinary paragraph text in the CRDT, and
+   * nothing migrates them, so they stay literal forever. Export to Markdown and
+   * re-import: the round-trip is already the code that understands `$$` runs
+   * and inline `$ … $`, and its sentinel machinery leaves everything else
+   * byte-identical, so there is no second parser to keep in sync.
+   *
+   * Manual rather than automatic on open: it rewrites the whole document in one
+   * transaction, and doing that to every note on load, unasked, is not a trade
+   * worth making. A page with nothing to convert is left completely alone.
+   */
+  const [mathNotice, setMathNotice] = useState<string | null>(null);
+  const renderMath = async () => {
+    setMenuOpen(false);
+    if (!editor) return;
+    try {
+      const md = await blocksToMarkdownWithCallouts(editor as unknown as MarkdownEditor);
+      const blocks = await markdownToBlocksWithCallouts(
+        editor as unknown as MarkdownEditor,
+        md,
+      );
+      const found = countMath(blocks);
+      if (found === 0) {
+        setMathNotice("No math found in this page.");
+        return;
+      }
+      editor.replaceBlocks(editor.document, blocks);
+      setMathNotice(`Rendered ${found} formula${found === 1 ? "" : "s"}.`);
+    } catch {
+      setMathNotice("Couldn't convert this page.");
+    }
+  };
+
   const removeTask = async () => {
     setMenuOpen(false);
     await api.deleteTask(doc.id).catch(() => undefined);
@@ -1957,27 +2011,30 @@ function EditorPaneInner({
           >
             Share
           </button>
-          {task && (
-            <div className="page-menu">
-              <button
-                className="toggle"
-                title="Page menu"
-                onClick={() => setMenuOpen((v) => !v)}
-              >
-                <Icon name="more-horizontal" size={16} />
-              </button>
-              {menuOpen && (
-                <>
-                  <div className="page-menu-scrim" onClick={() => setMenuOpen(false)} />
-                  <div className="page-menu-pop">
+          <div className="page-menu">
+            <button
+              className="toggle"
+              title="Page menu"
+              onClick={() => setMenuOpen((v) => !v)}
+            >
+              <Icon name="more-horizontal" size={16} />
+            </button>
+            {menuOpen && (
+              <>
+                <div className="page-menu-scrim" onClick={() => setMenuOpen(false)} />
+                <div className="page-menu-pop">
+                  <button className="page-menu-item" onClick={() => void renderMath()}>
+                    Render math
+                  </button>
+                  {task && (
                     <button className="page-menu-item danger" onClick={removeTask}>
                       Remove task
                     </button>
-                  </div>
-                </>
-              )}
-            </div>
-          )}
+                  )}
+                </div>
+              </>
+            )}
+          </div>
         </div>
       </div>
 
@@ -1996,6 +2053,12 @@ function EditorPaneInner({
       />
 
       {task && <TaskControls docId={doc.id} task={task} onChange={setTask} />}
+
+      {mathNotice && (
+        <div className="page-notice" onClick={() => setMathNotice(null)}>
+          {mathNotice}
+        </div>
+      )}
 
       {showShares && <ShareAnalyticsPanel docId={doc.id} />}
 

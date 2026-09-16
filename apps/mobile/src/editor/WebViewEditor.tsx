@@ -48,6 +48,12 @@ export interface EditorHandle {
    * base64 Yjs state read-only in an overlay, without touching the live doc.
    */
   preview(state: string): void;
+  /**
+   * Convert literal math in a page written before the feature existed, by
+   * exporting to Markdown and re-importing. Resolves with the number of
+   * formulas found: 0 means the page was left untouched, -1 means it failed.
+   */
+  renderMath(): Promise<number>;
   /** Dismiss the read-only version-history preview overlay. */
   clearPreview(): void;
   /**
@@ -132,6 +138,8 @@ export const WebViewEditor = forwardRef<EditorHandle, WebViewEditorProps>(
 
     // Pending text/selection requests, resolved when the WebView replies.
     const pending = useRef(new Map<number, (r: EditorSelection) => void>());
+    // Pending renderMath requests, which resolve with a count rather than text.
+    const pendingCounts = useRef(new Map<number, (n: number) => void>());
     const reqId = useRef(0);
 
     useImperativeHandle(handleRef, () => ({
@@ -155,6 +163,18 @@ export const WebViewEditor = forwardRef<EditorHandle, WebViewEditorProps>(
           setTimeout(() => {
             if (pending.current.delete(id)) resolve({ text: "", selection: "" });
           }, 4000);
+        });
+      },
+      renderMath() {
+        const id = ++reqId.current;
+        return new Promise<number>((resolve) => {
+          pendingCounts.current.set(id, resolve);
+          post({ type: "renderMath", reqId: id });
+          // Fail open: a whole-document round-trip is slower than a read, so
+          // this waits longer than the 4s used elsewhere.
+          setTimeout(() => {
+            if (pendingCounts.current.delete(id)) resolve(-1);
+          }, 15000);
         });
       },
       renderMarkdown(state: string) {
@@ -217,6 +237,8 @@ export const WebViewEditor = forwardRef<EditorHandle, WebViewEditorProps>(
         text?: string;
         selection?: string;
         reqId?: number;
+        /** renderMathResult: formulas converted, or -1 on failure. */
+        count?: number;
         requestId?: number;
         q?: string;
         context?: string;
@@ -245,6 +267,12 @@ export const WebViewEditor = forwardRef<EditorHandle, WebViewEditorProps>(
         if (resolve) {
           pending.current.delete(msg.reqId);
           resolve({ text: msg.text ?? "", selection: msg.selection ?? "" });
+        }
+      } else if (msg.type === "renderMathResult" && typeof msg.reqId === "number") {
+        const resolve = pendingCounts.current.get(msg.reqId);
+        if (resolve) {
+          pendingCounts.current.delete(msg.reqId);
+          resolve(typeof msg.count === "number" ? msg.count : -1);
         }
       } else if (msg.type === "linkNoteQuery" && typeof msg.requestId === "number") {
         // /link-note: search on typing, recents (listDocuments, updated_at desc,

@@ -2603,6 +2603,16 @@ button.toggle.on {
   font-size: 14px;
 }
 
+/* A transient one-line result from a page-menu action; click to dismiss. */
+.page-notice {
+  padding: 8px var(--page-gutter);
+  font-size: 13px;
+  color: var(--muted);
+  background: var(--accent-wash);
+  border-bottom: 1px solid var(--border);
+  cursor: pointer;
+}
+
 /* ---------------- inline task controls (editor header) ---------------- */
 .task-bar {
   display: flex;

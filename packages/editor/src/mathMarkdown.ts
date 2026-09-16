@@ -229,6 +229,22 @@ const INLINE_RE = /(^|[^\\$])\$([^\s$][^$]*?[^\s$]|[^\s$])\$/g;
  */
 const NOT_MATH_RE = /^[\d.,\-+/*\s]*$/;
 
+/**
+ * Does `text` hold at least one run the importer would actually convert?
+ *
+ * Exported so the paste pre-check can ask the same question the importer will
+ * answer, rather than approximating it: a looser test would claim "$5 for lunch
+ * and $10" as math, and the paste handler would then take over an ordinary
+ * paste it has no business touching.
+ */
+export function hasInlineMath(text: string): boolean {
+  INLINE_RE.lastIndex = 0;
+  for (let m = INLINE_RE.exec(text); m; m = INLINE_RE.exec(text)) {
+    if (!NOT_MATH_RE.test(m[2])) return true;
+  }
+  return false;
+}
+
 /** Split a text run on inline math, returning the resulting inline nodes. */
 function splitInlineMath(node: InlineNode): InlineNode[] {
   const text = node.text;
