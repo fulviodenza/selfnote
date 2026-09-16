@@ -17,7 +17,13 @@ import * as DocumentPicker from "expo-document-picker";
 import { useFonts } from "expo-font";
 import { StatusBar } from "expo-status-bar";
 import AsyncStorage from "@react-native-async-storage/async-storage";
-import { activeUsedLabels, createDocConnection, type ConnectionStatus } from "@selfnote/core";
+import {
+  activeUsedLabels,
+  computeMove,
+  createDocConnection,
+  descendantIds,
+  type ConnectionStatus,
+} from "@selfnote/core";
 import { sqlitePersistence, loadCachedState, wipeLocalCache } from "./src/persistence/sqlite";
 import { WebViewEditor, type EditorUser, type EditorHandle } from "./src/editor/WebViewEditor";
 import { BacklinksPanel } from "./src/editor/BacklinksPanel";
@@ -662,6 +668,8 @@ function DocListScreen({
   const [query, setQuery] = useState("");
   const [actionsDoc, setActionsDoc] = useState<Document | null>(null);
   const [renameDoc, setRenameDoc] = useState<Document | null>(null);
+  // "Move to…": the page being moved, while the destination picker is open.
+  const [moveDoc, setMoveDoc] = useState<Document | null>(null);
   // The overflow menu: the System shelves plus the app-level actions that used
   // to sit loose in the topbar (web keeps the same split in its sidebar foot).
   const [menuOpen, setMenuOpen] = useState(false);
@@ -812,6 +820,57 @@ function DocListScreen({
     }
   };
 
+  /*
+   * Deliberately not drag and drop.
+   *
+   * Dragging inside a scrolling tree on a phone fights the scroll gesture: the
+   * press that starts a drag is the same press that starts a scroll, and
+   * resolving that means a long-press delay that makes both feel wrong. A
+   * destination picker and two ordering actions reach the same API and the same
+   * result with gestures that suit the device.
+   */
+  const applyMove = async (doc: Document, patch: { parent_id: string | null; position: number }) => {
+    // Optimistic, then reconcile: the row lands where asked without waiting.
+    setDocs((cur) =>
+      cur
+        ? cur.map((d) => (d.id === doc.id ? { ...d, ...patch } : d)).sort((a, b) => a.position - b.position)
+        : cur,
+    );
+    try {
+      await api.updateDocument(doc.id, patch);
+    } catch (e) {
+      // A toast, not setError: refresh() below starts with setError(null), so
+      // the message would be cleared in the same tick it was set and the row
+      // would just snap back with no explanation.
+      toast(friendly(e));
+    } finally {
+      refresh();
+    }
+  };
+
+  /** Move a page under `parentId` (null = top level), after its new siblings. */
+  const moveUnder = async (doc: Document, parentId: string | null) => {
+    setMoveDoc(null);
+    setActionsDoc(null);
+    const patch = computeMove(docs ?? [], doc.id, parentId, "inside");
+    // null means the destination is inside the page's own subtree, or the move
+    // changes nothing; either way there is no request worth making.
+    if (patch) await applyMove(doc, patch);
+  };
+
+  /** Swap a page with its neighbour in the same sibling group. */
+  const nudge = async (doc: Document, dir: -1 | 1) => {
+    setActionsDoc(null);
+    const sibs = (docs ?? [])
+      .filter((d) => d.parent_id === doc.parent_id)
+      .sort((a, b) => a.position - b.position);
+    const i = sibs.findIndex((d) => d.id === doc.id);
+    const neighbour = sibs[i + dir];
+    if (!neighbour) return; // already at the end of its group
+    const patch = computeMove(docs ?? [], doc.id, neighbour.id, dir === -1 ? "before" : "after");
+    if (patch) await applyMove(doc, patch);
+  };
+
   /** Close the overflow menu, then run whatever it chose. */
   const go = (action: () => void) => {
     setMenuOpen(false);
@@ -855,6 +914,19 @@ function DocListScreen({
       setFilterLabel(null);
     }
   }, [filterLabel, usedLabels]);
+
+  /*
+   * Destinations the "Move to…" picker may offer: everything except the page
+   * being moved and its own subtree, since a page cannot be moved inside
+   * itself. The subtree is computed once here rather than per candidate, which
+   * would walk the whole tree for every row and block the JS thread before the
+   * sheet paints on a large workspace.
+   */
+  const moveCandidates = useMemo(() => {
+    if (!moveDoc) return [];
+    const blocked = descendantIds(docs ?? [], moveDoc.id);
+    return (docs ?? []).filter((d) => d.id !== moveDoc.id && !blocked.has(d.id));
+  }, [moveDoc, docs]);
 
   // Search / label filter show a flat list; otherwise the collapsible tree.
   const q = query.trim().toLowerCase();
@@ -1097,6 +1169,27 @@ function DocListScreen({
           />
           <Button
             variant="secondary"
+            icon="corner-down-right"
+            label="Move to…"
+            onPress={() => {
+              setMoveDoc(actionsDoc);
+              setActionsDoc(null);
+            }}
+          />
+          <Button
+            variant="secondary"
+            icon="arrow-up"
+            label="Move up"
+            onPress={() => void nudge(actionsDoc, -1)}
+          />
+          <Button
+            variant="secondary"
+            icon="arrow-down"
+            label="Move down"
+            onPress={() => void nudge(actionsDoc, 1)}
+          />
+          <Button
+            variant="secondary"
             label="Archive"
             onPress={() => shelve(actionsDoc, "archive")}
           />
@@ -1137,6 +1230,28 @@ function DocListScreen({
             onPress={() => go(onSettings)}
           />
           <Button variant="ghost" icon="log-out" label="Log out" onPress={() => go(onLogout)} />
+        </Sheet>
+      ) : null}
+
+      {moveDoc ? (
+        <Sheet title={`Move "${moveDoc.title || "Untitled"}"`} onClose={() => setMoveDoc(null)}>
+          <ScrollView style={styles.movePicker} keyboardShouldPersistTaps="handled">
+            <Button
+              variant="secondary"
+              icon="home"
+              label="Top level"
+              onPress={() => void moveUnder(moveDoc, null)}
+            />
+            {moveCandidates.map((d) => (
+              <Button
+                key={d.id}
+                variant="secondary"
+                icon="file-text"
+                label={d.title || "Untitled"}
+                onPress={() => void moveUnder(moveDoc, d.id)}
+              />
+            ))}
+          </ScrollView>
         </Sheet>
       ) : null}
 
@@ -1959,6 +2074,8 @@ const makeStyles = (colors: Palette, type: TypeRoles) =>
   searchSnippet: { fontSize: 12, color: colors.inkSoft, marginTop: 2 },
   searchMark: { color: colors.ink, fontWeight: "600" },
   chevron: { width: 28, height: 28, alignItems: "center", justifyContent: "center" },
+  // Bounded so a large workspace's picker cannot push the sheet off-screen.
+  movePicker: { maxHeight: 360 },
   // Covers the mounted screen rather than replacing it (see the tab switcher).
   overlay: { ...StyleSheet.absoluteFillObject, backgroundColor: colors.paper },
   error: { ...type.body, color: colors.danger },

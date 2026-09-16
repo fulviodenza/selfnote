@@ -170,3 +170,146 @@ export function createDocConnection(docId: string, opts: CreateDocOptions): DocC
     },
   };
 }
+
+/* ------------------------------------------------------- page moves ------- */
+
+/** The minimum a page needs to take part in a move. */
+export interface MovablePage {
+  id: string;
+  parent_id: string | null;
+  position: number;
+}
+
+/** Where a drop lands relative to the row under the cursor. */
+export type DropPlacement = "before" | "after" | "inside";
+
+/** The patch a move produces: both fields, always, so the write is atomic. */
+export interface MoveResult {
+  parent_id: string | null;
+  position: number;
+}
+
+/**
+ * True when `target` is `page` itself or one of its descendants.
+ *
+ * Dropping a page into its own subtree would strand that subtree: the tree is
+ * only ever rendered from the root, so it vanishes while its rows remain, and
+ * the server's recursive shelf query would follow the cycle. The server rejects
+ * it too; this exists so the UI can refuse the drop rather than let the user
+ * make a gesture that is going to fail.
+ */
+export function descendantIds(
+  pages: readonly MovablePage[],
+  pageId: string,
+): Set<string> {
+  const childrenOf = new Map<string | null, MovablePage[]>();
+  for (const p of pages) {
+    const list = childrenOf.get(p.parent_id) ?? [];
+    list.push(p);
+    childrenOf.set(p.parent_id, list);
+  }
+  const out = new Set<string>();
+  const stack = [...(childrenOf.get(pageId) ?? [])];
+  while (stack.length) {
+    const next = stack.pop()!;
+    // Guards against a cycle that reached the client: without it a corrupt
+    // tree would spin here forever rather than merely rendering oddly.
+    if (out.has(next.id)) continue;
+    out.add(next.id);
+    stack.push(...(childrenOf.get(next.id) ?? []));
+  }
+  return out;
+}
+
+/**
+ * Convenience for a single question. Callers asking about many targets at once
+ * (every row during a drag, every candidate in a move picker) must use
+ * `descendantIds` once instead: this walks the whole tree per call, and doing
+ * that per row per dragover frame is quadratic work on every pixel of a drag.
+ */
+export function isSelfOrDescendant(
+  pages: readonly MovablePage[],
+  pageId: string,
+  targetId: string,
+): boolean {
+  return pageId === targetId || descendantIds(pages, pageId).has(targetId);
+}
+
+/** Siblings under `parentId`, in display order, excluding `excludeId`. */
+function siblingsOf(
+  pages: readonly MovablePage[],
+  parentId: string | null,
+  excludeId: string,
+): MovablePage[] {
+  return pages
+    .filter((p) => p.parent_id === parentId && p.id !== excludeId)
+    .sort((a, b) => a.position - b.position);
+}
+
+/**
+ * The midpoint between two positions, which is what makes a reorder a
+ * single-row write: no sibling but the moved one ever changes.
+ *
+ * Repeatedly halving the same gap exhausts float precision after roughly 50
+ * insertions between one pair, at which point the two compare equal and the
+ * server's `created_at` tiebreaker decides. That is far beyond real use and the
+ * failure is benign, so there is no renormalisation pass; it is written down
+ * here so the limit is known rather than discovered.
+ */
+function between(before: number | undefined, after: number | undefined): number {
+  if (before === undefined && after === undefined) return 0;
+  if (before === undefined) return after! - 1;
+  if (after === undefined) return before + 1;
+  return (before + after) / 2;
+}
+
+/**
+ * Work out the patch for dropping `pageId` relative to `targetId`.
+ *
+ * Returns null when the move is not allowed (into its own subtree) or would
+ * change nothing, so callers can skip the request entirely rather than send a
+ * write that is either rejected or pointless.
+ */
+export function computeMove(
+  pages: readonly MovablePage[],
+  pageId: string,
+  targetId: string | null,
+  placement: DropPlacement,
+): MoveResult | null {
+  const page = pages.find((p) => p.id === pageId);
+  if (!page) return null;
+
+  // Dropping on empty space below the tree: move to the top level, at the end.
+  if (targetId === null) {
+    const roots = siblingsOf(pages, null, pageId);
+    const last = roots[roots.length - 1];
+    // Already the last top-level page, so the drop changes nothing. The
+    // previous form only caught the case where it was the *only* top-level
+    // page, so every other drop into empty space sent a pointless write.
+    if (page.parent_id === null && (last === undefined || page.position > last.position)) {
+      return null;
+    }
+    return { parent_id: null, position: between(last?.position, undefined) };
+  }
+
+  if (isSelfOrDescendant(pages, pageId, targetId)) return null;
+  const target = pages.find((p) => p.id === targetId);
+  if (!target) return null;
+
+  if (placement === "inside") {
+    const kids = siblingsOf(pages, targetId, pageId);
+    return { parent_id: targetId, position: between(kids[kids.length - 1]?.position, undefined) };
+  }
+
+  const sibs = siblingsOf(pages, target.parent_id, pageId);
+  const i = sibs.findIndex((p) => p.id === targetId);
+  if (i === -1) return null;
+  const [before, after] =
+    placement === "before"
+      ? [sibs[i - 1]?.position, sibs[i].position]
+      : [sibs[i].position, sibs[i + 1]?.position];
+  const position = between(before, after);
+  // Nothing to do when the page is already exactly there.
+  if (page.parent_id === target.parent_id && page.position === position) return null;
+  return { parent_id: target.parent_id, position };
+}
