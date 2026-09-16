@@ -27,3 +27,9 @@ anyhow = "1"
 thiserror = "1"
 tracing = "0.1"
 tracing-subscriber = { version = "0.3", features = ["env-filter"] }
+
+[dev-dependencies]
+# The document SQL is exercised against a real Postgres (tests/document_queries.rs):
+# sqlx's runtime query form is not compile-time checked, so a column type that
+# drifts is only caught by running it.
+tokio = { version = "1", features = ["macros", "rt-multi-thread"] }
