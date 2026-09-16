@@ -21,6 +21,9 @@ pub struct Document {
     pub icon: Option<String>,
     pub archived: bool,
     pub trashed: bool,
+    /// Sort key among siblings. Fractional so a page can be dropped between two
+    /// others with a single-row write; see migration 0017.
+    pub position: f64,
     pub created_at: DateTime<Utc>,
     pub updated_at: DateTime<Utc>,
 }
@@ -48,9 +51,12 @@ pub async fn list(
             return Err(AppError::BadRequest(format!("unknown state '{other}'")));
         }
     };
+    // created_at is the tiebreaker: two rows can share a position after enough
+    // midpoint insertions exhaust float precision, and an unstable tree order
+    // is worse than an arbitrary but fixed one.
     let rows: Vec<Document> = sqlx::query_as(&format!(
-        "select id, workspace_id, parent_id, title, icon, archived, trashed, created_at, updated_at \
-         from documents where workspace_id = $1 and {filter} order by created_at",
+        "select id, workspace_id, parent_id, title, icon, archived, trashed, position, created_at, updated_at \
+         from documents where workspace_id = $1 and {filter} order by position, created_at",
     ))
     .bind(q.workspace_id)
     .fetch_all(&state.pool)
@@ -74,7 +80,7 @@ pub async fn search(
         return Err(AppError::Forbidden);
     }
     let rows: Vec<Document> = sqlx::query_as(
-        "select id, workspace_id, parent_id, title, icon, archived, trashed, created_at, updated_at \
+        "select id, workspace_id, parent_id, title, icon, archived, trashed, position, created_at, updated_at \
          from documents \
          where workspace_id = $1 and not archived and not trashed \
            and to_tsvector('english', title) @@ websearch_to_tsquery('english', $2) \
@@ -107,9 +113,16 @@ pub async fn create(
         None => return Err(AppError::Forbidden),
     }
     let title = body.title.unwrap_or_else(|| "Untitled".to_string());
+    // New pages go after their last sibling. Without this every new page would
+    // take position 0 and sort to the top of its group, which is not where a
+    // page you just created belongs.
     let doc: Document = sqlx::query_as(
-        "insert into documents (workspace_id, parent_id, title) values ($1, $2, $3) \
-         returning id, workspace_id, parent_id, title, icon, archived, trashed, created_at, updated_at",
+        "insert into documents (workspace_id, parent_id, title, position) \
+         values ($1, $2, $3, coalesce(( \
+             select max(position) + 1 from documents \
+             where workspace_id = $1 and parent_id is not distinct from $2 \
+         ), 0)) \
+         returning id, workspace_id, parent_id, title, icon, archived, trashed, position, created_at, updated_at",
     )
     .bind(body.workspace_id)
     .bind(body.parent_id)
@@ -220,7 +233,7 @@ pub async fn get_document(state: &AppState, doc_id: Uuid) -> ApiResult<Document>
 
 async fn load_document(state: &AppState, doc_id: Uuid) -> ApiResult<Document> {
     let doc: Option<Document> = sqlx::query_as(
-        "select id, workspace_id, parent_id, title, icon, archived, trashed, created_at, updated_at \
+        "select id, workspace_id, parent_id, title, icon, archived, trashed, position, created_at, updated_at \
          from documents where id = $1",
     )
     .bind(doc_id)
@@ -248,6 +261,10 @@ pub struct UpdateDocument {
     pub parent_id: Option<Option<Uuid>>,
     pub archived: Option<bool>,
     pub trashed: Option<bool>,
+    /// Sort key among the new siblings. Sent together with `parent_id` so a
+    /// move is one write: the page is never briefly under its new parent at a
+    /// position left over from the old one.
+    pub position: Option<f64>,
 }
 
 pub async fn update(
@@ -267,6 +284,53 @@ pub async fn update(
     let mut parent_id = body.parent_id.unwrap_or(doc.parent_id);
     let archived = body.archived.unwrap_or(doc.archived);
     let trashed = body.trashed.unwrap_or(doc.trashed);
+    let position = body.position.unwrap_or(doc.position);
+
+    /*
+     * Guard the new parent before anything is written.
+     *
+     * Both checks predate drag and drop, but dragging makes them one gesture
+     * away: a page dropped onto its own child would otherwise strand its whole
+     * subtree, which stays in the database while vanishing from a tree that is
+     * only ever rendered from the root, and the recursive CTE further down
+     * would follow the cycle.
+     */
+    if let Some(pid) = parent_id {
+        if pid == doc_id {
+            return Err(AppError::BadRequest("a page cannot be its own parent".into()));
+        }
+        let parent_ws: Option<(Uuid,)> =
+            sqlx::query_as("select workspace_id from documents where id = $1")
+                .bind(pid)
+                .fetch_optional(&state.pool)
+                .await?;
+        match parent_ws {
+            None => return Err(AppError::BadRequest("parent page not found".into())),
+            Some((ws,)) if ws != doc.workspace_id => {
+                return Err(AppError::BadRequest(
+                    "parent page is in another workspace".into(),
+                ));
+            }
+            Some(_) => {}
+        }
+        let is_descendant: Option<(bool,)> = sqlx::query_as(
+            "with recursive sub as ( \
+                 select id from documents where parent_id = $1 \
+                 union all \
+                 select d.id from documents d join sub s on d.parent_id = s.id \
+             ) \
+             select true from sub where id = $2 limit 1",
+        )
+        .bind(doc_id)
+        .bind(pid)
+        .fetch_optional(&state.pool)
+        .await?;
+        if is_descendant.is_some() {
+            return Err(AppError::BadRequest(
+                "a page cannot be moved inside its own subtree".into(),
+            ));
+        }
+    }
 
     // Restoring a page whose parent is still shelved would leave it "active"
     // but unreachable from the tree root, so lift it to the top level instead.
@@ -285,9 +349,10 @@ pub async fn update(
     }
 
     let updated: Document = sqlx::query_as(
-        "update documents set title = $2, icon = $3, parent_id = $4, archived = $5, trashed = $6, updated_at = now() \
+        "update documents set title = $2, icon = $3, parent_id = $4, archived = $5, trashed = $6, \
+                position = $7, updated_at = now() \
          where id = $1 \
-         returning id, workspace_id, parent_id, title, icon, archived, trashed, created_at, updated_at",
+         returning id, workspace_id, parent_id, title, icon, archived, trashed, position, created_at, updated_at",
     )
     .bind(doc_id)
     .bind(title)
@@ -295,6 +360,7 @@ pub async fn update(
     .bind(parent_id)
     .bind(archived)
     .bind(trashed)
+    .bind(position)
     .fetch_one(&state.pool)
     .await?;
 
