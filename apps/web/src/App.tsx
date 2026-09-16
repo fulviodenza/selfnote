@@ -47,7 +47,7 @@ import { PresenceChips } from "./Presence";
 import { Icon } from "./Icon";
 import type { Task } from "./api";
 import { syncUrl, needsOnboarding, saveServer, deriveFromBase } from "./server";
-import { closeDesktopWindow } from "./desktop";
+import { closeDesktopWindow, isDesktop } from "./desktop";
 
 // Derived from the page origin in the browser; absolute when a server is configured.
 const SYNC_URL = syncUrl();
@@ -297,27 +297,32 @@ function AppRoot() {
   }, []);
 
   // Tab / app shortcuts. In the desktop shell nothing is browser-reserved, so
-  // Ctrl/Cmd+W closes the active page tab and Ctrl/Cmd+Q closes the app (the
-  // macOS menu also binds Quit natively). Browsers keep both combos for
-  // themselves and never hand them to the page, so Alt+W is the browser
-  // alias for closing the tab. e.code identifies the physical key — on macOS
-  // Alt+W's e.key is "∑".
+  /*
+   * Ctrl/Cmd+W closes the active page tab, and Ctrl/Cmd+Q closes the app (the
+   * macOS menu also binds Quit natively).
+   *
+   * In a browser Ctrl/Cmd+W never reaches us: Chrome, Firefox and Safari
+   * reserve it and ignore preventDefault, so the binding below only does
+   * anything in the desktop shell, which owns its window. That is not a bug to
+   * be fixed, it is the browser's rule. Alt+W is therefore the browser alias.
+   *
+   * `e.code` is the physical key, which matters because on macOS Option+W has
+   * an `e.key` of "∑".
+   */
   useEffect(() => {
-    // Alt+W must not fire while typing: on macOS Option+W is how you type "∑",
-    // so inside an input/textarea/contenteditable the keystroke stays text.
-    // Cmd/Ctrl+W has no text meaning and stays global.
-    const inEditable = (t: EventTarget | null) => {
-      const el = t instanceof HTMLElement ? t : null;
-      return !!el && (el.isContentEditable || el.tagName === "INPUT" || el.tagName === "TEXTAREA");
-    };
     const onKey = (e: KeyboardEvent) => {
       const mod = e.metaKey || e.ctrlKey;
       const altOnly = e.altKey && !mod;
-      if (
-        e.code === "KeyW" &&
-        !e.shiftKey &&
-        ((mod && !e.altKey) || (altOnly && !inEditable(e.target)))
-      ) {
+      if (e.code === "KeyW" && !e.shiftKey && ((mod && !e.altKey) || altOnly)) {
+        /*
+         * Alt+W fires while typing too. It used to be suppressed inside
+         * editable fields so that Option+W could still type "∑" on macOS, but
+         * that made the browser alias useless precisely where it is needed,
+         * since the caret is almost always in the editor. preventDefault is
+         * the precise tool for that: it closes the tab and swallows the
+         * character, so the guard was solving with a hammer what this line
+         * already solves exactly.
+         */
         e.preventDefault();
         if (view === "editor" && activeId) closeTab(activeId);
       } else if (e.code === "KeyQ" && mod && !e.shiftKey && !e.altKey) {
@@ -586,6 +591,9 @@ function TabStrip({
               <button
                 className="tab-close"
                 aria-label="Close tab"
+                // The browser keeps Ctrl/Cmd+W, so the alias is worth surfacing
+                // somewhere: it is not a shortcut anyone would guess.
+                title={isDesktop() ? "Close tab (Ctrl+W)" : "Close tab (Alt+W)"}
                 onClick={(e) => {
                   e.stopPropagation();
                   onClose(id);
