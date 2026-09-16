@@ -405,7 +405,7 @@ pub async fn update(
              select d.id, d.parent_id, a.depth + 1 from documents d join anc a on d.id = a.parent_id \
              where a.depth < 100 \
          ) \
-         select coalesce(max(depth), 0) from anc",
+         select coalesce(max(depth), 0)::bigint from anc",
     )
     .bind(doc_id)
     .fetch_one(&mut *tx)
