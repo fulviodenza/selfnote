@@ -25,6 +25,7 @@
     "access": "public"
   },
   "bin": {
+    "mcp": "dist/index.js",
     "selfnote-mcp": "dist/index.js",
     "selfnote-edit-diff": "dist/diff-cli.js"
   },
@@ -37,7 +38,8 @@
     "start": "node dist/index.js",
     "dev": "tsc -p tsconfig.json --watch",
     "typecheck": "tsc -p tsconfig.json --noEmit",
-    "prepublishOnly": "npm run build"
+    "clean": "rm -rf dist",
+    "prepublishOnly": "npm run clean && npm run build"
   },
   "dependencies": {
     "@blocknote/core": "^0.54.0",

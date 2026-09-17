@@ -83,8 +83,10 @@ MCP_HTTP_PORT=8080 \
 MCP_HTTP_AUTH=$(openssl rand -hex 24) \
 SELFNOTE_URL=https://notes.example.com \
 SELFNOTE_TOKEN=snp_... \
-node dist/index.js
+npx -y @selfnote/mcp
 ```
+
+From a clone, swap the last line for `node dist/index.js` after building.
 
 The server holds your token, so **anyone who can reach `/mcp` acts as you**. Always
 set `MCP_HTTP_AUTH` and put it behind HTTPS. A container image is provided
