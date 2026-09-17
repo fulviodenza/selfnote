@@ -8,14 +8,48 @@ back the link.
 
 ## Tools
 
+### Notes
+
 | Tool | What it does |
 |---|---|
 | `save_conversation` | Write a Markdown summary into Selfnote (a sub-page under a "Conversations" note by default, or under a note you name) and return its location. |
 | `create_note` | Create a note, optionally nested, with an optional Markdown body. |
-| `list_notes` | Search or list notes (id, title, link). |
+| `list_notes` | Search or list notes by title (id, title, link). |
+| `search_notes` | Full text search over titles, note bodies and labels. |
 | `read_note` | Return a note's current body as Markdown. |
-| `append_to_note` | Add Markdown to the end of an existing note, in place. |
-| `update_note` | Replace an existing note's whole body, in place. |
+| `append_to_note` | Propose adding Markdown to the end of a note. Staged for review, see below. |
+| `update_note` | Propose replacing a note's whole body. Staged for review, see below. |
+| `get_note_links` | The notes a note links to, and the notes linking back to it. |
+
+### Structure and tasks
+
+| Tool | What it does |
+|---|---|
+| `organize_note` | Move, rename, re-icon, archive, unarchive, trash or untrash a note. |
+| `manage_task` | Make a note into a task, make a block inside a note into a task, update one, delete one, or list a note's tasks. |
+| `list_tasks` | The agenda: filter by status, due window, labels, or a note and everything beneath it. |
+| `manage_labels` | List and create labels, and read, add, remove or replace a note's labels. |
+| `list_workspaces` | List reachable workspaces. Only needed if you have more than one. |
+
+Every workspace-scoped tool takes an optional `workspace_id` and defaults to your
+first workspace, so a single-workspace setup never has to name one.
+
+## What an agent may change on its own
+
+Note **content** is never rewritten silently. `append_to_note` and `update_note`
+stage a pending proposal that you review in the app with a before/after diff and
+accept or reject. The API enforces this rather than trusting the client: a
+personal access token may propose an edit but cannot approve one, so an agent
+cannot accept its own work.
+
+**Structure** applies immediately: moves, renames, icons, archiving, trashing,
+tasks and labels. Each is undone in one gesture in the app, and routing them
+through a review queue would defeat the point of asking an agent to tidy a
+workspace. Trashing is reversible, the note lands on the trash shelf.
+
+Permanent deletion, version history restores, share links and workspace
+membership are deliberately **not** exposed. They are irreversible or they
+publish, and none of them is needed to organize notes.
 
 New notes are seeded with a Yjs update on the `document-store` fragment via
 `POST /documents/:id/content` (same path as the app's importer). Edits to existing
