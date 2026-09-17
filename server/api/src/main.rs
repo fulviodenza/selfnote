@@ -126,12 +126,26 @@ async fn main() -> anyhow::Result<()> {
             "/documents/:id/history/:checkpoint_id/restore",
             post(history::restore),
         )
+        // The page-task API, unchanged. Strictly the one task whose provenance
+        // is the whole page, so a client built before inline tasks existed can
+        // never reach one of those through it.
         .route(
             "/documents/:id/task",
             get(tasks::get_task)
                 .post(tasks::set_task)
                 .patch(tasks::update_task)
                 .delete(tasks::delete_task),
+        )
+        // Every task on a page, and making a block into one.
+        .route(
+            "/documents/:id/tasks",
+            get(tasks::list_doc_tasks).post(tasks::create_inline_task),
+        )
+        // Any task by id, which is how the board edits a card without needing
+        // to know whether it came from a page or a block inside one.
+        .route(
+            "/tasks/:id",
+            axum::routing::patch(tasks::update_task_by_id).delete(tasks::delete_task_by_id),
         )
         .route("/tasks", get(tasks::list_tasks))
         .route(
