@@ -13,7 +13,7 @@ import {
   type Task,
   type Tri,
 } from "./selfnote.js";
-import { docToMarkdown, markdownToUpdateBase64 } from "./edit.js";
+import { docToBlockOutline, docToMarkdown, markdownToUpdateBase64 } from "./edit.js";
 
 function isoDate(): string {
   // The MCP process is a normal Node runtime; a real clock is available here.
@@ -41,11 +41,23 @@ async function resolveWorkspace(
 function dueField(due?: string): Tri<string> {
   if (due === undefined) return undefined;
   if (due.trim().toLowerCase() === "none") return { clear: true };
-  const parsed = new Date(due);
+  return { set: isoTimestamp(due, "due_at") };
+}
+
+/**
+ * Normalize a date argument to the full RFC3339 timestamp the API deserializes.
+ * Models routinely emit a bare "2026-09-24", which axum's Query extractor
+ * rejects with an opaque "Failed to deserialize query string", so every date a
+ * tool accepts goes through here rather than only the ones on the body.
+ */
+function isoTimestamp(value: string, field: string): string {
+  const parsed = new Date(/^\d{4}-\d{2}-\d{2}$/.test(value.trim()) ? `${value.trim()}T00:00:00Z` : value);
   if (Number.isNaN(parsed.getTime())) {
-    throw new Error(`due_at "${due}" is not a date. Use an ISO timestamp, or "none" to clear it.`);
+    throw new Error(
+      `${field} "${value}" is not a date. Use an ISO timestamp such as 2026-09-24T09:00:00Z.`,
+    );
   }
-  return { set: parsed.toISOString() };
+  return parsed.toISOString();
 }
 
 /** One task rendered for a model: the fields it can act on, and where to look. */
@@ -109,6 +121,17 @@ export function buildServer(client: SelfnoteClient): McpServer {
     },
     async ({ title, markdown, parent_note_id, workspace_id }) => {
       const workspaceId = await resolveWorkspace(client, workspace_id);
+      if (parent_note_id) {
+        // The API checks membership on the workspace but never that the parent
+        // belongs to it, so a mismatched pair creates a page pointing out of its
+        // own tree, which then renders at the top level of the wrong workspace.
+        const parent = await client.getDocument(parent_note_id);
+        if (parent.workspace_id !== workspaceId) {
+          throw new Error(
+            "That parent note is in a different workspace. Pass its workspace_id, or pick a parent from this one.",
+          );
+        }
+      }
       const doc = await client.createDocument(workspaceId, parent_note_id ?? null, title);
       if (markdown && markdown.trim()) {
         await client.setContent(doc.id, await markdownToUpdateBase64(markdown));
@@ -171,12 +194,25 @@ export function buildServer(client: SelfnoteClient): McpServer {
 
   server.tool(
     "read_note",
-    "Read the current Markdown content of a note by id. Use this before updating a note so you can edit its existing content.",
-    { note_id: z.string().describe("The id of the note to read.") },
-    async ({ note_id }) => {
+    "Read the current Markdown content of a note by id. Use this before updating a note so you can edit its existing content. Pass with_block_ids to get the note's blocks with their ids instead, which is how to find the block id that manage_task's create_block_task needs.",
+    {
+      note_id: z.string().describe("The id of the note to read."),
+      with_block_ids: z
+        .boolean()
+        .optional()
+        .describe(
+          "Return each block as id, type and text instead of rendered Markdown. Use this to find a block id to anchor a task to.",
+        ),
+    },
+    async ({ note_id, with_block_ids }) => {
       const updates = await client.getContent(note_id);
+      if (with_block_ids) {
+        const blocks = (await docToBlockOutline(updates)).filter((b) => b.text || b.type !== "paragraph");
+        if (!blocks.length) return text("(this note is empty)");
+        return json(blocks.map((b) => ({ block_id: b.id, type: b.type, text: b.text })));
+      }
       const markdown = await docToMarkdown(updates);
-      return { content: [{ type: "text", text: markdown || "(this note is empty)" }] };
+      return text(markdown || "(this note is empty)");
     },
   );
 
@@ -262,19 +298,18 @@ export function buildServer(client: SelfnoteClient): McpServer {
             throw new Error('move needs parent_note_id (an id, or "root" for the top level).');
           }
           const doc = await client.getDocument(note_id);
-          const toRoot = parent_note_id.trim().toLowerCase() === "root";
-          const newParent = toRoot ? null : parent_note_id;
+          const target = parent_note_id.trim();
+          const toRoot = target.toLowerCase() === "root";
+          const newParent = toRoot ? null : target;
           if (newParent === note_id) throw new Error("A note cannot be moved under itself.");
           // Position and parent go in one write, so the note is never briefly
           // under its new parent at a sort key left over from the old one.
           const position = await client.positionAtEnd(doc.workspace_id, newParent, note_id);
           const moved = await client.updateDocument(note_id, {
-            parentId: toRoot ? { clear: true } : { set: parent_note_id },
+            parentId: toRoot ? { clear: true } : { set: target },
             position,
           });
-          const where = toRoot
-            ? "the top level"
-            : `"${(await client.getDocument(parent_note_id)).title}"`;
+          const where = toRoot ? "the top level" : `"${(await client.getDocument(target)).title}"`;
           return text(`Moved "${moved.title}" to ${where}.\nLocation: ${client.deepLink(moved.id)}`);
         }
         case "rename": {
@@ -295,11 +330,15 @@ export function buildServer(client: SelfnoteClient): McpServer {
         case "trash":
         case "untrash": {
           const doc = await client.updateDocument(note_id, { trashed: action === "trash" });
-          return text(
-            action === "trash"
-              ? `Moved "${doc.title}" to the trash. It is recoverable from the trash shelf.`
-              : `Restored "${doc.title}" from the trash.`,
-          );
+          if (action === "trash") {
+            return text(`Moved "${doc.title}" to the trash. It is recoverable from the trash shelf.`);
+          }
+          // Restoring does not always put the page back where it was: the server
+          // detaches it to the top level when its old parent is still shelved,
+          // and a page trashed while archived returns to the archive.
+          const shelf = doc.archived ? "the archive" : "the notes list";
+          const place = doc.parent_id ? "under its parent" : "at the top level";
+          return text(`Restored "${doc.title}" to ${shelf}, ${place}.`);
         }
       }
     },
@@ -326,7 +365,9 @@ export function buildServer(client: SelfnoteClient): McpServer {
       title: z
         .string()
         .optional()
-        .describe("For create_block_task: the block's text, cached so task lists need not open the note."),
+        .describe(
+          "For create_block_task: the block's text, cached so task lists need not open the note. Required for that action, since re-creating a task on the same block overwrites this cached title.",
+        ),
       status: z.enum(TASK_STATUSES).optional().describe("Task status."),
       priority: z.enum(TASK_PRIORITIES).optional().describe("Task priority."),
       due_at: z
@@ -348,6 +389,13 @@ export function buildServer(client: SelfnoteClient): McpServer {
         }
         case "create_block_task": {
           if (!note_id || !block_id) throw new Error("create_block_task needs note_id and block_id.");
+          // The server upserts on (doc_id, block_id) and refreshes the title from
+          // the request, so a second call without one blanks the board card.
+          if (!title?.trim()) {
+            throw new Error(
+              "create_block_task needs title, the block's text. Call read_note with with_block_ids to get both the id and the text.",
+            );
+          }
           const task = await client.createBlockTask(note_id, block_id, { ...fields, title });
           return text(
             `Made a task out of a block in "${task.doc_title}".\n` +
@@ -379,7 +427,7 @@ export function buildServer(client: SelfnoteClient): McpServer {
 
   server.tool(
     "list_tasks",
-    "List tasks across the workspace: the agenda. Filter by status, priority, due window, the notes under one parent note, or labels. Use this to answer questions like what is overdue, what is due this week, or what is left on a project.",
+    "List tasks across the workspace: the agenda. Filter by status, due window, the notes under one parent note, or labels. Use this to answer questions like what is overdue, what is due this week, or what is left on a project.",
     {
       workspace_id: z.string().optional().describe("Defaults to the user's first workspace."),
       status: z
@@ -391,22 +439,37 @@ export function buildServer(client: SelfnoteClient): McpServer {
       include_undated: z
         .boolean()
         .optional()
-        .describe("Include tasks with no due date when filtering by a due window."),
+        .describe(
+          "Include tasks with no due date. Defaults to false when a due window is given, true otherwise.",
+        ),
       under_note_id: z
         .string()
         .optional()
         .describe("Only tasks on this note and every note beneath it, which is how to scope to a project."),
       label_ids: z.array(z.string()).optional().describe("Only tasks on notes carrying any of these labels."),
-      limit: z.number().int().positive().optional().describe("Maximum tasks to return."),
+      limit: z
+        .number()
+        .int()
+        .min(1)
+        .max(500)
+        .optional()
+        .describe("Maximum tasks to return, 1 to 500. Defaults to 200."),
     },
     async (args) => {
       const workspaceId = await resolveWorkspace(client, args.workspace_id);
+      const dueBefore = args.due_before ? isoTimestamp(args.due_before, "due_before") : undefined;
+      const dueAfter = args.due_after ? isoTimestamp(args.due_after, "due_after") : undefined;
+      // The API includes undated tasks by default, which turns "what is due this
+      // week" into "this week, plus every undated task in the workspace". A due
+      // window means the caller asked about dates, so undated tasks stay out
+      // unless they say otherwise.
+      const window = Boolean(dueBefore || dueAfter);
       const tasks = await client.listTasks({
         workspaceId,
         status: args.status,
-        dueBefore: args.due_before,
-        dueAfter: args.due_after,
-        includeUndated: args.include_undated,
+        dueBefore,
+        dueAfter,
+        includeUndated: args.include_undated ?? (window ? false : undefined),
         docId: args.under_note_id,
         labelIds: args.label_ids,
         limit: args.limit,
@@ -470,8 +533,15 @@ export function buildServer(client: SelfnoteClient): McpServer {
           );
         }
         case "set_on_note": {
-          if (!note_id) throw new Error("set_on_note needs note_id.");
-          const labels = await client.setDocLabels(note_id, label_ids ?? []);
+          // A full replace with no ids clears the note. Silently wiping a note's
+          // labels because the array went missing is worse than an error, so the
+          // caller has to pass one, even an empty one, to mean it.
+          if (!note_id || label_ids === undefined) {
+            throw new Error(
+              "set_on_note needs note_id and label_ids. It replaces the note's labels outright, so pass an empty array to clear them, or use add_to_note to add one.",
+            );
+          }
+          const labels = await client.setDocLabels(note_id, label_ids);
           return text(
             `Labels on the note are now: ${labels.map((l) => l.name).join(", ") || "(none)"}`,
           );

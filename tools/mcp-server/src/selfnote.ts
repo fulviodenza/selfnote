@@ -296,9 +296,14 @@ export class SelfnoteClient {
 
   /** Make a task out of a block inside a page. */
   createBlockTask(docId: string, blockId: string, fields: TaskFields & { title?: string }): Promise<Task> {
+    // The server upserts on (doc_id, block_id) and sets `title = excluded.title`,
+    // so an absent title is not "leave it alone", it is "blank it". Omit the key
+    // rather than sending undefined, which JSON.stringify drops into the same trap.
+    const body: Record<string, unknown> = { block_id: blockId, ...taskBody(fields) };
+    if (fields.title !== undefined) body.title = fields.title;
     return this.request<Task>(`/documents/${docId}/tasks`, {
       method: "POST",
-      body: JSON.stringify({ block_id: blockId, title: fields.title, ...taskBody(fields) }),
+      body: JSON.stringify(body),
     });
   }
 
