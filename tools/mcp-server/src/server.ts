@@ -14,6 +14,14 @@ import {
   type Tri,
 } from "./selfnote.js";
 import { docToBlockOutline, docToMarkdown, markdownToUpdateBase64 } from "./edit.js";
+import { createRequire } from "node:module";
+
+// The version MCP reports is the package version, read at runtime rather than
+// written out a second time: a hardcoded copy silently goes stale the first
+// time someone bumps package.json alone. `../package.json` resolves to the
+// package root from dist/ and from src/ alike, and a static import cannot be
+// used because package.json sits outside the compiler's rootDir.
+const { version } = createRequire(import.meta.url)("../package.json") as { version: string };
 
 function isoDate(): string {
   // The MCP process is a normal Node runtime; a real clock is available here.
@@ -84,7 +92,7 @@ function json(value: unknown) {
 }
 
 export function buildServer(client: SelfnoteClient): McpServer {
-  const server = new McpServer({ name: "selfnote", version: "0.1.0" });
+  const server = new McpServer({ name: "selfnote", version });
 
   server.tool(
     "list_notes",

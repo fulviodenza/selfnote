@@ -1,7 +1,7 @@
 {
   "name": "@selfnote/mcp",
-  "version": "0.1.0",
-  "description": "MCP server for Selfnote: let Claude (CLI, Desktop, or claude.ai) file conversation summaries into your self-hosted Selfnote instance.",
+  "version": "0.2.0",
+  "description": "MCP server for Selfnote: let Claude (CLI, Desktop, or claude.ai) read, write and organize notes and tasks in your self-hosted Selfnote instance.",
   "license": "AGPL-3.0-or-later",
   "type": "module",
   "engines": {
@@ -19,7 +19,8 @@
     "modelcontextprotocol",
     "claude",
     "selfnote",
-    "notes"
+    "notes",
+    "tasks"
   ],
   "publishConfig": {
     "access": "public"
