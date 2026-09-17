@@ -67,6 +67,45 @@ export function stateVectorBase64(updatesBase64: string[]): string {
   return Buffer.from(Y.encodeStateVector(doc)).toString("base64");
 }
 
+/**
+ * The note's blocks as `id`, type and plain text, one per line.
+ *
+ * `docToMarkdown` renders blocks away into prose, which loses the BlockNote
+ * block ids. A task anchored to a block needs one of those ids, and it cannot be
+ * guessed: the server never parses CRDT content, so it accepts any non-empty
+ * string and a made-up id anchors a task to nothing, which later reconciles to
+ * `detached` and drops off the board. This is the only way an agent can learn a
+ * real one.
+ */
+export async function docToBlockOutline(
+  updatesBase64: string[],
+): Promise<{ id: string; type: string; text: string }[]> {
+  const doc = loadDoc(updatesBase64);
+  const blocks = editor().yDocToBlocks(doc, FRAGMENT_NAME) as any[];
+  const out: { id: string; type: string; text: string }[] = [];
+  const walk = (list: any[]): void => {
+    for (const b of list ?? []) {
+      out.push({ id: b.id, type: b.type, text: inlineText(b.content) });
+      if (b.children?.length) walk(b.children);
+    }
+  };
+  walk(blocks);
+  return out;
+}
+
+/** Plain text of a block's inline content, ignoring marks and link structure. */
+function inlineText(content: any): string {
+  if (!Array.isArray(content)) return "";
+  return content
+    .map((node: any) => {
+      if (typeof node?.text === "string") return node.text;
+      if (Array.isArray(node?.content)) return inlineText(node.content);
+      return "";
+    })
+    .join("")
+    .trim();
+}
+
 /** Current note body as Markdown (callouts render as GitHub alerts). */
 export async function docToMarkdown(updatesBase64: string[]): Promise<string> {
   const doc = loadDoc(updatesBase64);
