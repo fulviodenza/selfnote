@@ -21,14 +21,11 @@ In the Selfnote web app: **Connections** (sidebar) → name a token → **Genera
 the `snp_…` value; it's shown once. Treat it like a password — it can read and write
 your notes. Revoke it any time from the same screen.
 
-## 2. Build the server
+## 2. Point Claude at the server
 
-```bash
-cd tools/mcp-server
-npm install && npm run build
-```
-
-## 3a. Local — Claude CLI / Desktop
+The server is published as [`@selfnote/mcp`](https://www.npmjs.com/package/@selfnote/mcp)
+and needs Node 18 or newer. There is nothing to clone or build: `npx` fetches it on
+first run.
 
 Claude Code (CLI):
 
@@ -36,17 +33,17 @@ Claude Code (CLI):
 claude mcp add selfnote \
   --env SELFNOTE_URL=https://notes.example.com \
   --env SELFNOTE_TOKEN=snp_... \
-  -- node "$(pwd)/dist/index.js"
+  -- npx -y @selfnote/mcp
 ```
 
-Claude Desktop — add to `claude_desktop_config.json`:
+Claude Desktop, in `claude_desktop_config.json`:
 
 ```json
 {
   "mcpServers": {
     "selfnote": {
-      "command": "node",
-      "args": ["/absolute/path/to/tools/mcp-server/dist/index.js"],
+      "command": "npx",
+      "args": ["-y", "@selfnote/mcp"],
       "env": { "SELFNOTE_URL": "https://notes.example.com", "SELFNOTE_TOKEN": "snp_..." }
     }
   }
@@ -55,7 +52,21 @@ Claude Desktop — add to `claude_desktop_config.json`:
 
 Restart Claude and confirm the `selfnote` tools appear.
 
-## 3b. Remote — claude.ai custom connector
+### Running from a clone
+
+Working on the server itself, build it and point Claude at your own output instead:
+
+```bash
+cd tools/mcp-server
+npm install && npm run build
+
+claude mcp add selfnote \
+  --env SELFNOTE_URL=https://notes.example.com \
+  --env SELFNOTE_TOKEN=snp_... \
+  -- node "$(pwd)/dist/index.js"
+```
+
+## 3. Remote (claude.ai custom connector)
 
 claude.ai can only reach a server over HTTPS, so run the server in HTTP mode behind TLS.
 The easiest route on an existing Selfnote cluster is your **Cloudflare tunnel**: publish

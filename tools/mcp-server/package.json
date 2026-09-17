@@ -1,21 +1,45 @@
 {
   "name": "@selfnote/mcp",
   "version": "0.1.0",
-  "description": "MCP server for Selfnote — let Claude (CLI, Desktop, or claude.ai) file conversation summaries into your self-hosted Selfnote instance.",
+  "description": "MCP server for Selfnote: let Claude (CLI, Desktop, or claude.ai) file conversation summaries into your self-hosted Selfnote instance.",
   "license": "AGPL-3.0-or-later",
   "type": "module",
+  "engines": {
+    "node": ">=18"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/fulviodenza/selfnote.git",
+    "directory": "tools/mcp-server"
+  },
+  "homepage": "https://github.com/fulviodenza/selfnote/tree/main/tools/mcp-server",
+  "bugs": "https://github.com/fulviodenza/selfnote/issues",
+  "keywords": [
+    "mcp",
+    "modelcontextprotocol",
+    "claude",
+    "selfnote",
+    "notes"
+  ],
+  "publishConfig": {
+    "access": "public"
+  },
   "bin": {
+    "mcp": "dist/index.js",
     "selfnote-mcp": "dist/index.js",
     "selfnote-edit-diff": "dist/diff-cli.js"
   },
   "files": [
-    "dist"
+    "dist",
+    "LICENSE"
   ],
   "scripts": {
     "build": "tsc -p tsconfig.json",
     "start": "node dist/index.js",
     "dev": "tsc -p tsconfig.json --watch",
-    "typecheck": "tsc -p tsconfig.json --noEmit"
+    "typecheck": "tsc -p tsconfig.json --noEmit",
+    "clean": "rm -rf dist",
+    "prepublishOnly": "npm run clean && npm run build"
   },
   "dependencies": {
     "@blocknote/core": "^0.54.0",

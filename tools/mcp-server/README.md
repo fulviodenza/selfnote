@@ -1,7 +1,7 @@
 # @selfnote/mcp
 
-An [MCP](https://modelcontextprotocol.io) server that connects an external Claude —
-in the **CLI**, **Desktop**, or **claude.ai** — to your self-hosted Selfnote instance.
+An [MCP](https://modelcontextprotocol.io) server that connects an external Claude,
+in the **CLI**, **Desktop**, or **claude.ai**, to your self-hosted Selfnote instance.
 Its headline use: in a chat that has nothing to do with Selfnote, tell Claude *"save
 this conversation to my notes"* and it files a clean summary into a note and hands you
 back the link.
@@ -20,7 +20,7 @@ back the link.
 New notes are seeded with a Yjs update on the `document-store` fragment via
 `POST /documents/:id/content` (same path as the app's importer). Edits to existing
 notes read the current state (`GET …/content`), mutate the Yjs doc, and send back an
-**incremental diff** — so a note opens, edits, and syncs exactly like one you wrote by
+**incremental diff**, so a note opens, edits, and syncs exactly like one you wrote by
 hand, with no duplicated content.
 
 ## Configuration
@@ -28,21 +28,22 @@ hand, with no duplicated content.
 | Env | Required | Meaning |
 |---|---|---|
 | `SELFNOTE_URL` | yes | Your instance origin, e.g. `https://notes.example.com` |
-| `SELFNOTE_TOKEN` | yes | A personal access token (`snp_…`) — create one in the app under **Connections** |
+| `SELFNOTE_TOKEN` | yes | A personal access token (`snp_…`), created in the app under **Connections** |
 | `SELFNOTE_API_URL` | no | Explicit API base (defaults to `${SELFNOTE_URL}/api`) |
 | `MCP_HTTP_PORT` | no | Serve Streamable HTTP at `:PORT/mcp` instead of stdio (for claude.ai) |
 | `MCP_HTTP_AUTH` | no | Require `Authorization: Bearer <value>` on the HTTP endpoint |
 
 ## Local (Claude CLI / Desktop)
 
-```bash
-npm install && npm run build
+Requires Node 18 or newer. Nothing to clone or build: `npx` fetches the published
+package.
 
+```bash
 # Claude Code (CLI):
 claude mcp add selfnote \
   --env SELFNOTE_URL=https://notes.example.com \
   --env SELFNOTE_TOKEN=snp_... \
-  -- node /absolute/path/to/tools/mcp-server/dist/index.js
+  -- npx -y @selfnote/mcp
 ```
 
 Or in Claude Desktop's `claude_desktop_config.json`:
@@ -51,12 +52,25 @@ Or in Claude Desktop's `claude_desktop_config.json`:
 {
   "mcpServers": {
     "selfnote": {
-      "command": "node",
-      "args": ["/absolute/path/to/tools/mcp-server/dist/index.js"],
+      "command": "npx",
+      "args": ["-y", "@selfnote/mcp"],
       "env": { "SELFNOTE_URL": "https://notes.example.com", "SELFNOTE_TOKEN": "snp_..." }
     }
   }
 }
+```
+
+### From a clone
+
+Working on the server itself, point Claude at your own build instead:
+
+```bash
+npm install && npm run build
+
+claude mcp add selfnote \
+  --env SELFNOTE_URL=https://notes.example.com \
+  --env SELFNOTE_TOKEN=snp_... \
+  -- node /absolute/path/to/tools/mcp-server/dist/index.js
 ```
 
 ## Remote (claude.ai custom connector)
@@ -69,12 +83,18 @@ MCP_HTTP_PORT=8080 \
 MCP_HTTP_AUTH=$(openssl rand -hex 24) \
 SELFNOTE_URL=https://notes.example.com \
 SELFNOTE_TOKEN=snp_... \
-node dist/index.js
+npx -y @selfnote/mcp
 ```
 
-The server holds your token, so **anyone who can reach `/mcp` acts as you** — always
+From a clone, swap the last line for `node dist/index.js` after building.
+
+The server holds your token, so **anyone who can reach `/mcp` acts as you**. Always
 set `MCP_HTTP_AUTH` and put it behind HTTPS. A container image is provided
 (`Dockerfile`); see `docs/mcp.md` for the full remote deployment.
 
 See [`docs/mcp.md`](../../docs/mcp.md) for the end-to-end guide, including the
 `save-to-selfnote` Claude skill.
+
+## License
+
+AGPL-3.0-or-later. See [`LICENSE`](./LICENSE).
