@@ -10,11 +10,12 @@ import RNWebView, { type WebViewMessageEvent, type WebViewProps } from "react-na
 // The current File API exposes only arrayBuffer(), which would mean base64-encoding
 // a multi-megabyte book in JS on the main thread every time it opens.
 import * as FileSystem from "expo-file-system/legacy";
-import { readerHtml } from "@selfnote/reader";
+import { pdfReaderHtml, readerHtml } from "@selfnote/reader";
 
 /** Stable identity on purpose: a fresh {html} object per render invites the
  * WebView to treat a re-render as a navigation. */
 const READER_SOURCE = { html: readerHtml };
+const PDF_SOURCE = { html: pdfReaderHtml };
 import { PagePicker } from "./PagePicker";
 import { sendHighlights, type Connection } from "./selfnote";
 import {
@@ -74,6 +75,7 @@ export function Reader({
   const [highlights, setHighlights] = useState<Highlight[]>([]);
   const [progress, setProgress] = useState(0);
   const pendingCount = highlights.filter((h) => h.synced_at === null).length;
+  const isPdf = book.file_path.toLowerCase().endsWith(".pdf");
   const syncing = Boolean(connection && book.sync_document_id);
 
   const post = useCallback((msg: unknown) => {
@@ -92,13 +94,19 @@ export function Reader({
         encoding: FileSystem.EncodingType.Base64,
       });
       if (cancelled) return;
-      post({ type: "open", data, locations: current.locations });
       const saved = await loadPosition(current.id);
-      if (saved && !cancelled) post({ type: "goto", cfi: saved });
+      if (cancelled) return;
+      if (isPdf) {
+        // A PDF position is its page number, carried with the open itself.
+        post({ type: "open", data, position: saved ? Number(saved) : null });
+      } else {
+        post({ type: "open", data, locations: current.locations });
+        if (saved) post({ type: "goto", cfi: saved });
+      }
       const rows = await listHighlights(book.id);
       if (cancelled) return;
       setHighlights(rows);
-      post({ type: "highlights", items: rows.map((h) => toWire(h, syncing)) });
+      post({ type: "highlights", items: rows.map((h) => toWire(h, syncing, isPdf)) });
     })().catch((err) => Alert.alert("Could not open this book", String(err)));
     return () => {
       cancelled = true;
@@ -112,7 +120,7 @@ export function Reader({
   // page the book is no longer pointed at.
   useEffect(() => {
     if (!ready || !highlights.length) return;
-    post({ type: "highlights", items: highlights.map((h) => toWire(h, syncing)) });
+    post({ type: "highlights", items: highlights.map((h) => toWire(h, syncing, isPdf)) });
     // Only on a change of sync state: re-posting on every highlights change would
     // undo the incremental drawing the page does.
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -174,7 +182,7 @@ export function Reader({
       const after = await listHighlights(book.id);
       setHighlights(after);
       // Repaint: those highlights are green now, and the page cannot know that.
-      post({ type: "highlights", items: after.map((h) => toWire(h, true)) });
+      post({ type: "highlights", items: after.map((h) => toWire(h, true, isPdf)) });
       if (res.applied > 0) {
         setSyncNote({ kind: "ok", text: `Sent ${res.applied} to ${book.sync_page_title}` });
       }
@@ -235,14 +243,14 @@ export function Reader({
             text: msg.text,
             note: null,
             color: "#f6d365",
-            locator: JSON.stringify({ cfi: msg.cfi }),
+            locator: JSON.stringify(msg.locator ?? { cfi: msg.cfi }),
             created_at: Date.now(),
             synced_at: null,
           };
           await addHighlight(row);
           const rows = await listHighlights(book.id);
           setHighlights(rows);
-          post({ type: "highlights", items: rows.map((h) => toWire(h, syncing)) });
+          post({ type: "highlights", items: rows.map((h) => toWire(h, syncing, isPdf)) });
           void pushPending();
           return;
         }
@@ -258,7 +266,7 @@ export function Reader({
                 await deleteHighlight(hit.id);
                 const rows = await listHighlights(book.id);
                 setHighlights(rows);
-                post({ type: "highlights", items: rows.map((h) => toWire(h, syncing)) });
+                post({ type: "highlights", items: rows.map((h) => toWire(h, syncing, isPdf)) });
               },
             },
           ]);
@@ -302,7 +310,7 @@ export function Reader({
       <View style={styles.bookArea}>
         <WebView
           ref={web}
-          source={READER_SOURCE}
+          source={isPdf ? PDF_SOURCE : READER_SOURCE}
           originWhitelist={["*"]}
           onMessage={onMessage}
           // The document is local and needs no network; blocking it means a book
@@ -389,14 +397,15 @@ export function Reader({
 const PENDING = "#f2c94c";
 const SAVED = "#6fcf97";
 
-function toWire(h: Highlight, syncing: boolean) {
-  let cfi = "";
+function toWire(h: Highlight, syncing: boolean, isPdf = false) {
+  const color = syncing && h.synced_at ? SAVED : PENDING;
   try {
-    cfi = JSON.parse(h.locator).cfi ?? "";
+    const locator = JSON.parse(h.locator);
+    return isPdf ? { id: h.id, locator, color } : { id: h.id, cfi: locator.cfi ?? "", color };
   } catch {
     /* a locator we cannot read just does not draw */
+    return isPdf ? { id: h.id, locator: null, color } : { id: h.id, cfi: "", color };
   }
-  return { id: h.id, cfi, color: syncing && h.synced_at ? SAVED : PENDING };
 }
 
 const styles = StyleSheet.create({

@@ -65,7 +65,7 @@ export function Library({
 
   const importBook = useCallback(async () => {
     const picked = await DocumentPicker.getDocumentAsync({
-      type: ["application/epub+zip", "application/zip", "*/*"],
+      type: ["application/epub+zip", "application/pdf", "application/zip", "*/*"],
       copyToCacheDirectory: true,
     });
     if (picked.canceled || !picked.assets?.length) return;
@@ -74,14 +74,15 @@ export function Library({
     const dir = `${FileSystem.documentDirectory}books/`;
     await FileSystem.makeDirectoryAsync(dir, { intermediates: true }).catch(() => {});
     const id = `${Date.now()}-${Math.random().toString(36).slice(2, 10)}`;
-    const relative = `books/${id}.epub`;
+    const ext = asset.name?.toLowerCase().endsWith(".pdf") ? "pdf" : "epub";
+    const relative = `books/${id}.${ext}`;
     await FileSystem.copyAsync({ from: asset.uri, to: `${FileSystem.documentDirectory}${relative}` });
 
     await addBook({
       id,
       // The reader reports real metadata once the book opens and the row is
       // updated then; the filename is the stand-in people recognise meanwhile.
-      title: asset.name?.replace(/\.epub$/i, "") ?? "Untitled",
+      title: asset.name?.replace(/\.(epub|pdf)$/i, "") ?? "Untitled",
       author: null,
       // Relative on purpose; see the note on Book.file_path.
       file_path: relative,
