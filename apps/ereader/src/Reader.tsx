@@ -11,10 +11,16 @@ import RNWebView, { type WebViewMessageEvent, type WebViewProps } from "react-na
 // a multi-megabyte book in JS on the main thread every time it opens.
 import * as FileSystem from "expo-file-system/legacy";
 import { readerHtml } from "@selfnote/reader";
+import { PagePicker } from "./PagePicker";
+import { sendHighlights, type Connection } from "./selfnote";
 import {
   addHighlight,
   bookUri,
   deleteHighlight,
+  getBook,
+  markSynced,
+  setSyncTarget,
+  unsyncedHighlights,
   listHighlights,
   loadPosition,
   saveLocations,
@@ -38,7 +44,19 @@ const WebView = RNWebView as unknown as React.ComponentType<
   WebViewProps & { ref?: React.Ref<WebViewHandle> }
 >;
 
-export function Reader({ book, onClose }: { book: Book; onClose: () => void }) {
+export function Reader({
+  book: initialBook,
+  connection,
+  onClose,
+}: {
+  book: Book;
+  connection: Connection | null;
+  onClose: () => void;
+}) {
+  // Kept in state because picking a sync target changes the row underneath us.
+  const [book, setBook] = useState<Book>(initialBook);
+  const [picking, setPicking] = useState(false);
+  const [syncNote, setSyncNote] = useState<string | null>(null);
   const web = useRef<WebViewHandle>(null);
   const positionTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
   const [ready, setReady] = useState(false);
@@ -82,6 +100,36 @@ export function Reader({ book, onClose }: { book: Book; onClose: () => void }) {
     },
     [],
   );
+
+  const pushPending = useCallback(async () => {
+    if (!connection || !book.sync_document_id) return;
+    const pending = await unsyncedHighlights(book.id);
+    if (!pending.length) return;
+    try {
+      const res = await sendHighlights(
+        connection,
+        book.sync_document_id,
+        { key: book.id, title: book.title, author: book.author },
+        pending.map((h) => ({
+          id: h.id,
+          text: h.text,
+          note: h.note,
+          locator: h.locator ? JSON.parse(h.locator) : null,
+        })),
+      );
+      await markSynced(pending.map((h) => h.id));
+      setSyncNote(res.applied > 0 ? `Sent ${res.applied}` : null);
+    } catch (e) {
+      // Staying unsynced is the correct outcome of a failure: the next highlight,
+      // or reopening the book, retries the whole backlog.
+      setSyncNote(`Not sent: ${e instanceof Error ? e.message : String(e)}`);
+    }
+  }, [connection, book]);
+
+  // Flush the backlog when the book opens, so highlights made offline catch up.
+  useEffect(() => {
+    void pushPending();
+  }, [pushPending]);
 
   const onMessage = useCallback(
     async (e: WebViewMessageEvent) => {
@@ -130,6 +178,7 @@ export function Reader({ book, onClose }: { book: Book; onClose: () => void }) {
           const rows = await listHighlights(book.id);
           setHighlights(rows);
           post({ type: "highlights", items: rows.map(toWire) });
+          void pushPending();
           return;
         }
         case "highlightTapped": {
@@ -155,8 +204,30 @@ export function Reader({ book, onClose }: { book: Book; onClose: () => void }) {
           return;
       }
     },
-    [book, highlights, post],
+    [book, highlights, post, pushPending],
   );
+
+  if (picking && connection) {
+    return (
+      <PagePicker
+        connection={connection}
+        bookTitle={book.title}
+        current={
+          book.sync_document_id && book.sync_page_title
+            ? { id: book.sync_document_id, title: book.sync_page_title }
+            : null
+        }
+        onClose={() => setPicking(false)}
+        onPicked={async (page) => {
+          await setSyncTarget(book.id, page?.id ?? null, page?.title ?? null);
+          const fresh = await getBook(book.id);
+          if (fresh) setBook(fresh);
+          setPicking(false);
+          if (page) void pushPending();
+        }}
+      />
+    );
+  }
 
   return (
     <View style={styles.fill}>
@@ -167,6 +238,13 @@ export function Reader({ book, onClose }: { book: Book; onClose: () => void }) {
         <Text numberOfLines={1} style={styles.title}>
           {book.title}
         </Text>
+        {connection ? (
+          <TouchableOpacity onPress={() => setPicking(true)} hitSlop={10}>
+            <Text style={styles.syncTarget} numberOfLines={1}>
+              {book.sync_page_title ? `→ ${book.sync_page_title}` : "Send highlights"}
+            </Text>
+          </TouchableOpacity>
+        ) : null}
         <Text style={styles.meta}>
           {highlights.length > 0 ? `${highlights.length} ` : ""}
           {Math.round(progress * 100)}%
@@ -216,6 +294,7 @@ const styles = StyleSheet.create({
   action: { fontSize: 16, color: "#3730c4", fontWeight: "600" },
   title: { flex: 1, fontSize: 15, color: "#1b1b1b", fontWeight: "600" },
   meta: { fontSize: 13, color: "#6b6b6b", fontVariant: ["tabular-nums"] },
+  syncTarget: { fontSize: 13, color: "#3730c4", fontWeight: "600", maxWidth: 220 },
   loading: {
     position: "absolute",
     top: 0,

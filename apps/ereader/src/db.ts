@@ -26,6 +26,10 @@ export interface Book {
    * and reused. Null until the first open finishes generating it.
    */
   locations: string | null;
+  /** Selfnote page this book's highlights go to, null until the user picks one. */
+  sync_document_id: string | null;
+  /** Remembered only so the UI can say where highlights are going. */
+  sync_page_title: string | null;
 }
 
 export interface Highlight {
@@ -68,7 +72,9 @@ export async function db(): Promise<SQLite.SQLiteDatabase> {
       author    text,
       file_path text not null,
       added_at  integer not null,
-      locations text
+      locations text,
+      sync_document_id text,
+      sync_page_title  text
     );
     create table if not exists highlights (
       id         text primary key,
@@ -92,8 +98,14 @@ export async function db(): Promise<SQLite.SQLiteDatabase> {
   // Added after the first release; `create table if not exists` will not add it
   // to a table that already exists.
   const cols = await handle.getAllAsync<{ name: string }>("pragma table_info(books)");
-  if (!cols.some((c) => c.name === "locations")) {
-    await handle.execAsync("alter table books add column locations text");
+  for (const [name, decl] of [
+    ["locations", "text"],
+    ["sync_document_id", "text"],
+    ["sync_page_title", "text"],
+  ] as const) {
+    if (!cols.some((c) => c.name === name)) {
+      await handle.execAsync(`alter table books add column ${name} ${decl}`);
+    }
   }
   return handle;
 }
@@ -118,6 +130,46 @@ export async function addBook(book: Book): Promise<void> {
     book.file_path,
     book.added_at,
     book.locations,
+  );
+}
+
+/** Point a book's highlights at a Selfnote page, or clear the target with null. */
+export async function setSyncTarget(
+  bookId: string,
+  documentId: string | null,
+  pageTitle: string | null,
+): Promise<void> {
+  await (
+    await db()
+  ).runAsync(
+    "update books set sync_document_id = ?, sync_page_title = ? where id = ?",
+    documentId,
+    pageTitle,
+    bookId,
+  );
+}
+
+export async function getBook(id: string): Promise<Book | null> {
+  return (await db()).getFirstAsync<Book>("select * from books where id = ?", id);
+}
+
+/** Highlights for a book that have not reached Selfnote yet. */
+export async function unsyncedHighlights(bookId: string): Promise<Highlight[]> {
+  return (await db()).getAllAsync<Highlight>(
+    "select * from highlights where book_id = ? and synced_at is null order by created_at",
+    bookId,
+  );
+}
+
+export async function markSynced(ids: string[]): Promise<void> {
+  if (!ids.length) return;
+  const d = await db();
+  const now = Date.now();
+  const placeholders = ids.map(() => "?").join(",");
+  await d.runAsync(
+    `update highlights set synced_at = ? where id in (${placeholders})`,
+    now,
+    ...ids,
   );
 }
 

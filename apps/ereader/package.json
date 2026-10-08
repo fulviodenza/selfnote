@@ -7,6 +7,7 @@
     "expo": "~57.0.27",
     "expo-document-picker": "^57.0.3",
     "expo-file-system": "^57.0.7",
+    "expo-secure-store": "^57.0.4",
     "expo-sqlite": "^57.0.4",
     "expo-status-bar": "~57.0.1",
     "react": "19.2.3",

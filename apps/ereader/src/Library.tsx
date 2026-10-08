@@ -8,14 +8,19 @@ import { FlatList, StyleSheet, Text, TouchableOpacity, View } from "react-native
 import * as DocumentPicker from "expo-document-picker";
 import * as FileSystem from "expo-file-system/legacy";
 import { addBook, type Book } from "./db";
+import type { Connection } from "./selfnote";
 
 export function Library({
   books,
+  connection,
   onOpen,
+  onConnect,
   onChanged,
 }: {
   books: Book[];
+  connection: Connection | null;
   onOpen: (b: Book) => void;
+  onConnect: () => void;
   onChanged: () => void;
 }) {
   const importBook = useCallback(async () => {
@@ -42,6 +47,8 @@ export function Library({
       file_path: relative,
       added_at: Date.now(),
       locations: null,
+      sync_document_id: null,
+      sync_page_title: null,
     });
     onChanged();
   }, [onChanged]);
@@ -49,8 +56,15 @@ export function Library({
   return (
     <View style={styles.fill}>
       <View style={styles.header}>
-        <Text style={styles.wordmark}>selfnote</Text>
-        <Text style={styles.sub}>reader</Text>
+        <View style={styles.headerRow}>
+          <View style={{ flex: 1 }}>
+            <Text style={styles.wordmark}>selfnote</Text>
+            <Text style={styles.sub}>reader</Text>
+          </View>
+          <TouchableOpacity onPress={onConnect} hitSlop={12}>
+            <Text style={styles.link}>{connection ? "Connected" : "Connect"}</Text>
+          </TouchableOpacity>
+        </View>
       </View>
       <FlatList
         data={books}
@@ -67,6 +81,9 @@ export function Library({
               {item.title}
             </Text>
             {item.author ? <Text style={styles.rowMeta}>{item.author}</Text> : null}
+            {item.sync_page_title ? (
+              <Text style={styles.rowSync}>Highlights to "{item.sync_page_title}"</Text>
+            ) : null}
           </TouchableOpacity>
         )}
       />
@@ -95,6 +112,9 @@ const styles = StyleSheet.create({
   },
   rowTitle: { fontSize: 17, fontWeight: "600", color: "#1b1b1b" },
   rowMeta: { fontSize: 14, color: "#6b6b6b", marginTop: 4 },
+  rowSync: { fontSize: 13, color: "#3730c4", marginTop: 6 },
+  headerRow: { flexDirection: "row", alignItems: "flex-start" },
+  link: { fontSize: 16, color: "#3730c4", fontWeight: "600", paddingTop: 8 },
   add: {
     position: "absolute",
     left: 20,
