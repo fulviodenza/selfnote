@@ -1,0 +1,181 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Selfnote eReader support | Selfnote</title>
+  <meta name="description" content="Help with Selfnote eReader, the local-first EPUB reader for iPhone and iPad: adding books, highlights, sending them to your own Selfnote server, and how to reach us." />
+  <link rel="icon" type="image/png" href="/assets/favicon.png" />
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+  <link href="https://fonts.googleapis.com/css2?family=Source+Serif+4:opsz,wght@8..60,400..700&family=Inter+Tight:wght@400..700&display=swap" rel="stylesheet" />
+  <link rel="stylesheet" href="/assets/site.css" />
+</head>
+<body>
+
+<header class="site-head">
+  <div class="wrap">
+    <a class="brand" href="/"><img src="/assets/logo.png" alt="" />Selfnote</a>
+    <nav class="site-nav">
+      <a href="/docs/">Docs</a>
+      <a href="/use-cases.html" class="hide-sm">Use cases</a>
+      <a href="/resources.html" class="hide-sm">Resources</a>
+      <a href="/download.html">Download</a>
+      <a href="https://github.com/fulviodenza/selfnote">GitHub</a>
+    </nav>
+  </div>
+</header>
+
+<div class="docs-shell">
+  <div class="wrap" style="display:block">
+    <article class="prose">
+      <h1>Selfnote eReader support</h1>
+      <p class="subtitle">A local-first EPUB reader for iPhone and iPad. Your books stay on
+      your device, and your highlights go to a Selfnote server you run yourself, if and
+      when you want them to.</p>
+
+      <h2>Get help</h2>
+      <p>Everything goes to the same place, the issue tracker, and is answered in public so
+      the next person with the same question finds the answer:</p>
+      <ul>
+        <li><b>Something is broken, or you want a feature:</b>
+        <a href="https://github.com/fulviodenza/selfnote/issues/new">open an issue</a>.
+        Please say which device and iOS version you are on, and what you did just before
+        the problem.</li>
+        <li><b>A specific book will not open:</b> include the book's file size and where
+        you got it from. Do not attach the book itself unless it is freely
+        redistributable.</li>
+        <li><b>Highlights are not reaching Selfnote:</b> see
+        <a href="#not-sent">"Not sent" below</a> first, since the message after it names
+        the actual cause.</li>
+      </ul>
+      <p>The app is open source. If you would rather read the code than file a report, it
+      is at <a href="https://github.com/fulviodenza/selfnote/tree/main/apps/ereader"><code>apps/ereader</code></a>.</p>
+
+      <h2>Reading</h2>
+
+      <h3>Which files can I read?</h3>
+      <p>EPUB only. PDFs and audiobooks are not supported. Books with DRM, meaning anything
+      bought from a store that locks its files, cannot be opened by any app other than that
+      store's own.</p>
+
+      <h3>How do I add a book?</h3>
+      <p>Tap <b>Add an EPUB</b> and pick the file. It can come from Files, iCloud Drive, or
+      any other source the iOS document picker can reach. The app copies the file into its
+      own storage, so the book keeps working even if you later move or delete the
+      original.</p>
+
+      <h3>How do I turn pages?</h3>
+      <p>Tap the left third of the page to go back, the right third to go forward. On an
+      iPad in landscape you get two pages side by side, one page upright.</p>
+
+      <h3>How do I highlight a passage?</h3>
+      <p>Select the text. The highlight is saved as soon as the selection ends. Tap an
+      existing highlight to see it again, with the option to remove it.</p>
+
+      <h3>Does it remember my place?</h3>
+      <p>Yes. Each book reopens on the page you left. The percentage in the top bar is
+      measured across the whole book rather than the chapter you are in, so it is built once
+      per book on first open and reused from then on.</p>
+
+      <h2>Sending highlights to your Selfnote</h2>
+
+      <h3>How do I connect my instance?</h3>
+      <p>Open <b>Send highlights to Selfnote</b>, enter your Selfnote address (just the
+      host is fine, <code>notes.example.com</code>, and https is assumed), and sign in with
+      the email and password of your Selfnote account. That is the only time you type the
+      password. The app immediately trades it for a personal access token called "Selfnote
+      eReader", keeps only that token, in the iOS keychain, and discards everything
+      else.</p>
+      <p>You need a Selfnote server for this. If you do not have one, the
+      <a href="/docs/self-hosting.html">self-hosting guide</a> covers a Helm chart for
+      Kubernetes or three processes and a Postgres on any box.</p>
+
+      <h3>Where do the highlights go?</h3>
+      <p>Onto a page you choose, per book. Open a book, tap the page target in the top bar,
+      and pick an existing page or create a new one; the picker suggests
+      "<i>&lt;book&gt;</i> notes", which is what most people would type anyway. From then
+      on every passage you highlight is appended to that page.</p>
+      <p>It is per book rather than one page for everything on purpose. Two books in one
+      page is nobody's filing system.</p>
+
+      <h3>Can I change or stop it later?</h3>
+      <p>Yes. The picker has <b>Stop sending to "&lt;page&gt;"</b>, and picking a different
+      page moves future highlights there. Highlights already written to a page stay on it;
+      they are yours to edit or delete in Selfnote like any other note.</p>
+
+      <h3>What happens when I highlight with no signal?</h3>
+      <p>It is saved locally and queued. The backlog is sent the next time you highlight
+      something, the next time you open that book, or as soon as you pick a page for it.
+      Each highlight carries an id generated once when you made it, so the server ignores
+      anything it has already written and re-sending the whole queue is the normal way this
+      recovers rather than an error.</p>
+
+      <h3 id="not-sent">It says "Not sent"</h3>
+      <p>The text after it is the reason, passed through from your own server. The usual
+      causes:</p>
+      <ul>
+        <li><b>Your server is unreachable</b> from where you are. The highlight is safe
+        locally and will go out on the next attempt.</li>
+        <li><b>Your token was revoked</b> in Selfnote. Reconnect from <b>Send highlights to
+        Selfnote</b>.</li>
+        <li><b>Your Selfnote is older than the highlight ingest endpoint.</b> Sending needs
+        a server that accepts <code>POST /integrations/highlights</code>
+        (<a href="https://github.com/fulviodenza/selfnote/issues/67">issue #67</a>). Update
+        your instance.</li>
+      </ul>
+      <p>Nothing is lost in any of these cases. An unsent highlight stays unsent and keeps
+      being retried.</p>
+
+      <h3>Does it sync between my devices?</h3>
+      <p>No. Highlights travel one way, from a device to your server, so this is not a way
+      to carry reading position from an iPhone to an iPad.</p>
+
+      <h3>Do I have to connect anything?</h3>
+      <p>No, and that is deliberate. Reading, highlighting, page turns, and reading
+      position all work with no connection, and disconnecting leaves every one of them
+      working.</p>
+
+      <h2>Your data</h2>
+
+      <h3>Where is it?</h3>
+      <p>In a SQLite database inside the app's own container on your device: the books you
+      imported, your highlights, and your reading position for each. Nothing leaves the
+      device unless you connect an instance, and then it goes only to the address you
+      typed. There is no Selfnote cloud, no analytics, and no third-party SDK. Scripts
+      inside EPUB files are disabled, so a book cannot run code or call home either.</p>
+      <p>The full policy is on the <a href="/ereader/privacy.html">privacy page</a>.</p>
+
+      <h3>How do I get my highlights out?</h3>
+      <p>Connect an instance and they are already out, on a page in your own workspace,
+      exportable like any other Selfnote page. A standalone export for people who do not
+      run Selfnote is not built; if you want one, say so on the
+      <a href="https://github.com/fulviodenza/selfnote/issues">issue tracker</a>.</p>
+
+      <h3>How do I remove a single book?</h3>
+      <p>Not possible in the current version. You can remove individual highlights by
+      tapping them.</p>
+
+      <h3>How do I delete everything?</h3>
+      <p>Delete the app. Its container goes with it, including every book, highlight,
+      reading position, and the stored token. Anything already sent to your Selfnote stays
+      there, because it is your server; delete those pages in Selfnote if you want them
+      gone.</p>
+    </article>
+  </div>
+</div>
+
+<footer class="site-foot">
+  <div class="wrap">
+    <span>Selfnote</span>
+    <a href="/docs/">Documentation</a>
+    <a href="/ereader/support.html">eReader support</a>
+    <a href="/ereader/privacy.html">eReader privacy</a>
+    <span class="spacer"></span>
+    <a href="https://github.com/fulviodenza/selfnote">Source on GitHub</a>
+    <a href="https://github.com/fulviodenza/selfnote/blob/main/LICENSE">License</a>
+  </div>
+</footer>
+
+</body>
+</html>

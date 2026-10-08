@@ -18,7 +18,7 @@ export function Connect({
   onDone: (c: Connection | null) => void;
   onClose: () => void;
 }) {
-  const [url, setUrl] = useState(current?.baseUrl ?? "");
+  const [url, setUrl] = useState(current ? current.baseUrl.replace(/\/api$/, "") : "");
   const [email, setEmail] = useState(current?.email ?? "");
   const [password, setPassword] = useState("");
   const [busy, setBusy] = useState(false);
@@ -59,7 +59,7 @@ export function Connect({
 
         {current ? (
           <View style={styles.connected}>
-            <Text style={styles.connectedTo}>Connected to {current.baseUrl}</Text>
+            <Text style={styles.connectedTo}>Connected to {current.baseUrl.replace(/\/api$/, "")}</Text>
             <Text style={styles.connectedAs}>as {current.email}</Text>
             <TouchableOpacity style={styles.secondary} onPress={unlink}>
               <Text style={styles.secondaryText}>Disconnect</Text>

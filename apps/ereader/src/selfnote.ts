@@ -13,7 +13,7 @@
 import * as SecureStore from "expo-secure-store";
 
 export interface Connection {
-  /** Normalised origin, e.g. "https://selfnote-sync.fulvio.dev". */
+  /** API base, e.g. "https://selfnote-sync.fulvio.dev/api". */
   baseUrl: string;
   token: string;
   workspaceId: string;
@@ -29,9 +29,17 @@ const KEY = "selfnote.connection";
 
 /**
  * Accepts what a person actually types ("selfnote-sync.fulvio.dev") and turns it
- * into an origin. Defaults to https, because asking someone to type a scheme to
- * use their own server is a bad first impression, and silently defaulting to http
- * would send their password in the clear.
+ * into the API base.
+ *
+ * The "/api" suffix is not optional: a Selfnote instance serves the REST API under
+ * /api and the sync socket under /ws, with the web app at the root. Posting to the
+ * root gets whatever the ingress serves there, which answers a login POST with 405.
+ * This mirrors deriveFromBase in apps/mobile/src/settings.ts; the two have to agree
+ * or the same address works in one app and not the other.
+ *
+ * Defaults to https, because asking someone to type a scheme to reach their own
+ * server is a poor first impression and defaulting to http would put their
+ * password on the wire in the clear.
  */
 export function normaliseBaseUrl(input: string): string {
   const trimmed = input.trim().replace(/\/+$/, "");
@@ -39,7 +47,9 @@ export function normaliseBaseUrl(input: string): string {
   const withScheme = /^https?:\/\//i.test(trimmed) ? trimmed : `https://${trimmed}`;
   const url = new URL(withScheme);
   if (!url.hostname) throw new Error("That does not look like an address");
-  return url.origin;
+  // Tolerate someone pasting the API base itself rather than the instance root.
+  const path = url.pathname.replace(/\/+$/, "");
+  return path.endsWith("/api") ? `${url.origin}${path}` : `${url.origin}${path}/api`;
 }
 
 async function call<T>(
