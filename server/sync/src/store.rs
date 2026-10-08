@@ -119,10 +119,23 @@ impl Store for PgStore {
             return Ok(());
         };
 
+        // The whole compaction runs inside one transaction holding the same
+        // advisory lock every content writer takes (documents::append_update_tx
+        // in the API). Without it, a row allocated inside a writer's open
+        // transaction could fall below the watermark computed here: the delete
+        // cannot see it, the loaders skip everything at or below
+        // last_update_id, and the write is invisible until some later
+        // compaction folds the orphan back in, while the writer believes it
+        // landed.
+        let mut tx = self.pool.begin().await?;
+        sqlx::query("select pg_advisory_xact_lock(hashtextextended($1::text, 0))")
+            .bind(id)
+            .execute(&mut *tx)
+            .await?;
         let max_id: Option<(i64,)> =
             sqlx::query_as("select max(id) from doc_updates where doc_id = $1")
                 .bind(id)
-                .fetch_optional(&self.pool)
+                .fetch_optional(&mut *tx)
                 .await?;
         let Some((max_id,)) = max_id.filter(|(m,)| *m > 0) else {
             return Ok(()); // nothing to compact
@@ -132,18 +145,17 @@ impl Store for PgStore {
         let snapshot: Option<(Vec<u8>,)> =
             sqlx::query_as("select snapshot from doc_snapshots where doc_id = $1")
                 .bind(id)
-                .fetch_optional(&self.pool)
+                .fetch_optional(&mut *tx)
                 .await?;
         let updates: Vec<(Vec<u8>,)> =
             sqlx::query_as("select update from doc_updates where doc_id = $1 and id <= $2 order by id")
                 .bind(id)
                 .bind(max_id)
-                .fetch_all(&self.pool)
+                .fetch_all(&mut *tx)
                 .await?;
         let update_bytes: Vec<Vec<u8>> = updates.into_iter().map(|(u,)| u).collect();
         let merged = merge_updates(snapshot.as_ref().map(|(s,)| s.as_slice()), &update_bytes)?;
 
-        let mut tx = self.pool.begin().await?;
         sqlx::query(
             "insert into doc_snapshots (doc_id, snapshot, last_update_id, updated_at) \
              values ($1, $2, $3, now()) \

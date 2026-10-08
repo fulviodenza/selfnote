@@ -185,6 +185,11 @@ async fn warm_texts(state: &AppState, workspace_id: Uuid) -> ApiResult<()> {
 
         // Collect each note's update log; empty notes render to empty text
         // without a CLI trip.
+        // The stamp is captured BEFORE the content is read. Stamping with now()
+        // at write time marked text as fresher than any edit that landed during
+        // the slow render, so a sync arriving mid-warm left the cache claiming
+        // an empty page was current and body search never saw the highlights.
+        let read_at: chrono::DateTime<chrono::Utc> = chrono::Utc::now();
         let mut docs = Vec::new();
         let mut empty: Vec<Uuid> = Vec::new();
         for (doc_id,) in &stale {
@@ -213,13 +218,15 @@ async fn warm_texts(state: &AppState, workspace_id: Uuid) -> ApiResult<()> {
         for (doc_id, text) in &texts {
             sqlx::query(
                 "insert into document_texts (document_id, workspace_id, text, rendered_at) \
-                 values ($1, $2, $3, now()) \
+                 values ($1, $2, $3, $4) \
                  on conflict (document_id) \
-                 do update set text = excluded.text, rendered_at = now()",
+                 do update set text = excluded.text, rendered_at = excluded.rendered_at \
+                 where document_texts.rendered_at < excluded.rendered_at",
             )
             .bind(doc_id)
             .bind(workspace_id)
             .bind(text)
+            .bind(read_at)
             .execute(&state.pool)
             .await?;
         }
