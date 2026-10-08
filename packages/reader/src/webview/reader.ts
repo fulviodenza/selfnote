@@ -410,6 +410,30 @@ window.addEventListener("message", (e: MessageEvent) => {
   handle(msg).catch((err) => fail(msg.type, err));
 });
 
+// epub.js repaginates on any viewport resize through its own internal listener
+// and does not reliably hold the reading position while doing it. Capture the
+// position the moment a resize starts, before its debounced repagination has
+// run, and put the book back once things settle. This is what keeps a rotation
+// from quietly moving the page.
+let resizeRestore: number | undefined;
+let cfiBeforeResize: string | null = null;
+window.addEventListener("resize", () => {
+  if (!rendition) return;
+  if (cfiBeforeResize === null) {
+    try {
+      cfiBeforeResize = (rendition as any).currentLocation()?.start?.cfi ?? null;
+    } catch {
+      cfiBeforeResize = null;
+    }
+  }
+  window.clearTimeout(resizeRestore);
+  resizeRestore = window.setTimeout(() => {
+    const keep = cfiBeforeResize;
+    cfiBeforeResize = null;
+    if (keep && rendition) void rendition.display(keep);
+  }, 450);
+});
+
 // The pill lives in the host document, so its tap arrives here regardless of
 // anything the book frame does with events.
 pill()?.addEventListener("click", commitPending);
