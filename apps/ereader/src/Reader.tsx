@@ -56,13 +56,14 @@ export function Reader({
   // Kept in state because picking a sync target changes the row underneath us.
   const [book, setBook] = useState<Book>(initialBook);
   const [picking, setPicking] = useState(false);
-  const [syncNote, setSyncNote] = useState<string | null>(null);
+  const [syncNote, setSyncNote] = useState<{ kind: "ok" | "bad"; text: string } | null>(null);
   const web = useRef<WebViewHandle>(null);
   const positionTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
   const [ready, setReady] = useState(false);
   const [loading, setLoading] = useState(true);
   const [highlights, setHighlights] = useState<Highlight[]>([]);
   const [progress, setProgress] = useState(0);
+  const pendingCount = highlights.filter((h) => h.synced_at === null).length;
 
   const post = useCallback((msg: unknown) => {
     const json = JSON.stringify(msg).replace(/\\/g, "\\\\").replace(/'/g, "\\'");
@@ -92,6 +93,12 @@ export function Reader({
     };
   }, [ready, book, post]);
 
+  useEffect(() => {
+    if (syncNote?.kind !== "ok") return;
+    const t = setTimeout(() => setSyncNote(null), 2500);
+    return () => clearTimeout(t);
+  }, [syncNote]);
+
   // Flush any pending position write when the reader closes, so stepping back to
   // the shelf does not drop the last page turn.
   useEffect(
@@ -118,11 +125,14 @@ export function Reader({
         })),
       );
       await markSynced(pending.map((h) => h.id));
-      setSyncNote(res.applied > 0 ? `Sent ${res.applied}` : null);
+      setHighlights(await listHighlights(book.id));
+      if (res.applied > 0) {
+        setSyncNote({ kind: "ok", text: `Sent ${res.applied} to ${book.sync_page_title}` });
+      }
     } catch (e) {
       // Staying unsynced is the correct outcome of a failure: the next highlight,
       // or reopening the book, retries the whole backlog.
-      setSyncNote(`Not sent: ${e instanceof Error ? e.message : String(e)}`);
+      setSyncNote({ kind: "bad", text: e instanceof Error ? e.message : String(e) });
     }
   }, [connection, book]);
 
@@ -250,6 +260,20 @@ export function Reader({
           {Math.round(progress * 100)}%
         </Text>
       </View>
+      {connection && book.sync_document_id && (pendingCount > 0 || syncNote) ? (
+        <View style={[styles.strip, syncNote?.kind === "bad" && styles.stripBad]}>
+          <Text style={[styles.stripText, syncNote?.kind === "bad" && styles.stripTextBad]}>
+            {syncNote
+              ? syncNote.text
+              : `${pendingCount} highlight${pendingCount === 1 ? "" : "s"} waiting to send`}
+          </Text>
+          {syncNote?.kind === "bad" ? (
+            <TouchableOpacity onPress={() => void pushPending()} hitSlop={10}>
+              <Text style={styles.retry}>Retry</Text>
+            </TouchableOpacity>
+          ) : null}
+        </View>
+      ) : null}
       <WebView
         ref={web}
         source={{ html: readerHtml }}
@@ -294,6 +318,15 @@ const styles = StyleSheet.create({
   action: { fontSize: 16, color: "#3730c4", fontWeight: "600" },
   title: { flex: 1, fontSize: 15, color: "#1b1b1b", fontWeight: "600" },
   meta: { fontSize: 13, color: "#6b6b6b", fontVariant: ["tabular-nums"] },
+  strip: {
+    flexDirection: "row", alignItems: "center", justifyContent: "space-between",
+    paddingHorizontal: 18, paddingVertical: 9, backgroundColor: "#eef3ea",
+    borderTopWidth: 1, borderBottomWidth: 1, borderColor: "#dde5d6",
+  },
+  stripBad: { backgroundColor: "#fdeceb", borderColor: "#f3cfcc" },
+  stripText: { fontSize: 13, color: "#44603a", flex: 1 },
+  stripTextBad: { color: "#8c2f27" },
+  retry: { fontSize: 13, fontWeight: "700", color: "#8c2f27", paddingLeft: 14 },
   syncTarget: { fontSize: 13, color: "#3730c4", fontWeight: "600", maxWidth: 220 },
   loading: {
     position: "absolute",
