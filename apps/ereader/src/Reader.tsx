@@ -11,6 +11,10 @@ import RNWebView, { type WebViewMessageEvent, type WebViewProps } from "react-na
 // a multi-megabyte book in JS on the main thread every time it opens.
 import * as FileSystem from "expo-file-system/legacy";
 import { readerHtml } from "@selfnote/reader";
+
+/** Stable identity on purpose: a fresh {html} object per render invites the
+ * WebView to treat a re-render as a navigation. */
+const READER_SOURCE = { html: readerHtml };
 import { PagePicker } from "./PagePicker";
 import { sendHighlights, type Connection } from "./selfnote";
 import {
@@ -259,31 +263,40 @@ export function Reader({
           {Math.round(progress * 100)}%
         </Text>
       </View>
-      {syncNote || (connection && book.sync_document_id && pendingCount > 0) ? (
-        <View style={[styles.strip, syncNote?.kind === "bad" && styles.stripBad]}>
-          <Text style={[styles.stripText, syncNote?.kind === "bad" && styles.stripTextBad]}>
-            {syncNote
-              ? syncNote.text
-              : `${pendingCount} highlight${pendingCount === 1 ? "" : "s"} waiting to send`}
-          </Text>
-          {syncNote?.kind === "bad" ? (
-            <TouchableOpacity onPress={() => void pushPending()} hitSlop={10}>
-              <Text style={styles.retry}>Retry</Text>
-            </TouchableOpacity>
-          ) : null}
-        </View>
-      ) : null}
-      <WebView
-        ref={web}
-        source={{ html: readerHtml }}
-        originWhitelist={["*"]}
-        onMessage={onMessage}
-        // The document is local and needs no network; blocking it means a book
-        // that phones home cannot.
-        javaScriptEnabled
-        allowFileAccess={false}
-        style={styles.fill}
-      />
+      {/* The strip OVERLAYS the book instead of sitting above it in the layout.
+          In normal flow its appearance shrank the WebView (epub.js repaginated,
+          which read as a reload) and its auto-hide grew it back seconds later,
+          snapping the book to the start of the section: a page turn nobody
+          asked for. Status must never change the book's geometry. */}
+      <View style={styles.bookArea}>
+        <WebView
+          ref={web}
+          source={READER_SOURCE}
+          originWhitelist={["*"]}
+          onMessage={onMessage}
+          // The document is local and needs no network; blocking it means a book
+          // that phones home cannot.
+          javaScriptEnabled
+          allowFileAccess={false}
+          style={styles.fill}
+        />
+        {syncNote || (connection && book.sync_document_id && pendingCount > 0) ? (
+          <View
+            style={[styles.strip, styles.stripOverlay, syncNote?.kind === "bad" && styles.stripBad]}
+          >
+            <Text style={[styles.stripText, syncNote?.kind === "bad" && styles.stripTextBad]}>
+              {syncNote
+                ? syncNote.text
+                : `${pendingCount} highlight${pendingCount === 1 ? "" : "s"} waiting to send`}
+            </Text>
+            {syncNote?.kind === "bad" ? (
+              <TouchableOpacity onPress={() => void pushPending()} hitSlop={10}>
+                <Text style={styles.retry}>Retry</Text>
+              </TouchableOpacity>
+            ) : null}
+          </View>
+        ) : null}
+      </View>
       {loading && (
         <View style={styles.loading}>
           <ActivityIndicator />
@@ -384,6 +397,8 @@ const styles = StyleSheet.create({
     position: "absolute", top: 0, left: 0, right: 0, bottom: 0,
     backgroundColor: "#faf5ef",
   },
+  bookArea: { flex: 1 },
+  stripOverlay: { position: "absolute", top: 0, left: 0, right: 0 },
   strip: {
     flexDirection: "row", alignItems: "center", justifyContent: "space-between",
     paddingHorizontal: 18, paddingVertical: 9, backgroundColor: "#eef3ea",
