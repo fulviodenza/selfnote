@@ -118,13 +118,24 @@ const pdfHtml = page(
   #page { position: relative; margin: 0 auto;
     box-shadow: 0 2px 14px rgba(0,0,0,0.10); background: #fff; }
   #canvas { display: block; }
-  /* pdf.js text layer: real, transparent text over the canvas is what makes
-     selection work on a drawn page. */
-  .textLayer { position: absolute; inset: 0; overflow: hidden;
-    line-height: 1; -webkit-user-select: text; user-select: text; }
+  /* pdf.js text layer. These rules are not decoration: TextLayer sets only the
+     custom properties --font-height, --scale-x and --rotate on each span and
+     relies on the stylesheet to turn them into a real font-size and transform.
+     Without them every span lays out at the browser default 16px, unscaled, so
+     the invisible text boxes are far wider than the glyphs painted on the
+     canvas: selection and highlights then run past the right margin, and the
+     native selection overshoots too because the boxes genuinely are that wide. */
+  .textLayer { position: absolute; inset: 0; overflow: clip;
+    line-height: 1; text-align: initial; text-size-adjust: none;
+    forced-color-adjust: none; transform-origin: 0 0;
+    -webkit-user-select: text; user-select: text; }
   .textLayer span, .textLayer br {
     position: absolute; white-space: pre; color: transparent;
-    transform-origin: 0 0; cursor: text; }
+    transform-origin: 0 0; cursor: text;
+    font-size: calc(var(--font-height) * var(--scale-factor, 1));
+    transform: scaleX(var(--scale-x, 1)) rotate(var(--rotate, 0deg)); }
+  /* Marked-content wrappers carry no glyphs and must not occupy a box. */
+  .textLayer span.markedContent { top: 0; height: 0; }
   .textLayer ::selection { background: rgba(55, 48, 196, 0.28); }
   #marks { position: absolute; inset: 0; pointer-events: none; }
   #marks .mark { position: absolute; opacity: 0.38; border-radius: 3px;
