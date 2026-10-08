@@ -231,6 +231,7 @@ export function Reader({
         }
         case "error":
           console.warn(`[reader:${msg.where}]`, msg.message);
+          setSyncNote({ kind: "bad", text: `${msg.where}: ${msg.message}` });
           return;
       }
     },
@@ -258,7 +259,7 @@ export function Reader({
           {Math.round(progress * 100)}%
         </Text>
       </View>
-      {connection && book.sync_document_id && (pendingCount > 0 || syncNote) ? (
+      {syncNote || (connection && book.sync_document_id && pendingCount > 0) ? (
         <View style={[styles.strip, syncNote?.kind === "bad" && styles.stripBad]}>
           <Text style={[styles.stripText, syncNote?.kind === "bad" && styles.stripTextBad]}>
             {syncNote

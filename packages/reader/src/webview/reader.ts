@@ -76,7 +76,13 @@ async function open(base64: string, cachedLocations?: string | null): Promise<vo
     // being split into two half-width columns.
     spread: "auto",
     minSpreadWidth: 1000,
-    allowScriptedContent: false,
+    // allow-scripts is load-bearing on iOS, not a nicety. Without it the book
+    // iframe is sandbox="allow-same-origin" only, and WKWebView delivers neither
+    // the selection events nor the touch events inside such a frame: text selects
+    // visually (that part is the OS) but no JS ever hears about it, so
+    // highlighting and swipe both go dead ONLY on device. Desktop browsers do not
+    // have this restriction, which is how the bug passed browser verification.
+    allowScriptedContent: true,
   });
 
   // Every way a selection can be noticed funnels through one place, deduped.
@@ -96,11 +102,20 @@ async function open(base64: string, cachedLocations?: string | null): Promise<vo
     const notice = () => window.setTimeout(() => emitSelection(contents), 50);
     doc.addEventListener("touchend", notice, { passive: true });
     doc.addEventListener("mouseup", notice);
-    // A collapsed selection means the user cleared it; allow the same passage to
-    // be highlighted again after that.
+    // selectionchange is the one signal iOS fires reliably: the system selection
+    // gesture swallows touchend, so waiting for "the finger lifted" means waiting
+    // forever on an iPad. Debounced so the highlight lands once the handles stop
+    // moving rather than on every pixel of the drag. A collapsed selection means
+    // the user cleared it, which re-arms the dedupe for the same passage.
+    let selTimer: number | undefined;
     doc.addEventListener("selectionchange", () => {
       const sel = contents.window?.getSelection?.();
-      if (!sel || sel.isCollapsed) lastEmitted = "";
+      window.clearTimeout(selTimer);
+      if (!sel || sel.isCollapsed) {
+        lastEmitted = "";
+        return;
+      }
+      selTimer = window.setTimeout(() => emitSelection(contents), 600);
     });
     doc.addEventListener("click", (e: MouseEvent) => turnFromTap(e, contents));
 
