@@ -9,13 +9,27 @@
     "newArchEnabled": true,
     "ios": {
       "supportsTablet": true,
-      "bundleIdentifier": "com.fulviodenza.selfnote"
+      "bundleIdentifier": "com.fulviodenza.selfnote",
+      "icon": "./assets/icon.png"
     },
     "android": {
-      "package": "app.selfnote.ereader"
+      "package": "app.selfnote.ereader",
+      "adaptiveIcon": {
+        "foregroundImage": "./assets/android-icon-foreground.png",
+        "backgroundColor": "#faf5ef"
+      }
     },
     "plugins": [
       "expo-sqlite"
-    ]
+    ],
+    "icon": "./assets/icon.png",
+    "splash": {
+      "image": "./assets/splash-icon.png",
+      "resizeMode": "contain",
+      "backgroundColor": "#faf5ef"
+    },
+    "web": {
+      "favicon": "./assets/favicon.png"
+    }
   }
 }
