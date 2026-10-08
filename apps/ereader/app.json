@@ -16,7 +16,7 @@
       "package": "app.selfnote.ereader",
       "adaptiveIcon": {
         "foregroundImage": "./assets/android-icon-foreground.png",
-        "backgroundColor": "#faf5ef"
+        "backgroundColor": "#F7EFE4"
       }
     },
     "plugins": [
@@ -26,7 +26,7 @@
     "splash": {
       "image": "./assets/splash-icon.png",
       "resizeMode": "contain",
-      "backgroundColor": "#faf5ef"
+      "backgroundColor": "#F7EFE4"
     },
     "web": {
       "favicon": "./assets/favicon.png"

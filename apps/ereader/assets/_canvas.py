@@ -1,5 +1,7 @@
-"""Render the eReader icon. Pure python: no rasteriser on this machine, and
-installing one to draw a book would be a poor trade."""
+"""Scanline polygon filler and PNG writer.
+
+Library only: importing this must not draw anything. An earlier version carried
+the drawing at module level, so importing it silently overwrote icon.png."""
 import zlib, struct, math
 
 W = 1024
@@ -157,42 +159,3 @@ def page(sign, inset=0.0):
                     bot_o + (bot_i - bot_o) * (1 - (1 - t) ** 0.75)))
     return pts
 
-c = Canvas(W, PAL["cream"])
-
-# Soft shadow under the book, offset down-right like the parent icon.
-for s in (-1, 1):
-    c.fill([[(x + 16, y + 18) for (x, y) in page(s)]], PAL["shade"])
-
-# Terracotta cover, then the pages inset within it.
-for s in (-1, 1):
-    c.fill([page(s)], PAL["terra"])
-for s in (-1, 1):
-    c.fill([page(s, inset=30)], PAL["page"])
-
-# Tan spine strip down the gutter.
-c.fill([rrect(499, 316, 26, 424, 13)], PAL["tan"])
-
-# Text lines. One passage on the right page is highlighted, which is the whole
-# point of this app and the one thing that distinguishes it from the parent.
-MAXW = 286.0
-def line_x(sign, frac):
-    """Left margin of a line and its width. Both pages are left aligned, as a
-    page of prose is; only the ragged right edge differs."""
-    x0 = (512 - 372 + 56) if sign < 0 else (512 + 56)
-    return x0, MAXW * frac
-
-def line(sign, row, frac, color, thick):
-    x0, w = line_x(sign, frac)
-    c.fill([rrect(x0, 366 + row * 52, w, thick, thick / 2)], color)
-
-for row, frac in enumerate((1.0, 0.94, 0.88, 1.0, 0.72)):
-    line(-1, row, frac, PAL["navy"], 13)
-for row, frac in enumerate((1.0, 0.9, 1.0, 0.96, 0.6)):
-    if row == 2:
-        hx, hw = line_x(1, frac)
-        c.fill([rrect(hx - 12, 366 + row * 52 - 10, hw + 24, 33, 15)], PAL["amber"])
-    line(1, row, frac, PAL["navy"], 13)
-
-for name, px in (("icon.png", 1024), ("splash-icon.png", 1024), ("favicon.png", 64)):
-    c.png(name, px)
-    print(f"  {name} @{px}")

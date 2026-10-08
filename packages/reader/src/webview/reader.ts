@@ -103,6 +103,37 @@ async function open(base64: string, cachedLocations?: string | null): Promise<vo
       if (!sel || sel.isCollapsed) lastEmitted = "";
     });
     doc.addEventListener("click", (e: MouseEvent) => turnFromTap(e, contents));
+
+    // Swipe is what people try first on a tablet, and an edge tap is invisible
+    // until someone tells you about it. Both work.
+    let sx = 0, sy = 0, st = 0;
+    doc.addEventListener(
+      "touchstart",
+      (e: TouchEvent) => {
+        const t = e.changedTouches[0];
+        sx = t.clientX;
+        sy = t.clientY;
+        st = Date.now();
+      },
+      { passive: true },
+    );
+    doc.addEventListener(
+      "touchend",
+      (e: TouchEvent) => {
+        if (!rendition) return;
+        const sel = contents.window?.getSelection?.();
+        if (sel && !sel.isCollapsed) return;      // ending a selection, not swiping
+        const t = e.changedTouches[0];
+        const dx = t.clientX - sx;
+        const dy = t.clientY - sy;
+        // Horizontal, far enough to be deliberate, and quick enough to be a
+        // flick rather than a slow drag that was probably a mis-selection.
+        if (Date.now() - st > 600) return;
+        if (Math.abs(dx) < 48 || Math.abs(dx) < Math.abs(dy) * 1.5) return;
+        void (dx < 0 ? rendition.next() : rendition.prev());
+      },
+      { passive: true },
+    );
   });
 
   rendition.on("relocated", (location: any) => {

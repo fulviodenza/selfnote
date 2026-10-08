@@ -288,6 +288,25 @@ export function Reader({
           <ActivityIndicator />
         </View>
       )}
+      <View style={styles.pager}>
+        <TouchableOpacity
+          style={styles.pageBtn}
+          onPress={() => post({ type: "turn", direction: "prev" })}
+          hitSlop={14}
+          accessibilityLabel="Previous page"
+        >
+          <Text style={styles.chevron}>‹</Text>
+        </TouchableOpacity>
+        <Text style={styles.pagerHint}>Swipe or tap the page edges</Text>
+        <TouchableOpacity
+          style={styles.pageBtn}
+          onPress={() => post({ type: "turn", direction: "next" })}
+          hitSlop={14}
+          accessibilityLabel="Next page"
+        >
+          <Text style={styles.chevron}>›</Text>
+        </TouchableOpacity>
+      </View>
       {picking && connection ? (
         <View style={styles.overlay}>
           <PagePicker
@@ -349,6 +368,17 @@ const styles = StyleSheet.create({
   action: { fontSize: 16, color: "#3730c4", fontWeight: "600" },
   title: { flex: 1, fontSize: 15, color: "#1b1b1b", fontWeight: "600" },
   meta: { fontSize: 13, color: "#6b6b6b", fontVariant: ["tabular-nums"] },
+  pager: {
+    flexDirection: "row", alignItems: "center", justifyContent: "space-between",
+    paddingHorizontal: 22, paddingTop: 8, paddingBottom: 26,
+    backgroundColor: "#faf5ef",
+  },
+  pageBtn: {
+    width: 54, height: 44, borderRadius: 12, alignItems: "center", justifyContent: "center",
+    backgroundColor: "#f2ece3", borderWidth: 1, borderColor: "#e4dbcd",
+  },
+  chevron: { fontSize: 26, lineHeight: 30, color: "#2b4162", fontWeight: "600" },
+  pagerHint: { fontSize: 12, color: "#9a9183" },
   overlay: {
     position: "absolute", top: 0, left: 0, right: 0, bottom: 0,
     backgroundColor: "#faf5ef",
