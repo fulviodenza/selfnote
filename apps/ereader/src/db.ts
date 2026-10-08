@@ -5,11 +5,19 @@
  * and no account, and `synced_at` is the only column that knows the difference.
  */
 import * as SQLite from "expo-sqlite";
+import * as FileSystem from "expo-file-system/legacy";
 
 export interface Book {
   id: string;
   title: string;
   author: string | null;
+  /**
+   * Path RELATIVE to the document directory, e.g. "books/<id>.epub".
+   *
+   * Never absolute. iOS reassigns the app's container UUID on reinstall and on
+   * some updates, so an absolute path stored today dangles tomorrow and the book
+   * stops opening with a file-not-readable error. Resolve it through `bookUri`.
+   */
   file_path: string;
   added_at: number;
 }
@@ -24,6 +32,21 @@ export interface Highlight {
   locator: string;
   created_at: number;
   synced_at: number | null;
+}
+
+/**
+ * Absolute URI for a book, rebuilt against the CURRENT container every time.
+ *
+ * Tolerates rows written before `file_path` became relative: anything that still
+ * looks absolute is reduced to its "books/<name>" tail and re-rooted, so an
+ * existing shelf survives the change instead of silently losing every book.
+ */
+export function bookUri(book: Pick<Book, "file_path">): string {
+  const dir = FileSystem.documentDirectory ?? "";
+  const stored = book.file_path;
+  if (!stored.startsWith("file://") && !stored.startsWith("/")) return dir + stored;
+  const tail = stored.slice(stored.lastIndexOf("/books/") + 1);
+  return dir + (tail.startsWith("books/") ? tail : `books/${stored.split("/").pop()}`);
 }
 
 let handle: SQLite.SQLiteDatabase | null = null;

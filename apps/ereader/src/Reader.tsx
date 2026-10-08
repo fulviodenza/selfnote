@@ -13,6 +13,7 @@ import * as FileSystem from "expo-file-system/legacy";
 import { readerHtml } from "@selfnote/reader";
 import {
   addHighlight,
+  bookUri,
   deleteHighlight,
   listHighlights,
   loadPosition,
@@ -54,7 +55,7 @@ export function Reader({ book, onClose }: { book: Book; onClose: () => void }) {
     if (!ready) return;
     let cancelled = false;
     (async () => {
-      const data = await FileSystem.readAsStringAsync(book.file_path, {
+      const data = await FileSystem.readAsStringAsync(bookUri(book), {
         encoding: FileSystem.EncodingType.Base64,
       });
       if (cancelled) return;

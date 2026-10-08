@@ -29,8 +29,8 @@ export function Library({
     const dir = `${FileSystem.documentDirectory}books/`;
     await FileSystem.makeDirectoryAsync(dir, { intermediates: true }).catch(() => {});
     const id = `${Date.now()}-${Math.random().toString(36).slice(2, 10)}`;
-    const dest = `${dir}${id}.epub`;
-    await FileSystem.copyAsync({ from: asset.uri, to: dest });
+    const relative = `books/${id}.epub`;
+    await FileSystem.copyAsync({ from: asset.uri, to: `${FileSystem.documentDirectory}${relative}` });
 
     await addBook({
       id,
@@ -38,7 +38,8 @@ export function Library({
       // reasonable stand-in until then and is what the user recognises anyway.
       title: asset.name?.replace(/\.epub$/i, "") ?? "Untitled",
       author: null,
-      file_path: dest,
+      // Relative on purpose; see the note on Book.file_path.
+      file_path: relative,
       added_at: Date.now(),
     });
     onChanged();
