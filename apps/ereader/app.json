@@ -9,11 +9,13 @@
     "newArchEnabled": true,
     "ios": {
       "supportsTablet": true,
-      "bundleIdentifier": "app.selfnote.ereader"
+      "bundleIdentifier": "com.fulviodenza.selfnote"
     },
     "android": {
       "package": "app.selfnote.ereader"
     },
-    "plugins": ["expo-sqlite"]
+    "plugins": [
+      "expo-sqlite"
+    ]
   }
 }
