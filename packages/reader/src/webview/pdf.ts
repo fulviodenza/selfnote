@@ -205,23 +205,88 @@ function pill(): HTMLElement | null {
   return document.getElementById("save-highlight");
 }
 
+/**
+ * Rectangles that hug the selected glyphs.
+ *
+ * Range.getClientRects() returns LINE BOXES, which in a pdf.js text layer run
+ * the full width of each span including its trailing whitespace, so a highlight
+ * drawn from them overshoots the text into the right margin. Measuring each
+ * text node's selected slice with its whitespace trimmed off keeps the marks on
+ * the words.
+ */
+function glyphRects(range: Range, box: DOMRect): Rect[] {
+  const nodes: Text[] = [];
+  const root = range.commonAncestorContainer;
+  if (root.nodeType === Node.TEXT_NODE) {
+    nodes.push(root as Text);
+  } else {
+    const walker = document.createTreeWalker(root, NodeFilter.SHOW_TEXT, {
+      acceptNode: (n) =>
+        range.intersectsNode(n) ? NodeFilter.FILTER_ACCEPT : NodeFilter.FILTER_REJECT,
+    });
+    for (let n = walker.nextNode(); n; n = walker.nextNode()) nodes.push(n as Text);
+  }
+
+  const out: Rect[] = [];
+  for (const node of nodes) {
+    const data = node.data;
+    let start = node === range.startContainer ? range.startOffset : 0;
+    let end = node === range.endContainer ? range.endOffset : data.length;
+    while (start < end && /\s/.test(data[start])) start++;
+    while (end > start && /\s/.test(data[end - 1])) end--;
+    if (start >= end) continue; // whitespace-only slice contributes nothing
+    const sub = document.createRange();
+    sub.setStart(node, start);
+    sub.setEnd(node, end);
+    for (const r of Array.from(sub.getClientRects())) {
+      if (r.width < 1 || r.height < 1) continue;
+      out.push({
+        x: (r.left - box.left) / box.width,
+        y: (r.top - box.top) / box.height,
+        w: r.width / box.width,
+        h: r.height / box.height,
+      });
+    }
+  }
+  return mergeRects(out);
+}
+
+/** Join the per-span boxes on each line into one bar, so a highlight reads as a
+ * stroke across the words rather than a row of tiles. */
+function mergeRects(rects: Rect[]): Rect[] {
+  const lines = new Map<string, Rect[]>();
+  for (const r of rects) {
+    // Group by line: same top within a hair, same height within a hair.
+    const key = `${r.y.toFixed(3)}:${r.h.toFixed(3)}`;
+    const bucket = lines.get(key);
+    if (bucket) bucket.push(r);
+    else lines.set(key, [r]);
+  }
+  const out: Rect[] = [];
+  for (const bucket of lines.values()) {
+    bucket.sort((a, b) => a.x - b.x);
+    let cur = { ...bucket[0] };
+    for (const r of bucket.slice(1)) {
+      // A word gap is small; anything wider is a genuine break worth keeping.
+      if (r.x <= cur.x + cur.w + 0.012) {
+        cur.w = Math.max(cur.x + cur.w, r.x + r.w) - cur.x;
+      } else {
+        out.push(cur);
+        cur = { ...r };
+      }
+    }
+    out.push(cur);
+  }
+  return out;
+}
+
 function prepareSelection(): void {
   const sel = window.getSelection();
   if (!sel || sel.rangeCount === 0 || sel.isCollapsed) return;
   const text = sel.toString().trim();
   if (!text) return;
   const holder = document.getElementById("page")!;
-  const box = holder.getBoundingClientRect();
-  const rects: Rect[] = [];
-  for (const r of Array.from(sel.getRangeAt(0).getClientRects())) {
-    if (r.width < 2 || r.height < 2) continue;
-    rects.push({
-      x: (r.left - box.left) / box.width,
-      y: (r.top - box.top) / box.height,
-      w: r.width / box.width,
-      h: r.height / box.height,
-    });
-  }
+  const rects = glyphRects(sel.getRangeAt(0), holder.getBoundingClientRect());
   if (!rects.length) return;
   pending = { locator: { page: pageNum, rects }, text };
   const el = pill();
