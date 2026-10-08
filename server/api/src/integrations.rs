@@ -40,6 +40,12 @@ pub struct IncomingHighlight {
     #[serde(default)]
     pub note: Option<String>,
     #[serde(default)]
+    pub color: Option<String>,
+    /// When the reader made the highlight. Used only for ordering, so a batch
+    /// lands in the order it was read rather than the order it was sent.
+    #[serde(default)]
+    pub created_at: Option<chrono::DateTime<chrono::Utc>>,
+    #[serde(default)]
     pub locator: Option<serde_json::Value>,
 }
 
@@ -49,6 +55,13 @@ pub struct IngestRequest {
     /// user has and should not have to discover to sync a book.
     #[serde(default)]
     pub workspace_id: Option<Uuid>,
+    /// The page to append to, when the client has let the user choose one. The
+    /// eReader does exactly that: you pick "X notes" for the book you are reading,
+    /// and highlights belong there rather than on a page the server named. Without
+    /// it, the book's own page is found or created as before, which is what a
+    /// headless importer with no UI needs.
+    #[serde(default)]
+    pub document_id: Option<Uuid>,
     pub book: BookRef,
     pub highlights: Vec<IncomingHighlight>,
 }
@@ -75,7 +88,7 @@ struct Computed {
 pub async fn ingest_highlights(
     State(state): State<AppState>,
     user: AuthUser,
-    Json(body): Json<IngestRequest>,
+    Json(mut body): Json<IngestRequest>,
 ) -> ApiResult<Json<IngestResponse>> {
     // Reject the whole batch rather than applying part of it. A client that cannot
     // tell which half landed has no way to recover without duplicating.
@@ -103,7 +116,18 @@ pub async fn ingest_highlights(
         _ => return Err(AppError::Forbidden),
     }
 
-    let (book_id, document_id) = find_or_create_book(&state, workspace_id, &body.book).await?;
+    // Trim before anything keys off these. Validation already trims, so storing
+    // the raw value meant "9780143120 \n" and "9780143120" were two different
+    // books: a second page, a split ledger, and every highlight appended again.
+    body.book.key = body.book.key.trim().to_string();
+    for h in &mut body.highlights {
+        h.id = h.id.trim().to_string();
+    }
+
+    let (book_id, document_id) = match body.document_id {
+        Some(chosen) => bind_to_page(&state, workspace_id, &body.book, chosen).await?,
+        None => find_or_create_book(&state, workspace_id, &body.book).await?,
+    };
 
     // Drop anything the ledger has already seen, and collapse duplicate ids inside
     // this batch so a client sending the same id twice cannot write it twice.
@@ -115,6 +139,10 @@ pub async fn ingest_highlights(
         .filter(|h| !known.contains(&h.id) && seen.insert(h.id.clone()))
         .collect();
     let skipped = body.highlights.len() - fresh.len();
+    // Stable sort: highlights carrying a timestamp land in reading order, and any
+    // without one keep the order the client sent them in.
+    let mut fresh = fresh;
+    fresh.sort_by_key(|h| h.created_at);
 
     if fresh.is_empty() {
         return Ok(Json(IngestResponse { document_id, book_id, applied: 0, skipped }));
@@ -145,16 +173,40 @@ pub async fn ingest_highlights(
         .bind(&diff)
         .execute(&mut *tx)
         .await?;
+    // Without this the page's body text never re-enters the search cache:
+    // search.rs treats a page as stale only when rendered_at < updated_at, so
+    // every synced highlight would be invisible to body search forever.
+    sqlx::query("update documents set updated_at = now() where id = $1")
+        .bind(document_id)
+        .execute(&mut *tx)
+        .await?;
     for h in &fresh {
-        sqlx::query(
-            "insert into ingested_highlights (book_id, client_id, locator) \
-             values ($1, $2, $3) on conflict (book_id, client_id) do nothing",
+        // Deliberately NOT `on conflict do nothing`. Two devices syncing the same
+        // book both read the ledger before either commits, so both treat the same
+        // highlight as new and both append it; swallowing the conflict let the
+        // second commit anyway and the quote landed on the page twice with one
+        // ledger row to show for it. Letting the unique violation abort the
+        // transaction means nothing is written and the retry sees it as already
+        // present, which is the behaviour the ledger exists to provide.
+        let written = sqlx::query(
+            "insert into ingested_highlights (book_id, client_id, locator, color) \
+             values ($1, $2, $3, $4)",
         )
         .bind(book_id)
         .bind(&h.id)
         .bind(&h.locator)
+        .bind(&h.color)
         .execute(&mut *tx)
-        .await?;
+        .await;
+        match written {
+            Ok(_) => {}
+            Err(sqlx::Error::Database(e)) if e.is_unique_violation() => {
+                return Err(AppError::Conflict(
+                    "these highlights are being synced from somewhere else; try again".into(),
+                ));
+            }
+            Err(e) => return Err(e.into()),
+        }
     }
     tx.commit().await?;
 
@@ -181,6 +233,47 @@ async fn default_workspace(state: &AppState, user_id: Uuid) -> ApiResult<Uuid> {
     .await?;
     row.map(|r| r.0)
         .ok_or_else(|| AppError::BadRequest("this account has no workspace".into()))
+}
+
+/// Bind a book to a page the user picked, and return its ledger row.
+///
+/// The page must be in the same workspace: without that check a token could
+/// append to any page in any workspace it is not a member of, by passing its id.
+/// Re-pointing an existing book at a different page is allowed and expected, since
+/// that is what changing the target in the app does; the ledger follows the book,
+/// so highlights already sent are not re-sent to the new page.
+async fn bind_to_page(
+    state: &AppState,
+    workspace_id: Uuid,
+    book: &BookRef,
+    document_id: Uuid,
+) -> ApiResult<(Uuid, Uuid)> {
+    let owner: Option<(Uuid,)> =
+        sqlx::query_as("select workspace_id from documents where id = $1 and not trashed")
+            .bind(document_id)
+            .fetch_optional(&state.pool)
+            .await?;
+    match owner {
+        Some((ws,)) if ws == workspace_id => {}
+        Some(_) => return Err(AppError::Forbidden),
+        None => return Err(AppError::BadRequest("that page does not exist".into())),
+    }
+
+    let title = if book.title.trim().is_empty() { "Untitled book" } else { book.title.trim() };
+    let row: (Uuid, Uuid) = sqlx::query_as(
+        "insert into ingested_books (workspace_id, document_id, source_key, title, author) \
+         values ($1, $2, $3, $4, $5) \
+         on conflict (workspace_id, source_key) do update set document_id = excluded.document_id \
+         returning id, document_id",
+    )
+    .bind(workspace_id)
+    .bind(document_id)
+    .bind(&book.key)
+    .bind(title)
+    .bind(&book.author)
+    .fetch_one(&state.pool)
+    .await?;
+    Ok(row)
 }
 
 /// The book's row and page, created on first sight. Created lazily so a book that
@@ -271,16 +364,58 @@ async fn known_client_ids(
 fn render_markdown(highlights: &[&IncomingHighlight]) -> String {
     let mut out = String::new();
     for h in highlights {
-        for line in h.text.trim().lines() {
+        let lines: Vec<&str> = h.text.trim().lines().collect();
+        for (i, line) in lines.iter().enumerate() {
             out.push_str("> ");
-            out.push_str(line.trim());
+            out.push_str(&escape_markdown(line.trim()));
+            // Two trailing spaces force a hard break. Without them Markdown's lazy
+            // continuation folds a multi-line quotation into one run-on paragraph,
+            // and since the page is the only copy of the text, the line breaks the
+            // reader actually underlined cannot be recovered afterwards.
+            if i + 1 < lines.len() {
+                out.push_str("  ");
+            }
             out.push('\n');
         }
         out.push('\n');
         if let Some(note) = h.note.as_deref().map(str::trim).filter(|n| !n.is_empty()) {
-            out.push_str(note);
-            out.push_str("\n\n");
+            for line in note.lines() {
+                out.push_str(&escape_markdown(line.trim()));
+                out.push('\n');
+            }
+            out.push('\n');
         }
     }
     out.trim_end().to_string()
+}
+
+/// Neutralise Markdown syntax in text a person underlined in a book.
+///
+/// A passage reading `the *Bell* System [see note]` is prose, not emphasis and a
+/// link, and a note beginning `#` is a sentence, not a heading. Without this the
+/// text is silently reinterpreted on the way in, and a first line that happens to
+/// match `[!note]` is turned into a callout by the importer's own alert parsing.
+fn escape_markdown(line: &str) -> String {
+    let mut out = String::with_capacity(line.len() + 8);
+    for (i, ch) in line.chars().enumerate() {
+        let needs_escape = match ch {
+            '\\' | '`' | '*' | '_' | '[' | ']' | '<' | '>' | '&' => true,
+            // Only meaningful at the start of a line, where they would make a
+            // heading, a list, a rule or a blockquote.
+            '#' | '-' | '+' | '=' if i == 0 => true,
+            _ => false,
+        };
+        if needs_escape {
+            out.push('\\');
+        }
+        out.push(ch);
+    }
+    // "1." at the start of a line becomes an ordered list; escaping the dot is
+    // enough to stop that without touching the digits.
+    if let Some(dot) = out.find('.') {
+        if dot > 0 && out[..dot].chars().all(|c| c.is_ascii_digit()) {
+            out.insert(dot, '\\');
+        }
+    }
+    out
 }
