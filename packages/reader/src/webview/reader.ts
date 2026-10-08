@@ -183,7 +183,20 @@ function applyHighlights(items: Highlight[]): void {
   }
 
   for (const h of items) {
-    if (drawn.has(h.id)) continue;
+    const existing = drawn.get(h.id);
+    if (existing) {
+      // Already drawn in the colour it should be: leave it alone. Redrawing every
+      // highlight on every update would flicker the page on each page turn.
+      if (existing.color === h.color) continue;
+      // The colour carries meaning (whether it reached Selfnote yet), so a change
+      // has to be repainted. epub.js has no recolour, so remove and re-add.
+      try {
+        rendition.annotations.remove(existing.cfi, "highlight");
+      } catch (err) {
+        fail("recolourHighlight", err);
+      }
+      drawn.delete(h.id);
+    }
     try {
       rendition.annotations.highlight(
         h.cfi,

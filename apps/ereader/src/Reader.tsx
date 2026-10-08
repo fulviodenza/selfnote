@@ -64,6 +64,7 @@ export function Reader({
   const [highlights, setHighlights] = useState<Highlight[]>([]);
   const [progress, setProgress] = useState(0);
   const pendingCount = highlights.filter((h) => h.synced_at === null).length;
+  const syncing = Boolean(connection && book.sync_document_id);
 
   const post = useCallback((msg: unknown) => {
     const json = JSON.stringify(msg).replace(/\\/g, "\\\\").replace(/'/g, "\\'");
@@ -86,12 +87,23 @@ export function Reader({
       const rows = await listHighlights(book.id);
       if (cancelled) return;
       setHighlights(rows);
-      post({ type: "highlights", items: rows.map(toWire) });
+      post({ type: "highlights", items: rows.map((h) => toWire(h, syncing)) });
     })().catch((err) => Alert.alert("Could not open this book", String(err)));
     return () => {
       cancelled = true;
     };
   }, [ready, book, post]);
+
+  // Turning sync off (or on) changes what the colours mean, so repaint. Without
+  // this, clearing a book's target leaves green marks claiming to be saved to a
+  // page the book is no longer pointed at.
+  useEffect(() => {
+    if (!ready || !highlights.length) return;
+    post({ type: "highlights", items: highlights.map((h) => toWire(h, syncing)) });
+    // Only on a change of sync state: re-posting on every highlights change would
+    // undo the incremental drawing the page does.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [syncing, ready]);
 
   useEffect(() => {
     if (syncNote?.kind !== "ok") return;
@@ -125,7 +137,10 @@ export function Reader({
         })),
       );
       await markSynced(pending.map((h) => h.id));
-      setHighlights(await listHighlights(book.id));
+      const after = await listHighlights(book.id);
+      setHighlights(after);
+      // Repaint: those highlights are green now, and the page cannot know that.
+      post({ type: "highlights", items: after.map((h) => toWire(h, true)) });
       if (res.applied > 0) {
         setSyncNote({ kind: "ok", text: `Sent ${res.applied} to ${book.sync_page_title}` });
       }
@@ -187,7 +202,7 @@ export function Reader({
           await addHighlight(row);
           const rows = await listHighlights(book.id);
           setHighlights(rows);
-          post({ type: "highlights", items: rows.map(toWire) });
+          post({ type: "highlights", items: rows.map((h) => toWire(h, syncing)) });
           void pushPending();
           return;
         }
@@ -203,7 +218,7 @@ export function Reader({
                 await deleteHighlight(hit.id);
                 const rows = await listHighlights(book.id);
                 setHighlights(rows);
-                post({ type: "highlights", items: rows.map(toWire) });
+                post({ type: "highlights", items: rows.map((h) => toWire(h, syncing)) });
               },
             },
           ]);
@@ -294,14 +309,26 @@ export function Reader({
   );
 }
 
-function toWire(h: Highlight) {
+/**
+ * On the page, a highlight's colour says whether it has reached Selfnote: amber
+ * while it is still only on this device, green once the page has it.
+ *
+ * When a book has no sync target there is nothing to be waiting for, so amber is
+ * just the highlight colour and means nothing more than "highlighted". Showing
+ * every highlight as permanently unsent would be a warning about a thing the user
+ * never asked for.
+ */
+const PENDING = "#f2c94c";
+const SAVED = "#6fcf97";
+
+function toWire(h: Highlight, syncing: boolean) {
   let cfi = "";
   try {
     cfi = JSON.parse(h.locator).cfi ?? "";
   } catch {
     /* a locator we cannot read just does not draw */
   }
-  return { id: h.id, cfi, color: h.color };
+  return { id: h.id, cfi, color: syncing && h.synced_at ? SAVED : PENDING };
 }
 
 const styles = StyleSheet.create({
