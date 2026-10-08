@@ -79,11 +79,30 @@ async function open(base64: string, cachedLocations?: string | null): Promise<vo
     allowScriptedContent: false,
   });
 
-  // A selection inside the book is in an iframe, so the host never sees it. This
-  // is the only path by which a highlight can start.
-  rendition.on("selected", (cfiRange: string, contents: any) => {
-    const text = contents?.window?.getSelection?.()?.toString() ?? "";
-    if (text.trim()) send({ type: "selection", cfi: cfiRange, text: text.trim() });
+  // Every way a selection can be noticed funnels through one place, deduped.
+  rendition.on("selected", (_cfi: string, contents: any) => emitSelection(contents));
+
+  // epub.js listens for "selectionchange" on the book's document and nothing
+  // else, and WebKit fires that unreliably for subframes, so on iOS a selection
+  // made by touch never reached us: the text highlighted blue and then nothing
+  // happened. touchend and mouseup are what actually mark the end of a selection
+  // gesture, so bind those too and let the dedupe sort out the overlap.
+  //
+  // Clicks are bound here for the same reason. A click inside the book is inside
+  // the iframe and never bubbles to the host document, so the edge-tap page turn
+  // bound out there could not fire over the text either.
+  rendition.hooks.content.register((contents: any) => {
+    const doc: Document = contents.document;
+    const notice = () => window.setTimeout(() => emitSelection(contents), 50);
+    doc.addEventListener("touchend", notice, { passive: true });
+    doc.addEventListener("mouseup", notice);
+    // A collapsed selection means the user cleared it; allow the same passage to
+    // be highlighted again after that.
+    doc.addEventListener("selectionchange", () => {
+      const sel = contents.window?.getSelection?.();
+      if (!sel || sel.isCollapsed) lastEmitted = "";
+    });
+    doc.addEventListener("click", (e: MouseEvent) => turnFromTap(e, contents));
   });
 
   rendition.on("relocated", (location: any) => {
@@ -161,6 +180,52 @@ function applyTypography(r: Rendition): void {
     img: { "max-width": "100%", height: "auto" },
     "pre, code": { "white-space": "pre-wrap", hyphens: "manual" },
   });
+}
+
+/** The last range sent, so the several listeners below cannot double-send one. */
+let lastEmitted = "";
+
+/**
+ * Report a selection, whichever listener noticed it.
+ *
+ * The native selection is cleared afterwards: the highlight that replaces it is
+ * drawn underneath, and leaving the blue overlay on top makes it look like
+ * nothing happened.
+ */
+function emitSelection(contents: any): void {
+  const sel = contents?.window?.getSelection?.();
+  if (!sel || sel.rangeCount === 0) return;
+  const range = sel.getRangeAt(0);
+  if (range.collapsed) return;
+  const text = sel.toString().trim();
+  if (!text) return;
+
+  let cfi: string;
+  try {
+    cfi = contents.cfiFromRange(range);
+  } catch (err) {
+    return fail("cfiFromRange", err);
+  }
+  if (!cfi || cfi === lastEmitted) return;
+  lastEmitted = cfi;
+  send({ type: "selection", cfi, text });
+  try {
+    sel.removeAllRanges();
+  } catch {
+    /* iOS sometimes refuses; the highlight still lands */
+  }
+}
+
+/** Edge taps turn the page, but only when they are not ending a selection. */
+function turnFromTap(e: MouseEvent, contents: any): void {
+  if (!rendition) return;
+  const sel = contents?.window?.getSelection?.();
+  if (sel && !sel.isCollapsed) return;
+  // The event is in the book frame, whose width is the page width.
+  const width = contents.window?.innerWidth ?? window.innerWidth;
+  const third = width / 3;
+  if (e.clientX < third) void rendition.prev();
+  else if (e.clientX > width - third) void rendition.next();
 }
 
 /* ------------------------------------------------------------ highlights */
@@ -267,15 +332,6 @@ window.addEventListener("message", (e: MessageEvent) => {
     return; // not addressed to us
   }
   handle(msg).catch((err) => fail(msg.type, err));
-});
-
-// Tapping the outer third of either edge turns the page, which is the gesture
-// every e-reader uses and the one people try first.
-document.addEventListener("click", (e) => {
-  if (!rendition) return;
-  const third = window.innerWidth / 3;
-  if (e.clientX < third) void rendition.prev();
-  else if (e.clientX > window.innerWidth - third) void rendition.next();
 });
 
 send({ type: "ready" });

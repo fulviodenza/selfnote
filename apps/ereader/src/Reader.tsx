@@ -55,6 +55,8 @@ export function Reader({
 }) {
   // Kept in state because picking a sync target changes the row underneath us.
   const [book, setBook] = useState<Book>(initialBook);
+  const bookRef = useRef(book);
+  bookRef.current = book;
   const [picking, setPicking] = useState(false);
   const [syncNote, setSyncNote] = useState<{ kind: "ok" | "bad"; text: string } | null>(null);
   const web = useRef<WebViewHandle>(null);
@@ -77,12 +79,13 @@ export function Reader({
     if (!ready) return;
     let cancelled = false;
     (async () => {
-      const data = await FileSystem.readAsStringAsync(bookUri(book), {
+      const current = bookRef.current;
+      const data = await FileSystem.readAsStringAsync(bookUri(current), {
         encoding: FileSystem.EncodingType.Base64,
       });
       if (cancelled) return;
-      post({ type: "open", data, locations: book.locations });
-      const saved = await loadPosition(book.id);
+      post({ type: "open", data, locations: current.locations });
+      const saved = await loadPosition(current.id);
       if (saved && !cancelled) post({ type: "goto", cfi: saved });
       const rows = await listHighlights(book.id);
       if (cancelled) return;
@@ -92,7 +95,9 @@ export function Reader({
     return () => {
       cancelled = true;
     };
-  }, [ready, book, post]);
+    // book.id only: see bookRef above.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [ready, book.id, post]);
 
   // Turning sync off (or on) changes what the colours mean, so repaint. Without
   // this, clearing a book's target leaves green marks claiming to be saved to a
@@ -232,28 +237,6 @@ export function Reader({
     [book, highlights, post, pushPending],
   );
 
-  if (picking && connection) {
-    return (
-      <PagePicker
-        connection={connection}
-        bookTitle={book.title}
-        current={
-          book.sync_document_id && book.sync_page_title
-            ? { id: book.sync_document_id, title: book.sync_page_title }
-            : null
-        }
-        onClose={() => setPicking(false)}
-        onPicked={async (page) => {
-          await setSyncTarget(book.id, page?.id ?? null, page?.title ?? null);
-          const fresh = await getBook(book.id);
-          if (fresh) setBook(fresh);
-          setPicking(false);
-          if (page) void pushPending();
-        }}
-      />
-    );
-  }
-
   return (
     <View style={styles.fill}>
       <View style={styles.bar}>
@@ -305,6 +288,27 @@ export function Reader({
           <ActivityIndicator />
         </View>
       )}
+      {picking && connection ? (
+        <View style={styles.overlay}>
+          <PagePicker
+            connection={connection}
+            bookTitle={book.title}
+            current={
+              book.sync_document_id && book.sync_page_title
+                ? { id: book.sync_document_id, title: book.sync_page_title }
+                : null
+            }
+            onClose={() => setPicking(false)}
+            onPicked={async (page) => {
+              await setSyncTarget(book.id, page?.id ?? null, page?.title ?? null);
+              const fresh = await getBook(book.id);
+              if (fresh) setBook(fresh);
+              setPicking(false);
+              if (page) void pushPending();
+            }}
+          />
+        </View>
+      ) : null}
     </View>
   );
 }
@@ -345,6 +349,10 @@ const styles = StyleSheet.create({
   action: { fontSize: 16, color: "#3730c4", fontWeight: "600" },
   title: { flex: 1, fontSize: 15, color: "#1b1b1b", fontWeight: "600" },
   meta: { fontSize: 13, color: "#6b6b6b", fontVariant: ["tabular-nums"] },
+  overlay: {
+    position: "absolute", top: 0, left: 0, right: 0, bottom: 0,
+    backgroundColor: "#faf5ef",
+  },
   strip: {
     flexDirection: "row", alignItems: "center", justifyContent: "space-between",
     paddingHorizontal: 18, paddingVertical: 9, backgroundColor: "#eef3ea",
