@@ -1,0 +1,120 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Selfnote eReader privacy policy | Selfnote</title>
+  <meta name="description" content="Selfnote eReader collects nothing. Your books and highlights stay on your device, and go only to a Selfnote server you run yourself, if you connect one." />
+  <link rel="icon" type="image/png" href="/assets/favicon.png" />
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+  <link href="https://fonts.googleapis.com/css2?family=Source+Serif+4:opsz,wght@8..60,400..700&family=Inter+Tight:wght@400..700&display=swap" rel="stylesheet" />
+  <link rel="stylesheet" href="/assets/site.css" />
+</head>
+<body>
+
+<header class="site-head">
+  <div class="wrap">
+    <a class="brand" href="/"><img src="/assets/logo.png" alt="" />Selfnote</a>
+    <nav class="site-nav">
+      <a href="/docs/">Docs</a>
+      <a href="/use-cases.html" class="hide-sm">Use cases</a>
+      <a href="/resources.html" class="hide-sm">Resources</a>
+      <a href="/download.html">Download</a>
+      <a href="https://github.com/fulviodenza/selfnote">GitHub</a>
+    </nav>
+  </div>
+</header>
+
+<div class="docs-shell">
+  <div class="wrap" style="display:block">
+    <article class="prose">
+      <h1>Selfnote eReader privacy policy</h1>
+      <p class="subtitle">Last updated 8 October 2026. In one line: the developer of this
+      app collects nothing about you, and the only place your reading can ever be sent is a
+      server you operate yourself.</p>
+
+      <h2>What the app stores on your device</h2>
+      <ul>
+        <li>the EPUB files you import,</li>
+        <li>your highlights and any notes attached to them,</li>
+        <li>your reading position and cached page index for each book,</li>
+        <li>if you connect a Selfnote server, its address, your email address, and an
+        access token for it, held in the iOS keychain.</li>
+      </ul>
+      <p>All of it lives in the app's own private container. Your Selfnote password is
+      never stored. You type it once when connecting, the app immediately exchanges it for
+      an access token named "Selfnote eReader", and keeps only that token. You can revoke
+      the token from your Selfnote account at any time without changing your password.</p>
+
+      <h2>What the app sends, and where</h2>
+      <p><b>Until you connect a Selfnote server, the app makes no network requests at
+      all.</b> It has no accounts of its own, no servers of its own, and nothing to sign up
+      for.</p>
+      <p>If you choose to connect one, the app sends, only to the address you typed and
+      only over that connection:</p>
+      <ul>
+        <li>your email address and password, once, to sign in and obtain a token,</li>
+        <li>the text of the highlights you make, any note attached to them, their position
+        in the book, and the book's title and author, to the page you picked for that
+        book,</li>
+        <li>requests to list or create pages in your workspace, so you can choose where
+        highlights land.</li>
+      </ul>
+      <p>That server is yours. Selfnote is self-hosted software: there is no Selfnote cloud,
+      no account with us, and no intermediary. The developer of this app operates no service
+      that your data passes through and has no access to your instance. What happens to the
+      data once it reaches your server is governed by how you run that server.</p>
+      <p>Highlights travel one way, from your device to your server. The app never
+      downloads your notes back.</p>
+
+      <h2>What the app never does</h2>
+      <p>No advertising, no tracking, no analytics, no crash reporting, no device
+      identifiers, no third-party SDKs of any kind. Nothing about what you read, highlight,
+      or import is shared with anyone, and nothing is sold. Scripts embedded in EPUB files
+      are disabled, so a book cannot make network requests on its own behalf either.</p>
+
+      <h2>Children</h2>
+      <p>The app collects no data from anyone, including children.</p>
+
+      <h2>Removing your data</h2>
+      <p>You can remove any highlight from inside the app, and disconnect your Selfnote
+      instance at any time, which deletes the stored token and leaves every reading feature
+      working. Deleting the app removes its entire container: every book, highlight,
+      reading position, and credential.</p>
+      <p>Highlights already sent to your Selfnote stay on your server, because it is your
+      server. Delete those pages in Selfnote to remove them, and revoke the "Selfnote
+      eReader" token from your account page if you want to be sure nothing can be added
+      again.</p>
+
+      <h2>Changes</h2>
+      <p>If this policy changes, the updated version appears on this page with a new date.
+      Selfnote is open source, so this is checkable rather than merely promised: the reader
+      is at
+      <a href="https://github.com/fulviodenza/selfnote/tree/main/apps/ereader"><code>apps/ereader</code></a>
+      and the network code is one small file,
+      <a href="https://github.com/fulviodenza/selfnote/blob/main/apps/ereader/src/selfnote.ts"><code>src/selfnote.ts</code></a>.</p>
+
+      <h2>Contact</h2>
+      <p>Questions about this policy:
+      <a href="https://github.com/fulviodenza/selfnote/issues">open an issue</a>. For
+      anything about using the app, see the
+      <a href="/ereader/support.html">support page</a>.</p>
+    </article>
+  </div>
+</div>
+
+<footer class="site-foot">
+  <div class="wrap">
+    <span>Selfnote</span>
+    <a href="/docs/">Documentation</a>
+    <a href="/ereader/support.html">eReader support</a>
+    <a href="/ereader/privacy.html">eReader privacy</a>
+    <span class="spacer"></span>
+    <a href="https://github.com/fulviodenza/selfnote">Source on GitHub</a>
+    <a href="https://github.com/fulviodenza/selfnote/blob/main/LICENSE">License</a>
+  </div>
+</footer>
+
+</body>
+</html>
