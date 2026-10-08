@@ -9,6 +9,7 @@ mod documents;
 mod error;
 mod files;
 mod history;
+mod integrations;
 mod labels;
 mod links;
 mod proposals;
@@ -78,6 +79,10 @@ async fn main() -> anyhow::Result<()> {
         .route("/auth/tokens/:id", delete(auth::delete_token))
         .route("/workspaces", get(workspaces::list).post(workspaces::create))
         .route("/workspaces/:id/members", post(workspaces::add_member))
+        // Structured highlights from external clients (the eReader, a Kobo
+        // script). They cannot produce Yjs updates, so the conversion happens
+        // server-side; see integrations.rs.
+        .route("/integrations/highlights", post(integrations::ingest_highlights))
         .route("/documents", get(documents::list).post(documents::create))
         .route("/documents/search", get(documents::search))
         .route("/search", get(search::search))
