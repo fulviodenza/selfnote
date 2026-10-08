@@ -49,6 +49,13 @@ pub struct IngestRequest {
     /// user has and should not have to discover to sync a book.
     #[serde(default)]
     pub workspace_id: Option<Uuid>,
+    /// The page to append to, when the client has let the user choose one. The
+    /// eReader does exactly that: you pick "X notes" for the book you are reading,
+    /// and highlights belong there rather than on a page the server named. Without
+    /// it, the book's own page is found or created as before, which is what a
+    /// headless importer with no UI needs.
+    #[serde(default)]
+    pub document_id: Option<Uuid>,
     pub book: BookRef,
     pub highlights: Vec<IncomingHighlight>,
 }
@@ -103,7 +110,10 @@ pub async fn ingest_highlights(
         _ => return Err(AppError::Forbidden),
     }
 
-    let (book_id, document_id) = find_or_create_book(&state, workspace_id, &body.book).await?;
+    let (book_id, document_id) = match body.document_id {
+        Some(chosen) => bind_to_page(&state, workspace_id, &body.book, chosen).await?,
+        None => find_or_create_book(&state, workspace_id, &body.book).await?,
+    };
 
     // Drop anything the ledger has already seen, and collapse duplicate ids inside
     // this batch so a client sending the same id twice cannot write it twice.
@@ -181,6 +191,47 @@ async fn default_workspace(state: &AppState, user_id: Uuid) -> ApiResult<Uuid> {
     .await?;
     row.map(|r| r.0)
         .ok_or_else(|| AppError::BadRequest("this account has no workspace".into()))
+}
+
+/// Bind a book to a page the user picked, and return its ledger row.
+///
+/// The page must be in the same workspace: without that check a token could
+/// append to any page in any workspace it is not a member of, by passing its id.
+/// Re-pointing an existing book at a different page is allowed and expected, since
+/// that is what changing the target in the app does; the ledger follows the book,
+/// so highlights already sent are not re-sent to the new page.
+async fn bind_to_page(
+    state: &AppState,
+    workspace_id: Uuid,
+    book: &BookRef,
+    document_id: Uuid,
+) -> ApiResult<(Uuid, Uuid)> {
+    let owner: Option<(Uuid,)> =
+        sqlx::query_as("select workspace_id from documents where id = $1 and not trashed")
+            .bind(document_id)
+            .fetch_optional(&state.pool)
+            .await?;
+    match owner {
+        Some((ws,)) if ws == workspace_id => {}
+        Some(_) => return Err(AppError::Forbidden),
+        None => return Err(AppError::BadRequest("that page does not exist".into())),
+    }
+
+    let title = if book.title.trim().is_empty() { "Untitled book" } else { book.title.trim() };
+    let row: (Uuid, Uuid) = sqlx::query_as(
+        "insert into ingested_books (workspace_id, document_id, source_key, title, author) \
+         values ($1, $2, $3, $4, $5) \
+         on conflict (workspace_id, source_key) do update set document_id = excluded.document_id \
+         returning id, document_id",
+    )
+    .bind(workspace_id)
+    .bind(document_id)
+    .bind(&book.key)
+    .bind(title)
+    .bind(&book.author)
+    .fetch_one(&state.pool)
+    .await?;
+    Ok(row)
 }
 
 /// The book's row and page, created on first sight. Created lazily so a book that
