@@ -20,6 +20,12 @@ export interface Book {
    */
   file_path: string;
   added_at: number;
+  /**
+   * epub.js locations index, cached as JSON. Building it parses every chapter,
+   * which is seconds of CPU and a lot of garbage on a novel, so it is done once
+   * and reused. Null until the first open finishes generating it.
+   */
+  locations: string | null;
 }
 
 export interface Highlight {
@@ -61,7 +67,8 @@ export async function db(): Promise<SQLite.SQLiteDatabase> {
       title     text not null,
       author    text,
       file_path text not null,
-      added_at  integer not null
+      added_at  integer not null,
+      locations text
     );
     create table if not exists highlights (
       id         text primary key,
@@ -82,7 +89,17 @@ export async function db(): Promise<SQLite.SQLiteDatabase> {
       updated_at integer not null
     );
   `);
+  // Added after the first release; `create table if not exists` will not add it
+  // to a table that already exists.
+  const cols = await handle.getAllAsync<{ name: string }>("pragma table_info(books)");
+  if (!cols.some((c) => c.name === "locations")) {
+    await handle.execAsync("alter table books add column locations text");
+  }
   return handle;
+}
+
+export async function saveLocations(bookId: string, locations: string): Promise<void> {
+  await (await db()).runAsync("update books set locations = ? where id = ?", locations, bookId);
 }
 
 export async function listBooks(): Promise<Book[]> {
@@ -93,12 +110,14 @@ export async function addBook(book: Book): Promise<void> {
   await (
     await db()
   ).runAsync(
-    "insert or replace into books (id, title, author, file_path, added_at) values (?, ?, ?, ?, ?)",
+    "insert or replace into books (id, title, author, file_path, added_at, locations) \
+     values (?, ?, ?, ?, ?, ?)",
     book.id,
     book.title,
     book.author,
     book.file_path,
     book.added_at,
+    book.locations,
   );
 }
 

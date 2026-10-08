@@ -16,7 +16,7 @@ import ePub, { type Book, type Rendition } from "epubjs";
 /* ----------------------------------------------------------- bridge types */
 
 type Inbound =
-  | { type: "open"; data: string }
+  | { type: "open"; data: string; locations?: string | null }
   | { type: "highlights"; items: Highlight[] }
   | { type: "goto"; cfi: string }
   | { type: "turn"; direction: "next" | "prev" }
@@ -55,7 +55,7 @@ function bytesFromBase64(b64: string): ArrayBuffer {
   return bytes.buffer;
 }
 
-async function open(base64: string): Promise<void> {
+async function open(base64: string, cachedLocations?: string | null): Promise<void> {
   if (rendition) {
     rendition.destroy();
     rendition = null;
@@ -70,9 +70,12 @@ async function open(base64: string): Promise<void> {
   rendition = book.renderTo("viewer", {
     width: "100%",
     height: "100%",
-    // Two pages on a wide iPad, one when narrow, which is what the device
-    // orientation should decide rather than a setting.
+    // Two pages side by side only when the page is genuinely wide enough to carry
+    // two comfortable measures, one otherwise. epub.js defaults this threshold to
+    // 800px; a portrait iPad page cleared it by a hair, so an upright page was
+    // being split into two half-width columns.
     spread: "auto",
+    minSpreadWidth: 1000,
     allowScriptedContent: false,
   });
 
@@ -91,17 +94,72 @@ async function open(base64: string): Promise<void> {
     });
   });
 
+  applyTypography(rendition);
   await rendition.display();
 
   const meta = await book.loaded.metadata;
-  // Generating locations gives a real progress percentage rather than a
-  // per-chapter one. It is slow on a big book, so it must not block first paint.
-  void book.locations.generate(1024).then(() => send({ type: "locationsReady" }));
+  // Locations give a real progress percentage rather than a per-chapter one, but
+  // building them parses every chapter of the book. On a novel that is seconds of
+  // CPU and a lot of garbage, and doing it on every open is the most wasteful
+  // thing an e-reader can do to a battery. Generate once, hand the result to the
+  // host to store, and load it from then on. Never awaited: it must not hold up
+  // first paint either way.
+  if (cachedLocations) {
+    try {
+      book.locations.load(cachedLocations);
+      send({ type: "locationsReady", cached: true });
+    } catch {
+      // A stale or corrupt cache costs a regeneration, never the progress bar.
+      void generateLocations();
+    }
+  } else {
+    void generateLocations();
+  }
 
   send({
     type: "opened",
     title: meta?.title ?? null,
     author: meta?.creator ?? null,
+  });
+}
+
+/** Build the locations index and hand it to the host to cache. */
+async function generateLocations(): Promise<void> {
+  if (!book) return;
+  try {
+    await book.locations.generate(1024);
+    send({ type: "locationsReady", locations: book.locations.save(), cached: false });
+  } catch (err) {
+    fail("locations", err);
+  }
+}
+
+/**
+ * Typography inside the book's own document.
+ *
+ * A book that ships no CSS inherits the iframe default: ~16px, tight leading,
+ * ragged right, running the full column. That reads like a web page, not a book.
+ * Set as defaults rather than with !important, so a book that has designed its own
+ * typography still wins.
+ */
+function applyTypography(r: Rendition): void {
+  r.themes.default({
+    body: {
+      // 20px against a ~717px page lands near 70 characters per line, which is
+      // the measure print settled on for good reason.
+      "font-size": "1.25rem",
+      "line-height": "1.62",
+      // Justification without hyphenation opens rivers of whitespace in a narrow
+      // measure, so the two belong together.
+      "text-align": "justify",
+      "-webkit-hyphens": "auto",
+      hyphens: "auto",
+      "overflow-wrap": "break-word",
+    },
+    p: { margin: "0 0 0.85em" },
+    "h1, h2, h3, h4": { "line-height": "1.25", "text-align": "left", hyphens: "manual" },
+    img: { "max-width": "100%", height: "auto" },
+    "pre, code": { "white-space": "pre-wrap", hyphens: "manual" },
   });
 }
 
@@ -148,7 +206,7 @@ function applyHighlights(items: Highlight[]): void {
 async function handle(msg: Inbound): Promise<void> {
   switch (msg.type) {
     case "open":
-      return open(msg.data);
+      return open(msg.data, msg.locations);
     case "highlights":
       return applyHighlights(msg.items);
     case "goto":

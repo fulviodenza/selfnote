@@ -17,6 +17,7 @@ import {
   deleteHighlight,
   listHighlights,
   loadPosition,
+  saveLocations,
   savePosition,
   type Book,
   type Highlight,
@@ -39,6 +40,7 @@ const WebView = RNWebView as unknown as React.ComponentType<
 
 export function Reader({ book, onClose }: { book: Book; onClose: () => void }) {
   const web = useRef<WebViewHandle>(null);
+  const positionTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
   const [ready, setReady] = useState(false);
   const [loading, setLoading] = useState(true);
   const [highlights, setHighlights] = useState<Highlight[]>([]);
@@ -59,7 +61,7 @@ export function Reader({ book, onClose }: { book: Book; onClose: () => void }) {
         encoding: FileSystem.EncodingType.Base64,
       });
       if (cancelled) return;
-      post({ type: "open", data });
+      post({ type: "open", data, locations: book.locations });
       const saved = await loadPosition(book.id);
       if (saved && !cancelled) post({ type: "goto", cfi: saved });
       const rows = await listHighlights(book.id);
@@ -71,6 +73,15 @@ export function Reader({ book, onClose }: { book: Book; onClose: () => void }) {
       cancelled = true;
     };
   }, [ready, book, post]);
+
+  // Flush any pending position write when the reader closes, so stepping back to
+  // the shelf does not drop the last page turn.
+  useEffect(
+    () => () => {
+      if (positionTimer.current) clearTimeout(positionTimer.current);
+    },
+    [],
+  );
 
   const onMessage = useCallback(
     async (e: WebViewMessageEvent) => {
@@ -89,7 +100,20 @@ export function Reader({ book, onClose }: { book: Book; onClose: () => void }) {
           return;
         case "location":
           setProgress(msg.progress ?? 0);
-          if (msg.cfi) void savePosition(book.id, msg.cfi);
+          // Debounced: "relocated" fires on every page turn, and writing to
+          // SQLite that often spins the disk for a value only the next launch
+          // reads. Losing at most a second of progress on a hard kill is a fair
+          // trade for not writing once per page.
+          if (msg.cfi) {
+            if (positionTimer.current) clearTimeout(positionTimer.current);
+            const cfi = msg.cfi;
+            positionTimer.current = setTimeout(() => void savePosition(book.id, cfi), 1000);
+          }
+          return;
+        case "locationsReady":
+          // Generated rather than loaded from cache, so store it: the next open
+          // of this book skips parsing every chapter.
+          if (msg.locations) void saveLocations(book.id, msg.locations);
           return;
         case "selection": {
           const row: Highlight = {

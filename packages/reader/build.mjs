@@ -38,15 +38,33 @@ const html = `<!doctype html>
 <meta charset="utf-8" />
 <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, viewport-fit=cover" />
 <style>
-  :root { --paper: #faf5ef; --ink: #1b1b1b; }
+  :root {
+    --paper: #faf5ef; --ink: #1b1b1b;
+    /* Page margins as a share of the viewport, which is how print sizes a page.
+       Fixed pixel margins look generous on a phone and mean on a tablet. */
+    --margin-x: 7vw; --margin-y: 4.5vh;
+  }
   html[data-theme="dark"] { --paper: #14110e; --ink: #e8e4dc; }
   html, body { margin: 0; padding: 0; height: 100%; overflow: hidden;
     background: var(--paper); color: var(--ink);
     -webkit-text-size-adjust: 100%; }
-  /* Page-turn taps must not start a text selection on the chrome itself; the
-     book's own iframe re-enables selection so highlighting still works. */
+  /* Page-turn taps must not start a selection on the chrome; the book's own
+     iframe re-enables it so highlighting still works. */
   body { -webkit-user-select: none; user-select: none; }
-  #viewer { height: 100%; width: 100%; }
+  /* The page margin lives on <body> as padding, and #viewer fills body's CONTENT
+     box. epub.js measures #viewer to work out column geometry, and it only does
+     that correctly when #viewer is a plain statically-positioned block whose own
+     box is exactly the page area. Padding on #viewer, or wrapping it, or making
+     it absolutely positioned, all make the render silently never complete. */
+  body {
+    box-sizing: border-box;
+    padding:
+      calc(var(--margin-y) + env(safe-area-inset-top))
+      calc(var(--margin-x) + env(safe-area-inset-right))
+      calc(var(--margin-y) + env(safe-area-inset-bottom))
+      calc(var(--margin-x) + env(safe-area-inset-left));
+  }
+  #viewer { width: 100%; height: 100%; }
   #viewer iframe { -webkit-user-select: text; user-select: text; }
 </style>
 </head>

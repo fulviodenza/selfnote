@@ -41,6 +41,7 @@ export function Library({
       // Relative on purpose; see the note on Book.file_path.
       file_path: relative,
       added_at: Date.now(),
+      locations: null,
     });
     onChanged();
   }, [onChanged]);
