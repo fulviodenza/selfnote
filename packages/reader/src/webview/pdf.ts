@@ -10,8 +10,12 @@
  * One page is rendered at a time, matching the pager and keeping a 400-page
  * book's memory at one page's worth of canvas.
  */
-import { getDocument, GlobalWorkerOptions, TextLayer } from "pdfjs-dist";
+// The LEGACY build on purpose: the modern one assumes iteration and promise
+// APIs WKWebView does not ship, and renderPage dies with "undefined is not a
+// function" only on device. Legacy carries its own compatibility layer.
+import { getDocument, GlobalWorkerOptions, TextLayer } from "pdfjs-dist/legacy/build/pdf.mjs";
 import type { PDFDocumentProxy, PDFPageProxy } from "pdfjs-dist";
+
 
 declare global {
   interface Window {
@@ -143,8 +147,11 @@ async function renderPage(): Promise<void> {
     textHost.style.setProperty("--scale-factor", String(viewport.scale));
     textHost.style.width = `${viewport.width}px`;
     textHost.style.height = `${viewport.height}px`;
+    // The stream form, not the awaited TextContent object: TextLayer iterates
+    // its source, and handing it the plain object dies inside render with
+    // "undefined is not a function" after the canvas has already painted.
     const layer = new TextLayer({
-      textContentSource: await page.getTextContent(),
+      textContentSource: page.streamTextContent(),
       container: textHost as HTMLDivElement,
       viewport,
     });

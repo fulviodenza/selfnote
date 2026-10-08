@@ -98,7 +98,7 @@ const pdfJs = await bundle("src/webview/pdf.ts");
 // platform allows one from a blob URL, and falls back to its main-thread fake
 // worker from the same bytes where it does not. Either way, no network.
 const workerSrc = readFileSync(
-  require.resolve("pdfjs-dist/build/pdf.worker.min.mjs"),
+  require.resolve("pdfjs-dist/legacy/build/pdf.worker.min.mjs"),
   "utf8",
 ).replace(/<\/script>/gi, "<\\/script>");
 const pdfHtml = page(
