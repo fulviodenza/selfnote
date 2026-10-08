@@ -1,0 +1,19 @@
+{
+  "expo": {
+    "name": "Selfnote eReader",
+    "slug": "selfnote-ereader",
+    "scheme": "selfnote-ereader",
+    "version": "0.1.0",
+    "orientation": "default",
+    "userInterfaceStyle": "automatic",
+    "newArchEnabled": true,
+    "ios": {
+      "supportsTablet": true,
+      "bundleIdentifier": "app.selfnote.ereader"
+    },
+    "android": {
+      "package": "app.selfnote.ereader"
+    },
+    "plugins": ["expo-sqlite"]
+  }
+}

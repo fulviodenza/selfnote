@@ -1,0 +1,10 @@
+{
+  "extends": "expo/tsconfig.base",
+  "compilerOptions": {
+    "strict": true,
+    "paths": {
+      "@selfnote/reader": ["../../packages/reader/dist/index.d.ts"]
+    }
+  },
+  "include": ["App.tsx", "index.ts", "src"]
+}
