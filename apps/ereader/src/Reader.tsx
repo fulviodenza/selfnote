@@ -298,7 +298,7 @@ export function Reader({
         >
           <Text style={styles.chevron}>‹</Text>
         </TouchableOpacity>
-        <Text style={styles.pagerHint}>Swipe or tap the page edges</Text>
+        <Text style={styles.pagerHint}>Swipe to turn. Select text, then tap Save highlight.</Text>
         <TouchableOpacity
           style={styles.pageBtn}
           onPress={() => post({ type: "turn", direction: "next" })}

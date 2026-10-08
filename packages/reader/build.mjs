@@ -66,10 +66,24 @@ const html = `<!doctype html>
   }
   #viewer { width: 100%; height: 100%; }
   #viewer iframe { -webkit-user-select: text; user-select: text; }
+  /* The commit affordance for a selection. In the HOST document on purpose: it
+     floats above the book frame and stays tappable no matter what the frame
+     does with events. Amber because that is the colour the saved mark will be. */
+  #save-highlight {
+    position: fixed; left: 50%; transform: translateX(-50%);
+    bottom: calc(26px + env(safe-area-inset-bottom));
+    display: none; align-items: center;
+    padding: 14px 28px; border: 0; border-radius: 999px;
+    background: #f2c94c; color: #1b1b1b;
+    font: 600 16px -apple-system, system-ui, sans-serif;
+    box-shadow: 0 4px 18px rgba(0, 0, 0, 0.18);
+    z-index: 10; cursor: pointer;
+  }
 </style>
 </head>
 <body>
 <div id="viewer"></div>
+<button id="save-highlight" type="button">Save highlight</button>
 <script>${safe}</script>
 </body>
 </html>`;

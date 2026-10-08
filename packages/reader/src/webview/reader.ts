@@ -85,50 +85,43 @@ async function open(base64: string, cachedLocations?: string | null): Promise<vo
     allowScriptedContent: true,
   });
 
-  // Every way a selection can be noticed funnels through one place, deduped.
-  rendition.on("selected", (_cfi: string, contents: any) => emitSelection(contents));
+  // Selection and page turning share one touch surface, so they are arbitrated
+  // in one place, by the rules every reader uses: a long-press belongs to
+  // selection, a short tap turns the page only when no selection is anywhere
+  // near, and saving a highlight is an explicit act, never a side effect of
+  // pausing. The first version auto-saved after a 600ms lull and bound "click"
+  // for edge taps; iOS dispatches a click when the finger lifts from the
+  // long-press that STARTS a selection, so beginning to select a paragraph on
+  // the left half of the page turned the page backwards out from under it.
+  rendition.on("selected", (_cfi: string, contents: any) => prepareSelection(contents));
 
-  // epub.js listens for "selectionchange" on the book's document and nothing
-  // else, and WebKit fires that unreliably for subframes, so on iOS a selection
-  // made by touch never reached us: the text highlighted blue and then nothing
-  // happened. touchend and mouseup are what actually mark the end of a selection
-  // gesture, so bind those too and let the dedupe sort out the overlap.
-  //
-  // Clicks are bound here for the same reason. A click inside the book is inside
-  // the iframe and never bubbles to the host document, so the edge-tap page turn
-  // bound out there could not fire over the text either.
   rendition.hooks.content.register((contents: any) => {
     const doc: Document = contents.document;
-    const notice = () => window.setTimeout(() => emitSelection(contents), 50);
-    doc.addEventListener("touchend", notice, { passive: true });
-    doc.addEventListener("mouseup", notice);
-    // selectionchange is the one signal iOS fires reliably: the system selection
-    // gesture swallows touchend, so waiting for "the finger lifted" means waiting
-    // forever on an iPad. Debounced so the highlight lands once the handles stop
-    // moving rather than on every pixel of the drag. A collapsed selection means
-    // the user cleared it, which re-arms the dedupe for the same passage.
+
+    // selectionchange is the one signal iOS fires reliably (the system gesture
+    // swallows touchend), so it drives the pill. Debounced just enough not to
+    // thrash while the handles are moving.
     let selTimer: number | undefined;
     doc.addEventListener("selectionchange", () => {
-      const sel = contents.window?.getSelection?.();
       window.clearTimeout(selTimer);
+      const sel = contents.window?.getSelection?.();
       if (!sel || sel.isCollapsed) {
-        lastEmitted = "";
+        clearPending();
         return;
       }
-      selTimer = window.setTimeout(() => emitSelection(contents), 600);
+      lastSelectionAt = Date.now();
+      selTimer = window.setTimeout(() => prepareSelection(contents), 250);
     });
-    doc.addEventListener("click", (e: MouseEvent) => turnFromTap(e, contents));
 
-    // Swipe is what people try first on a tablet, and an edge tap is invisible
-    // until someone tells you about it. Both work.
-    let sx = 0, sy = 0, st = 0;
+    // Tap vs swipe, decided from raw touches rather than synthetic clicks.
+    let sx = 0, sy = 0, st = 0, selAtStart = false;
     doc.addEventListener(
       "touchstart",
       (e: TouchEvent) => {
         const t = e.changedTouches[0];
-        sx = t.clientX;
-        sy = t.clientY;
-        st = Date.now();
+        sx = t.clientX; sy = t.clientY; st = Date.now();
+        const sel = contents.window?.getSelection?.();
+        selAtStart = Boolean(sel && !sel.isCollapsed);
       },
       { passive: true },
     );
@@ -136,19 +129,47 @@ async function open(base64: string, cachedLocations?: string | null): Promise<vo
       "touchend",
       (e: TouchEvent) => {
         if (!rendition) return;
+        // Nothing turns pages while selection is in play: active now, active
+        // when the touch began, or active moments ago. Handle drags end with
+        // the selection briefly collapsed, which is what the grace window is for.
         const sel = contents.window?.getSelection?.();
-        if (sel && !sel.isCollapsed) return;      // ending a selection, not swiping
+        if (sel && !sel.isCollapsed) return;
+        if (selAtStart || Date.now() - lastSelectionAt < 600) return;
         const t = e.changedTouches[0];
         const dx = t.clientX - sx;
         const dy = t.clientY - sy;
-        // Horizontal, far enough to be deliberate, and quick enough to be a
-        // flick rather than a slow drag that was probably a mis-selection.
-        if (Date.now() - st > 600) return;
-        if (Math.abs(dx) < 48 || Math.abs(dx) < Math.abs(dy) * 1.5) return;
-        void (dx < 0 ? rendition.next() : rendition.prev());
+        const dt = Date.now() - st;
+        if (dt < 600 && Math.abs(dx) >= 48 && Math.abs(dx) > Math.abs(dy) * 1.5) {
+          void (dx < 0 ? rendition.next() : rendition.prev());
+          return;
+        }
+        // A tap is short and still. A long-press is neither, and belongs to
+        // selection even when it ends up selecting nothing.
+        if (dt < 300 && Math.abs(dx) < 12 && Math.abs(dy) < 12) {
+          const width = contents.window?.innerWidth ?? window.innerWidth;
+          if (t.clientX < width / 3) void rendition.prev();
+          else if (t.clientX > width - width / 3) void rendition.next();
+        }
       },
       { passive: true },
     );
+
+    // Mouse-driven hosts (desktop web, later) have no touch events, and a click
+    // is unambiguous there because selection is drag-based, not press-based.
+    if (!("ontouchstart" in window)) {
+      doc.addEventListener("click", (e: MouseEvent) => {
+        if (!rendition) return;
+        const sel = contents.window?.getSelection?.();
+        if (sel && !sel.isCollapsed) return;
+        if (Date.now() - lastSelectionAt < 600) return;
+        const width = contents.window?.innerWidth ?? window.innerWidth;
+        if (e.clientX < width / 3) void rendition.prev();
+        else if (e.clientX > width - width / 3) void rendition.next();
+      });
+      doc.addEventListener("mouseup", () =>
+        window.setTimeout(() => prepareSelection(contents), 50),
+      );
+    }
   });
 
   rendition.on("relocated", (location: any) => {
@@ -228,50 +249,59 @@ function applyTypography(r: Rendition): void {
   });
 }
 
-/** The last range sent, so the several listeners below cannot double-send one. */
-let lastEmitted = "";
+/* ------------------------------------------------------------- selection */
+
+/** The selection currently on offer, until the pill commits or it collapses. */
+let pending: { cfi: string; text: string; contents: any } | null = null;
+/** When a selection was last alive, so page turns keep off its back. */
+let lastSelectionAt = 0;
+
+function pill(): HTMLElement | null {
+  return document.getElementById("save-highlight");
+}
 
 /**
- * Report a selection, whichever listener noticed it.
- *
- * The native selection is cleared afterwards: the highlight that replaces it is
- * drawn underneath, and leaving the blue overlay on top makes it look like
- * nothing happened.
+ * Offer the current selection for saving. Nothing is written yet: saving is the
+ * tap on the pill. Auto-saving on a pause was tried and is wrong, because
+ * pausing is what adjusting the selection handles looks like, so it committed
+ * half-made highlights and yanked the handles away mid-drag.
  */
-function emitSelection(contents: any): void {
+function prepareSelection(contents: any): void {
   const sel = contents?.window?.getSelection?.();
   if (!sel || sel.rangeCount === 0) return;
   const range = sel.getRangeAt(0);
   if (range.collapsed) return;
   const text = sel.toString().trim();
   if (!text) return;
-
   let cfi: string;
   try {
     cfi = contents.cfiFromRange(range);
   } catch (err) {
     return fail("cfiFromRange", err);
   }
-  if (!cfi || cfi === lastEmitted) return;
-  lastEmitted = cfi;
+  pending = { cfi, text, contents };
+  const el = pill();
+  if (el) el.style.display = "flex";
+}
+
+function clearPending(): void {
+  pending = null;
+  const el = pill();
+  if (el) el.style.display = "none";
+}
+
+function commitPending(): void {
+  if (!pending) return;
+  const { cfi, text, contents } = pending;
+  clearPending();
   send({ type: "selection", cfi, text });
+  // The saved highlight is drawn underneath; leaving the blue overlay on top
+  // makes it look like nothing happened.
   try {
-    sel.removeAllRanges();
+    contents.window?.getSelection?.()?.removeAllRanges();
   } catch {
     /* iOS sometimes refuses; the highlight still lands */
   }
-}
-
-/** Edge taps turn the page, but only when they are not ending a selection. */
-function turnFromTap(e: MouseEvent, contents: any): void {
-  if (!rendition) return;
-  const sel = contents?.window?.getSelection?.();
-  if (sel && !sel.isCollapsed) return;
-  // The event is in the book frame, whose width is the page width.
-  const width = contents.window?.innerWidth ?? window.innerWidth;
-  const third = width / 3;
-  if (e.clientX < third) void rendition.prev();
-  else if (e.clientX > width - third) void rendition.next();
 }
 
 /* ------------------------------------------------------------ highlights */
@@ -379,5 +409,9 @@ window.addEventListener("message", (e: MessageEvent) => {
   }
   handle(msg).catch((err) => fail(msg.type, err));
 });
+
+// The pill lives in the host document, so its tap arrives here regardless of
+// anything the book frame does with events.
+pill()?.addEventListener("click", commitPending);
 
 send({ type: "ready" });
