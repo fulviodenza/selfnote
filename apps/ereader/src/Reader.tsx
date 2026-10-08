@@ -4,7 +4,7 @@
  * true.
  */
 import { useCallback, useEffect, useRef, useState } from "react";
-import { ActivityIndicator, Alert, StyleSheet, Text, TouchableOpacity, View } from "react-native";
+import { ActivityIndicator, Alert, AppState, StyleSheet, Text, TouchableOpacity, View } from "react-native";
 import RNWebView, { type WebViewMessageEvent, type WebViewProps } from "react-native-webview";
 // The legacy entry point on purpose: it reads a file straight to base64 natively.
 // The current File API exposes only arrayBuffer(), which would mean base64-encoding
@@ -27,8 +27,11 @@ import {
   unsyncedHighlights,
   listHighlights,
   loadPosition,
+  recordSession,
   saveLocations,
   savePosition,
+  touchOpened,
+  updateBookMeta,
   type Book,
   type Highlight,
 } from "./db";
@@ -65,6 +68,7 @@ export function Reader({
   const [syncNote, setSyncNote] = useState<{ kind: "ok" | "bad"; text: string } | null>(null);
   const web = useRef<WebViewHandle>(null);
   const positionTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const sessionStart = useRef(Date.now());
   const [ready, setReady] = useState(false);
   const [loading, setLoading] = useState(true);
   const [highlights, setHighlights] = useState<Highlight[]>([]);
@@ -119,6 +123,27 @@ export function Reader({
     const t = setTimeout(() => setSyncNote(null), 2500);
     return () => clearTimeout(t);
   }, [syncNote]);
+
+  // Reading time counts while the reader is mounted and the app foregrounded.
+  // Sessions are flushed on unmount and on backgrounding, and restart when the
+  // app comes back, so nothing ever ticks while the iPad is asleep. Under five
+  // seconds is noise, not reading.
+  useEffect(() => {
+    void touchOpened(book.id);
+    const flush = () => {
+      const secs = Math.round((Date.now() - sessionStart.current) / 1000);
+      sessionStart.current = Date.now();
+      if (secs >= 5) void recordSession(book.id, Date.now() - secs * 1000, secs);
+    };
+    const sub = AppState.addEventListener("change", (st) => {
+      if (st === "active") sessionStart.current = Date.now();
+      else flush();
+    });
+    return () => {
+      flush();
+      sub.remove();
+    };
+  }, [book.id]);
 
   // Flush any pending position write when the reader closes, so stepping back to
   // the shelf does not drop the last page turn.
@@ -179,6 +204,12 @@ export function Reader({
           return;
         case "opened":
           setLoading(false);
+          // The book knows its own name; the shelf should stop showing the
+          // filename from the moment that is true.
+          if (typeof msg.title === "string" && msg.title.trim()) {
+            void updateBookMeta(book.id, msg.title, msg.author ?? null);
+            setBook((b) => ({ ...b, title: msg.title.trim(), author: msg.author ?? b.author }));
+          }
           return;
         case "location":
           setProgress(msg.progress ?? 0);

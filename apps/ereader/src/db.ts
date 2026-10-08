@@ -26,6 +26,10 @@ export interface Book {
    * and reused. Null until the first open finishes generating it.
    */
   locations: string | null;
+  /** Set when the user marks the book finished; counted by the yearly goal. */
+  finished_at: number | null;
+  /** Orders the shelf and powers Continue Reading. */
+  last_opened_at: number | null;
   /** Selfnote page this book's highlights go to, null until the user picks one. */
   sync_document_id: string | null;
   /** Remembered only so the UI can say where highlights are going. */
@@ -66,6 +70,10 @@ export async function db(): Promise<SQLite.SQLiteDatabase> {
   handle = await SQLite.openDatabaseAsync("ereader.db");
   await handle.execAsync(`
     pragma journal_mode = WAL;
+    -- SQLite leaves foreign key enforcement OFF per connection, so every
+    -- "on delete cascade" below was decorative until this line. Deleting a
+    -- book is the first thing that depends on them actually firing.
+    pragma foreign_keys = on;
     create table if not exists books (
       id        text primary key,
       title     text not null,
@@ -89,6 +97,14 @@ export async function db(): Promise<SQLite.SQLiteDatabase> {
       synced_at  integer
     );
     create index if not exists highlights_book_idx on highlights (book_id);
+    create table if not exists reading_sessions (
+      id         integer primary key autoincrement,
+      book_id    text not null references books(id) on delete cascade,
+      started_at integer not null,
+      seconds    integer not null
+    );
+    create index if not exists sessions_started_idx on reading_sessions (started_at);
+    create table if not exists settings (key text primary key, value text not null);
     create table if not exists reading_position (
       book_id    text primary key references books(id) on delete cascade,
       cfi        text not null,
@@ -102,6 +118,8 @@ export async function db(): Promise<SQLite.SQLiteDatabase> {
     ["locations", "text"],
     ["sync_document_id", "text"],
     ["sync_page_title", "text"],
+    ["finished_at", "integer"],
+    ["last_opened_at", "integer"],
   ] as const) {
     if (!cols.some((c) => c.name === name)) {
       await handle.execAsync(`alter table books add column ${name} ${decl}`);
@@ -115,7 +133,90 @@ export async function saveLocations(bookId: string, locations: string): Promise<
 }
 
 export async function listBooks(): Promise<Book[]> {
-  return (await db()).getAllAsync<Book>("select * from books order by added_at desc");
+  // The book being read belongs on top; untouched books fall back to added order.
+  return (await db()).getAllAsync<Book>(
+    "select * from books order by coalesce(last_opened_at, added_at) desc",
+  );
+}
+
+/** Remove the row; foreign keys cascade to highlights, position and sessions.
+ * The caller deletes the file, because only it knows the resolved path. */
+export async function deleteBookRow(id: string): Promise<void> {
+  await (await db()).runAsync("delete from books where id = ?", id);
+}
+
+export async function setFinished(id: string, finished: boolean): Promise<void> {
+  await (
+    await db()
+  ).runAsync("update books set finished_at = ? where id = ?", finished ? Date.now() : null, id);
+}
+
+export async function touchOpened(id: string): Promise<void> {
+  await (await db()).runAsync("update books set last_opened_at = ? where id = ?", Date.now(), id);
+}
+
+/** The book reports its real title and author the first time it opens; keep
+ * them, so the shelf stops showing the filename. */
+export async function updateBookMeta(
+  id: string,
+  title: string,
+  author: string | null,
+): Promise<void> {
+  if (!title.trim()) return;
+  await (
+    await db()
+  ).runAsync("update books set title = ?, author = ? where id = ?", title.trim(), author, id);
+}
+
+/* ------------------------------------------------------- reading goals --- */
+
+export async function recordSession(
+  bookId: string,
+  startedAt: number,
+  seconds: number,
+): Promise<void> {
+  await (
+    await db()
+  ).runAsync(
+    "insert into reading_sessions (book_id, started_at, seconds) values (?, ?, ?)",
+    bookId,
+    startedAt,
+    seconds,
+  );
+}
+
+export async function readingSecondsSince(since: number): Promise<number> {
+  const row = await (
+    await db()
+  ).getFirstAsync<{ total: number | null }>(
+    "select sum(seconds) as total from reading_sessions where started_at >= ?",
+    since,
+  );
+  return row?.total ?? 0;
+}
+
+export async function booksFinishedSince(since: number): Promise<number> {
+  const row = await (
+    await db()
+  ).getFirstAsync<{ n: number }>(
+    "select count(*) as n from books where finished_at is not null and finished_at >= ?",
+    since,
+  );
+  return row?.n ?? 0;
+}
+
+export async function getNumberSetting(key: string, fallback: number): Promise<number> {
+  const row = await (
+    await db()
+  ).getFirstAsync<{ value: string }>("select value from settings where key = ?", key);
+  const n = row ? Number(row.value) : NaN;
+  return Number.isFinite(n) && n > 0 ? n : fallback;
+}
+
+export async function setNumberSetting(key: string, value: number): Promise<void> {
+  await (
+    await db()
+  ).runAsync("insert or replace into settings (key, value) values (?, ?)", key, String(value));
 }
 
 export async function addBook(book: Book): Promise<void> {
