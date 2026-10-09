@@ -508,7 +508,11 @@ function showNoteAt(index: number | null): void {
   const note = currentNote();
   if (note && wrap && holder) {
     try {
-      strokes = JSON.parse(note.strokes) as Stroke[];
+      // Either a bare stroke array, or the envelope {pk, v} written since the
+      // writing surface went native: pk is the PKDrawing binary only PencilKit
+      // can read, v is the same ink as vectors for every other renderer.
+      const parsed = JSON.parse(note.strokes) as Stroke[] | { v?: Stroke[] };
+      strokes = Array.isArray(parsed) ? parsed : (parsed.v ?? []);
     } catch {
       strokes = [];
     }

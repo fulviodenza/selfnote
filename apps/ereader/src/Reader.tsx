@@ -17,6 +17,10 @@ import { pdfReaderHtml, readerHtml } from "@selfnote/reader";
 const READER_SOURCE = { html: readerHtml };
 const PDF_SOURCE = { html: pdfReaderHtml };
 import { PagePicker } from "./PagePicker";
+// Ink goes through PencilKit, not the WebView: pointer events in WKWebView are
+// batched to display rate with no low-latency path, which reads as lag under a
+// Pencil, and the web view's internal recognizers can still swallow touches.
+import { PencilPageView, type PencilChange } from "../modules/pencil-page";
 import { sendHighlights, type Connection } from "./selfnote";
 import {
   addHighlight,
@@ -86,7 +90,6 @@ export function Reader({
   const [notePages, setNotePages] = useState<NotePage[]>([]);
   // Which insert is showing, if any. The reader reports it with every location.
   const [onNote, setOnNote] = useState<string | null>(null);
-  const [noteTool, setNoteTool] = useState<"pen" | "eraser">("pen");
   const syncing = Boolean(connection && book.sync_document_id);
 
   const post = useCallback((msg: unknown) => {
@@ -313,6 +316,44 @@ export function Reader({
     post({ type: "showNote", id: page.id });
   }, [book.id, post]);
 
+  // The active insert's stored ink, split for the native surface: the
+  // PKDrawing binary when one exists, else legacy web-canvas vectors to raise
+  // into PKStrokes so nothing already written is lost.
+  const activeNote = onNote ? (notePages.find((p) => p.id === onNote) ?? null) : null;
+  let noteDrawing: string | null = null;
+  let noteVectors: string | null = null;
+  if (activeNote) {
+    try {
+      const parsed = JSON.parse(activeNote.strokes || "[]") as
+        | unknown[]
+        | { pk?: string; v?: unknown[] };
+      if (Array.isArray(parsed)) {
+        noteVectors = parsed.length ? JSON.stringify(parsed) : null;
+      } else {
+        noteDrawing = parsed.pk ?? null;
+        noteVectors = parsed.v?.length ? JSON.stringify(parsed.v) : null;
+      }
+    } catch {
+      /* unreadable ink loses to a blank page, not a crash */
+    }
+  }
+
+  const onInk = useCallback((noteId: string, e: { nativeEvent: PencilChange }) => {
+    let v: unknown = [];
+    try {
+      v = JSON.parse(e.nativeEvent.v);
+    } catch {
+      /* the pk binary is still the full drawing */
+    }
+    const envelope = JSON.stringify({ pk: e.nativeEvent.pk, v });
+    void saveNoteStrokes(noteId, envelope);
+    // Keep local state current too, or reopening this insert in the same
+    // session would load the ink as it was when the book opened.
+    setNotePages((pages) =>
+      pages.map((p) => (p.id === noteId ? { ...p, strokes: envelope } : p)),
+    );
+  }, []);
+
   const removeNotePage = useCallback(() => {
     if (!onNote) return;
     Alert.alert("Delete this page?", "Anything written on it is removed.", [
@@ -339,6 +380,13 @@ export function Reader({
         <Text numberOfLines={1} style={styles.title}>
           {book.title}
         </Text>
+        {onNote ? (
+          // Up here because the floating tool picker owns the bottom of the
+          // screen while writing, and it already carries undo and redo.
+          <TouchableOpacity onPress={removeNotePage} hitSlop={10}>
+            <Text style={[styles.action, styles.toolDanger]}>Delete page</Text>
+          </TouchableOpacity>
+        ) : null}
         {connection ? (
           <TouchableOpacity onPress={() => setPicking(true)} hitSlop={10}>
             <Text style={styles.syncTarget} numberOfLines={1}>
@@ -375,6 +423,23 @@ export function Reader({
           bounces={false}
           style={styles.fill}
         />
+        {activeNote ? (
+          // The writing surface. Native PencilKit over the WebView, which
+          // keeps rendering the book underneath and never sees the pen. The
+          // system tool picker floats over this and carries the pens.
+          <View style={styles.notePaper}>
+            {Array.from({ length: 40 }, (_, i) => (
+              <View key={i} style={[styles.noteRule, { top: 72 + i * 34 }]} />
+            ))}
+            <PencilPageView
+              key={activeNote.id}
+              style={StyleSheet.absoluteFill}
+              drawing={noteDrawing}
+              vectors={noteVectors}
+              onChange={(e) => onInk(activeNote.id, e)}
+            />
+          </View>
+        ) : null}
         {syncNote || (connection && book.sync_document_id && pendingCount > 0) ? (
           <View
             style={[styles.strip, styles.stripOverlay, syncNote?.kind === "bad" && styles.stripBad]}
@@ -407,38 +472,10 @@ export function Reader({
           <Text style={styles.chevron}>‹</Text>
         </TouchableOpacity>
 
-        {onNote ? (
-          // On an insert the middle of the bar becomes its tools: there is
-          // nothing to select or highlight on a blank page.
-          <View style={styles.noteTools}>
-            <TouchableOpacity
-              style={[styles.toolBtn, noteTool === "pen" && styles.toolOn]}
-              onPress={() => {
-                setNoteTool("pen");
-                post({ type: "noteTool", tool: "pen" });
-              }}
-            >
-              <Text style={[styles.toolText, noteTool === "pen" && styles.toolTextOn]}>Pen</Text>
-            </TouchableOpacity>
-            <TouchableOpacity
-              style={[styles.toolBtn, noteTool === "eraser" && styles.toolOn]}
-              onPress={() => {
-                setNoteTool("eraser");
-                post({ type: "noteTool", tool: "eraser" });
-              }}
-            >
-              <Text style={[styles.toolText, noteTool === "eraser" && styles.toolTextOn]}>
-                Eraser
-              </Text>
-            </TouchableOpacity>
-            <TouchableOpacity style={styles.toolBtn} onPress={() => post({ type: "noteUndo" })}>
-              <Text style={styles.toolText}>Undo</Text>
-            </TouchableOpacity>
-            <TouchableOpacity style={styles.toolBtn} onPress={removeNotePage}>
-              <Text style={[styles.toolText, styles.toolDanger]}>Delete page</Text>
-            </TouchableOpacity>
-          </View>
-        ) : isPdf ? (
+        {isPdf ? (
+          // Available on an insert too: several pages of working after one
+          // exercise is normal. The writing tools themselves live in the
+          // floating system picker, and Delete page sits in the top bar.
           <TouchableOpacity style={styles.addPageBtn} onPress={insertNotePage}>
             <Text style={styles.addPageText}>+ Blank page</Text>
           </TouchableOpacity>
@@ -522,15 +559,19 @@ const styles = StyleSheet.create({
     paddingHorizontal: 22, paddingTop: 8, paddingBottom: 26,
     backgroundColor: "#faf5ef",
   },
-  noteTools: { flexDirection: "row", alignItems: "center", gap: 8, flex: 1, justifyContent: "center" },
-  toolBtn: {
-    paddingHorizontal: 13, paddingVertical: 8, borderRadius: 9,
-    backgroundColor: "#f2ece3", borderWidth: 1, borderColor: "#e4dbcd",
-  },
-  toolOn: { backgroundColor: "#2b4162", borderColor: "#2b4162" },
-  toolText: { fontSize: 13, fontWeight: "600", color: "#2b4162" },
-  toolTextOn: { color: "#fff" },
   toolDanger: { color: "#8c2f27" },
+  // The native writing surface, styled as the same paper the web insert draws
+  // so the page does not change character when the surface goes native.
+  notePaper: {
+    position: "absolute", top: 12, bottom: 12, left: 28, right: 28,
+    backgroundColor: "#fffdf8", borderRadius: 2, overflow: "hidden",
+    shadowColor: "#000", shadowOpacity: 0.1, shadowRadius: 7,
+    shadowOffset: { width: 0, height: 2 },
+  },
+  noteRule: {
+    position: "absolute", left: 0, right: 0, height: 1,
+    backgroundColor: "rgba(43, 65, 98, 0.08)",
+  },
   addPageBtn: {
     paddingHorizontal: 16, paddingVertical: 9, borderRadius: 10,
     backgroundColor: "#f2ece3", borderWidth: 1, borderColor: "#e4dbcd",
