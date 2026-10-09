@@ -247,13 +247,14 @@ function noteEls() {
   return {
     wrap: document.getElementById("note") as HTMLDivElement | null,
     canvas: document.getElementById("notecanvas") as HTMLCanvasElement | null,
+    live: document.getElementById("livecanvas") as HTMLCanvasElement | null,
   };
 }
 
 /** Size the note canvas to the book page, so an insert feels like a leaf of
  * the same book rather than a floating pad. */
 function sizeNoteCanvas(): void {
-  const { wrap, canvas } = noteEls();
+  const { wrap, canvas, live } = noteEls();
   if (!wrap || !canvas) return;
   // From the remembered page box, never from #page itself: by the time an
   // insert is showing, #page is display:none and measures zero.
@@ -269,12 +270,14 @@ function sizeNoteCanvas(): void {
   wrap.style.width = `${w}px`;
   wrap.style.height = `${h}px`;
   const ratio = window.devicePixelRatio || 1;
-  canvas.width = Math.floor(w * ratio);
-  canvas.height = Math.floor(h * ratio);
-  canvas.style.width = `${w}px`;
-  canvas.style.height = `${h}px`;
-  const ctx = canvas.getContext("2d")!;
-  ctx.setTransform(ratio, 0, 0, ratio, 0, 0);
+  for (const c of [canvas, live]) {
+    if (!c) continue;
+    c.width = Math.floor(w * ratio);
+    c.height = Math.floor(h * ratio);
+    c.style.width = `${w}px`;
+    c.style.height = `${h}px`;
+    c.getContext("2d")!.setTransform(ratio, 0, 0, ratio, 0, 0);
+  }
   redrawStrokes();
 }
 
@@ -293,6 +296,8 @@ function redrawStrokes(): void {
 function drawStroke(ctx: CanvasRenderingContext2D, st: Stroke, w: number, h: number): void {
   if (st.p.length === 0) return;
   ctx.strokeStyle = st.c;
+  ctx.lineCap = "round";
+  ctx.lineJoin = "round";
   if (st.p.length === 1) {
     const [x, y, pr] = st.p[0];
     ctx.beginPath();
@@ -301,16 +306,45 @@ function drawStroke(ctx: CanvasRenderingContext2D, st: Stroke, w: number, h: num
     ctx.fill();
     return;
   }
-  // Width follows pressure per segment, so a stroke tapers the way a pen does.
-  for (let i = 1; i < st.p.length; i++) {
-    const [x0, y0, p0] = st.p[i - 1];
-    const [x1, y1, p1] = st.p[i];
+  if (st.p.length === 2) {
+    const [x0, y0, p0] = st.p[0];
+    const [x1, y1, p1] = st.p[1];
     ctx.lineWidth = st.w * (0.4 + (p0 + p1) / 2);
     ctx.beginPath();
     ctx.moveTo(x0 * w, y0 * h);
     ctx.lineTo(x1 * w, y1 * h);
     ctx.stroke();
+    return;
   }
+  // Each sample becomes the control point of a quadratic from one segment
+  // midpoint to the next: the samples are too sparse to connect with straight
+  // lines without the stroke reading as a polygon. Width still follows
+  // pressure per piece, so a stroke tapers the way a pen does, and the round
+  // caps hide the joins between pieces of different width.
+  const first = st.p[0];
+  const second = st.p[1];
+  ctx.lineWidth = st.w * (0.4 + (first[2] + second[2]) / 2);
+  ctx.beginPath();
+  ctx.moveTo(first[0] * w, first[1] * h);
+  ctx.lineTo(((first[0] + second[0]) / 2) * w, ((first[1] + second[1]) / 2) * h);
+  ctx.stroke();
+  for (let i = 1; i < st.p.length - 1; i++) {
+    const [x0, y0, p0] = st.p[i - 1];
+    const [x1, y1, p1] = st.p[i];
+    const [x2, y2, p2] = st.p[i + 1];
+    ctx.lineWidth = st.w * (0.4 + (p0 + 2 * p1 + p2) / 4);
+    ctx.beginPath();
+    ctx.moveTo(((x0 + x1) / 2) * w, ((y0 + y1) / 2) * h);
+    ctx.quadraticCurveTo(x1 * w, y1 * h, ((x1 + x2) / 2) * w, ((y1 + y2) / 2) * h);
+    ctx.stroke();
+  }
+  const [xa, ya, pa] = st.p[st.p.length - 2];
+  const [xb, yb, pb] = st.p[st.p.length - 1];
+  ctx.lineWidth = st.w * (0.4 + (pa + pb) / 2);
+  ctx.beginPath();
+  ctx.moveTo(((xa + xb) / 2) * w, ((ya + yb) / 2) * h);
+  ctx.lineTo(xb * w, yb * h);
+  ctx.stroke();
 }
 
 let drawing: Stroke | null = null;
@@ -358,6 +392,45 @@ function eraseAt(pt: Point): void {
   }
 }
 
+/** Points the OS expects the pen to reach before the next frame. Painted on
+ * the overlay and replaced every frame, never kept. */
+let predicted: Point[] = [];
+let liveFrame = 0;
+
+/** Repaint the in-progress stroke, whole, on the overlay canvas. Painting the
+ * live stroke in per-event increments is what made writing feel chopped: each
+ * increment was a straight piece with its own width, and nothing covered the
+ * gap between the pen tip and the last delivered sample. A full repaint per
+ * frame keeps the curve continuous, and the predicted tail keeps the ink
+ * under the tip instead of trailing it. */
+function renderLive(): void {
+  liveFrame = 0;
+  const { live } = noteEls();
+  if (!live || !drawing) return;
+  const ctx = live.getContext("2d")!;
+  const w = live.clientWidth;
+  const h = live.clientHeight;
+  ctx.clearRect(0, 0, w, h);
+  drawStroke(ctx, drawing, w, h);
+  if (predicted.length) {
+    const last = drawing.p[drawing.p.length - 1];
+    drawStroke(ctx, { ...drawing, p: [last, ...predicted] }, w, h);
+  }
+}
+
+function scheduleLive(): void {
+  if (!liveFrame) liveFrame = requestAnimationFrame(renderLive);
+}
+
+/** Append a sample, smoothing pressure against the previous point: raw Pencil
+ * pressure jitters sample to sample, and unsmoothed it renders as a stroke
+ * whose width flickers. */
+function appendPoint(st: Stroke, pt: Point): void {
+  const prev = st.p[st.p.length - 1];
+  if (prev) pt[2] = prev[2] * 0.6 + pt[2] * 0.4;
+  st.p.push(pt);
+}
+
 function bindNoteDrawing(): void {
   const { canvas } = noteEls();
   if (!canvas) return;
@@ -372,7 +445,7 @@ function bindNoteDrawing(): void {
       return;
     }
     drawing = { c: "#1b2a3a", w: 3.2, p: [pointFrom(e, box)] };
-    strokes.push(drawing);
+    scheduleLive();
   });
 
   canvas.addEventListener("pointermove", (e: PointerEvent) => {
@@ -386,27 +459,36 @@ function bindNoteDrawing(): void {
     }
     if (!drawing) return;
     // Coalesced events carry the samples the OS batched between frames, which
-    // is the difference between a smooth fast stroke and a polygon.
-    // Coalesced events carry the samples the OS batched between frames, which
     // is the difference between a smooth fast stroke and a polygon. The count
-    // can be zero, so the number actually appended is what decides how much of
-    // the tail to repaint: sizing the slice from the raw count drew a dot per
-    // move instead of a segment.
+    // can be zero, so fall back to the event itself.
     const list = typeof e.getCoalescedEvents === "function" ? e.getCoalescedEvents() : [];
     const samples = list.length ? list : [e];
-    for (const ev of samples) drawing.p.push(pointFrom(ev, box));
-    const ctx = canvas.getContext("2d")!;
-    drawStroke(
-      ctx,
-      { ...drawing, p: drawing.p.slice(-(samples.length + 1)) },
-      box.width,
-      box.height,
-    );
+    for (const ev of samples) appendPoint(drawing, pointFrom(ev, box));
+    predicted =
+      typeof e.getPredictedEvents === "function"
+        ? e.getPredictedEvents().map((ev) => pointFrom(ev, box))
+        : [];
+    scheduleLive();
   });
 
+  // pointercancel keeps what was written too: WKWebView fires it when a
+  // system gesture claims the touch, and half a word on the page beats none.
   const finish = (e: PointerEvent) => {
     if (!drawing) return;
+    if (liveFrame) {
+      cancelAnimationFrame(liveFrame);
+      liveFrame = 0;
+    }
+    const { canvas: committed, live } = noteEls();
+    if (live) live.getContext("2d")!.clearRect(0, 0, live.clientWidth, live.clientHeight);
+    const st = drawing;
     drawing = null;
+    predicted = [];
+    // The stroke joins the page only now. While it was live it existed solely
+    // on the overlay, so a mid-stroke resize or undo never painted it twice.
+    strokes.push(st);
+    if (committed)
+      drawStroke(committed.getContext("2d")!, st, committed.clientWidth, committed.clientHeight);
     persistStrokes();
     try {
       canvas.releasePointerCapture(e.pointerId);

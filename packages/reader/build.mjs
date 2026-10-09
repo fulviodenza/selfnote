@@ -108,7 +108,7 @@ const pdfHtml = page(
       <div id="text" class="textLayer"></div>
       <div id="marks"></div>
     </div>
-    <div id="note"><canvas id="notecanvas"></canvas></div>
+    <div id="note"><canvas id="notecanvas"></canvas><canvas id="livecanvas"></canvas></div>
   </div>`,
   `
   #scroll { position: absolute; inset: 0; overflow-y: auto;
@@ -154,7 +154,10 @@ const pdfHtml = page(
   /* touch-action none, or the browser claims the gesture for scrolling and the
      stroke arrives in pieces. */
   #notecanvas { display: block; touch-action: none;
-    -webkit-user-select: none; user-select: none; }`,
+    -webkit-user-select: none; user-select: none; }
+  /* The in-progress stroke lives on an overlay repainted per frame. It must
+     not swallow the pointer: input stays on the canvas underneath. */
+  #livecanvas { position: absolute; inset: 0; pointer-events: none; }`,
   `<script>window.__PDFJS_WORKER_SRC__=${JSON.stringify(workerSrc)};</script>
 <script>${pdfJs}</script>`,
 );

@@ -366,6 +366,13 @@ export function Reader({
           // that phones home cannot.
           javaScriptEnabled
           allowFileAccess={false}
+          // The document never scrolls natively: the PDF page scrolls an inner
+          // div and EPUB paginates. Left enabled, the scroll view's pan and
+          // bounce recognizers compete for every touch, and when one claims
+          // the Pencil the page gets a pointercancel and the stroke dies
+          // mid-word.
+          scrollEnabled={false}
+          bounces={false}
           style={styles.fill}
         />
         {syncNote || (connection && book.sync_document_id && pendingCount > 0) ? (
