@@ -196,6 +196,34 @@ export async function computeProposal(
 }
 
 /**
+ * Append highlights as blocks built directly, with no Markdown in between.
+ *
+ * The ingest endpoint used to render highlights to Markdown and parse it back,
+ * escaping what it guessed the parser would reinterpret. The guesses were wrong
+ * in both directions: BlockNote's parser unescapes a different set than
+ * CommonMark, and its math pre-pass eats "$5m-$10m" outright. Text a person
+ * underlined is data, not markup, so it goes into the block model verbatim and
+ * there is nothing left to escape or misparse.
+ */
+export function appendHighlightBlocksDiff(
+  updatesBase64: string[],
+  items: { text: string; note?: string | null }[],
+): string {
+  const ed = editor();
+  const doc = loadDoc(updatesBase64);
+  const existing = ed.yDocToBlocks(doc, FRAGMENT_NAME) as any[];
+  const added: any[] = [];
+  for (const it of items) {
+    const text = (it.text ?? "").trim();
+    if (!text) continue;
+    added.push({ type: "quote", content: [{ type: "text", text, styles: {} }] });
+    const note = it.note?.trim();
+    if (note) added.push({ type: "paragraph", content: [{ type: "text", text: note, styles: {} }] });
+  }
+  return diffToBlocks(doc, [...existing, ...added]);
+}
+
+/**
  * Merge a note's ordered update log into a single v1 Yjs update (base64) — the
  * full current state as one blob. Used to capture a version-history checkpoint:
  * the merged snapshot is stored and later replayed to reconstruct the past state.

@@ -42,11 +42,42 @@ pub struct IncomingHighlight {
     #[serde(default)]
     pub color: Option<String>,
     /// When the reader made the highlight. Used only for ordering, so a batch
-    /// lands in the order it was read rather than the order it was sent.
-    #[serde(default)]
+    /// lands in the order it was read rather than the order it was sent. Parsed
+    /// leniently for the same reason: a timestamp format we do not recognise
+    /// should degrade to send order, not 422 the whole batch for a field that
+    /// only sorts it.
+    #[serde(default, deserialize_with = "lenient_timestamp")]
     pub created_at: Option<chrono::DateTime<chrono::Utc>>,
     #[serde(default)]
     pub locator: Option<serde_json::Value>,
+}
+
+fn lenient_timestamp<'de, D>(
+    d: D,
+) -> Result<Option<chrono::DateTime<chrono::Utc>>, D::Error>
+where
+    D: serde::Deserializer<'de>,
+{
+    use chrono::{DateTime, NaiveDateTime, TimeZone, Utc};
+    let v = Option::<serde_json::Value>::deserialize(d)?;
+    Ok(v.and_then(|v| match v {
+        serde_json::Value::String(s) => DateTime::parse_from_rfc3339(&s)
+            .map(|t| t.with_timezone(&Utc))
+            .ok()
+            .or_else(|| {
+                // Offset-less timestamps (Kobo exports, some JS Date formats)
+                // are taken as UTC rather than rejected.
+                NaiveDateTime::parse_from_str(&s, "%Y-%m-%dT%H:%M:%S%.f")
+                    .ok()
+                    .map(|n| Utc.from_utc_datetime(&n))
+            }),
+        serde_json::Value::Number(n) => n.as_f64().and_then(|raw| {
+            // Date.now() sends milliseconds; smaller values are taken as seconds.
+            let secs = if raw > 1e12 { raw / 1000.0 } else { raw };
+            Utc.timestamp_opt(secs as i64, 0).single()
+        }),
+        _ => None,
+    }))
 }
 
 #[derive(Debug, Deserialize)]
@@ -124,90 +155,207 @@ pub async fn ingest_highlights(
         h.id = h.id.trim().to_string();
     }
 
-    let (book_id, document_id) = match body.document_id {
-        Some(chosen) => bind_to_page(&state, workspace_id, &body.book, chosen).await?,
-        None => find_or_create_book(&state, workspace_id, &body.book).await?,
+    if body.highlights.len() > 500 {
+        return Err(AppError::BadRequest(
+            "send at most 500 highlights per request and split the rest across calls".into(),
+        ));
+    }
+
+    // Resolve the target page and any existing book identity WITHOUT writing
+    // anything. Every write in this request shares the one transaction at the
+    // bottom, so a failure after this point leaves no re-pointed book, no
+    // orphan page and no half-landed batch behind it.
+    let existing: Option<(Uuid, Uuid, bool)> = sqlx::query_as(
+        "select b.id, b.document_id, d.trashed from ingested_books b \
+         join documents d on d.id = b.document_id \
+         where b.workspace_id = $1 and b.source_key = $2",
+    )
+    .bind(workspace_id)
+    .bind(&body.book.key)
+    .fetch_optional(&state.pool)
+    .await?;
+
+    let target_doc: Option<Uuid> = match (body.document_id, &existing) {
+        (Some(chosen), _) => {
+            // The page must be in the caller's workspace, or a token could
+            // append to any page anywhere by passing its id.
+            let owner: Option<(Uuid, bool)> =
+                sqlx::query_as("select workspace_id, trashed from documents where id = $1")
+                    .bind(chosen)
+                    .fetch_optional(&state.pool)
+                    .await?;
+            match owner {
+                Some((ws, false)) if ws == workspace_id => Some(chosen),
+                Some((ws, true)) if ws == workspace_id => {
+                    return Err(AppError::BadRequest(
+                        "that page is in the trash; restore it or choose another".into(),
+                    ))
+                }
+                Some(_) => return Err(AppError::Forbidden),
+                None => return Err(AppError::BadRequest("that page does not exist".into())),
+            }
+        }
+        (None, Some((_, doc, trashed))) => {
+            // Appending into the trash and reporting success made a trashed
+            // page a silent sink: invisible in the tree and in search, with
+            // the ledger insisting everything landed.
+            if *trashed {
+                return Err(AppError::Conflict(
+                    "the page for this book is in the trash; restore it or pick a page".into(),
+                ));
+            }
+            Some(*doc)
+        }
+        (None, None) => None, // the page is created inside the final transaction
     };
 
-    // Drop anything the ledger has already seen, and collapse duplicate ids inside
-    // this batch so a client sending the same id twice cannot write it twice.
-    let known = known_client_ids(&state, book_id).await?;
+    // Drop anything the ledger has already seen, and collapse duplicate ids
+    // inside this batch so a client sending the same id twice cannot write it
+    // twice.
+    let known = match &existing {
+        Some((book_id, ..)) => known_client_ids(&state, *book_id).await?,
+        None => std::collections::HashSet::new(),
+    };
     let mut seen = std::collections::HashSet::new();
-    let fresh: Vec<&IncomingHighlight> = body
+    let mut fresh: Vec<&IncomingHighlight> = body
         .highlights
         .iter()
         .filter(|h| !known.contains(&h.id) && seen.insert(h.id.clone()))
         .collect();
     let skipped = body.highlights.len() - fresh.len();
-    // Stable sort: highlights carrying a timestamp land in reading order, and any
-    // without one keep the order the client sent them in.
-    let mut fresh = fresh;
-    fresh.sort_by_key(|h| h.created_at);
+    // Timestamped highlights land in reading order; untimestamped ones keep
+    // send order AT THE END. A bare sort on Option puts None first, which
+    // hoisted untimestamped highlights above text they were read after.
+    fresh.sort_by_key(|h| (h.created_at.is_none(), h.created_at));
 
     if fresh.is_empty() {
+        let Some((book_id, document_id, _)) = existing else {
+            // No existing book and nothing fresh means the batch collapsed to
+            // nothing before any identity existed to report.
+            return Err(AppError::BadRequest("nothing to apply".into()));
+        };
         return Ok(Json(IngestResponse { document_id, book_id, applied: 0, skipped }));
     }
 
-    // Append through the load-and-diff path. A fresh-document update posted into an
-    // existing page's log merges two unrelated fragments and garbles the page.
-    let updates = crate::documents::load_content_updates(&state, document_id).await?;
+    // The text goes to the Node helper as data, never as Markdown. The previous
+    // path rendered Markdown and escaped what it guessed the parser would
+    // reinterpret; the guesses were wrong in both directions and quotes with
+    // dollar signs, ampersands or list markers were being rewritten on their
+    // way to the only copy of the text.
+    let updates = match target_doc {
+        Some(d) => crate::documents::load_content_updates(&state, d).await?,
+        None => Vec::new(),
+    };
     let computed: Computed = run_diff_cli(serde_json::json!({
-        "mode": "compute",
-        "op": "append",
+        "mode": "append_highlights",
         "updates": updates,
-        "markdown": render_markdown(&fresh),
+        "highlights": fresh
+            .iter()
+            .map(|h| serde_json::json!({ "text": h.text, "note": h.note }))
+            .collect::<Vec<_>>(),
     }))
     .await?;
-
     if computed.diff_base64.is_empty() {
         return Err(AppError::Conflict("could not produce an edit for this batch".into()));
     }
-
-    // The content append and the ledger rows go together. Appending outside the
-    // transaction would leave highlights on the page with no ledger row, which the
-    // next sync would faithfully append all over again.
     let diff = base64_decode(&computed.diff_base64)?;
+
+    let title =
+        if body.book.title.trim().is_empty() { "Untitled book" } else { body.book.title.trim() };
+
     let mut tx = state.pool.begin().await?;
-    sqlx::query("insert into doc_updates (doc_id, update) values ($1, $2)")
-        .bind(document_id)
-        .bind(&diff)
-        .execute(&mut *tx)
-        .await?;
-    // Without this the page's body text never re-enters the search cache:
-    // search.rs treats a page as stale only when rendered_at < updated_at, so
-    // every synced highlight would be invisible to body search forever.
-    sqlx::query("update documents set updated_at = now() where id = $1")
-        .bind(document_id)
-        .execute(&mut *tx)
-        .await?;
+
+    let document_id = match target_doc {
+        Some(d) => d,
+        None => {
+            let (id,): (Uuid,) = sqlx::query_as(
+                "insert into documents (workspace_id, parent_id, title, position) \
+                 values ($1, null, $2, coalesce(( \
+                     select max(position) + 1 from documents \
+                     where workspace_id = $1 and parent_id is null \
+                 ), 0)) returning id",
+            )
+            .bind(workspace_id)
+            .bind(title)
+            .fetch_one(&mut *tx)
+            .await?;
+            id
+        }
+    };
+
+    let book_id: Uuid = match (body.document_id, &existing) {
+        // The caller chose a page: create or re-point the binding, atomically
+        // with the content so a failed request cannot leave the book pointing
+        // at a page that never received anything.
+        (Some(_), _) => {
+            let (id,): (Uuid,) = sqlx::query_as(
+                "insert into ingested_books (workspace_id, document_id, source_key, title, author) \
+                 values ($1, $2, $3, $4, $5) \
+                 on conflict (workspace_id, source_key) \
+                 do update set document_id = excluded.document_id \
+                 returning id",
+            )
+            .bind(workspace_id)
+            .bind(document_id)
+            .bind(&body.book.key)
+            .bind(title)
+            .bind(&body.book.author)
+            .fetch_one(&mut *tx)
+            .await?;
+            id
+        }
+        (None, Some((id, ..))) => *id,
+        (None, None) => {
+            let row: Option<(Uuid,)> = sqlx::query_as(
+                "insert into ingested_books (workspace_id, document_id, source_key, title, author) \
+                 values ($1, $2, $3, $4, $5) \
+                 on conflict (workspace_id, source_key) do nothing \
+                 returning id",
+            )
+            .bind(workspace_id)
+            .bind(document_id)
+            .bind(&body.book.key)
+            .bind(title)
+            .bind(&body.book.author)
+            .fetch_optional(&mut *tx)
+            .await?;
+            match row {
+                Some((id,)) => id,
+                // Lost the first-sight race; rolling back also discards the
+                // page created above, so nothing is orphaned.
+                None => {
+                    return Err(AppError::Conflict(
+                        "this book is being synced from somewhere else; try again".into(),
+                    ))
+                }
+            }
+        }
+    };
+
+    // Ledger first, content last. A duplicate id must abort before anything is
+    // on the page, and the content row's id should spend as little time as
+    // possible allocated-but-uncommitted beneath the sync server's compaction
+    // watermark. `on conflict do nothing` with a rows_affected check gives the
+    // same abort as letting the violation fire, without discarding the whole
+    // request's work building the error.
     for h in &fresh {
-        // Deliberately NOT `on conflict do nothing`. Two devices syncing the same
-        // book both read the ledger before either commits, so both treat the same
-        // highlight as new and both append it; swallowing the conflict let the
-        // second commit anyway and the quote landed on the page twice with one
-        // ledger row to show for it. Letting the unique violation abort the
-        // transaction means nothing is written and the retry sees it as already
-        // present, which is the behaviour the ledger exists to provide.
         let written = sqlx::query(
             "insert into ingested_highlights (book_id, client_id, locator, color) \
-             values ($1, $2, $3, $4)",
+             values ($1, $2, $3, $4) on conflict (book_id, client_id) do nothing",
         )
         .bind(book_id)
         .bind(&h.id)
         .bind(&h.locator)
         .bind(&h.color)
         .execute(&mut *tx)
-        .await;
-        match written {
-            Ok(_) => {}
-            Err(sqlx::Error::Database(e)) if e.is_unique_violation() => {
-                return Err(AppError::Conflict(
-                    "these highlights are being synced from somewhere else; try again".into(),
-                ));
-            }
-            Err(e) => return Err(e.into()),
+        .await?;
+        if written.rows_affected() == 0 {
+            return Err(AppError::Conflict(
+                "these highlights are being synced from somewhere else; try again".into(),
+            ));
         }
     }
+    crate::documents::append_update_tx(&mut tx, document_id, &diff).await?;
     tx.commit().await?;
 
     Ok(Json(IngestResponse { document_id, book_id, applied: fresh.len(), skipped }))
@@ -235,117 +383,8 @@ async fn default_workspace(state: &AppState, user_id: Uuid) -> ApiResult<Uuid> {
         .ok_or_else(|| AppError::BadRequest("this account has no workspace".into()))
 }
 
-/// Bind a book to a page the user picked, and return its ledger row.
-///
-/// The page must be in the same workspace: without that check a token could
-/// append to any page in any workspace it is not a member of, by passing its id.
-/// Re-pointing an existing book at a different page is allowed and expected, since
-/// that is what changing the target in the app does; the ledger follows the book,
 /// so highlights already sent are not re-sent to the new page.
-async fn bind_to_page(
-    state: &AppState,
-    workspace_id: Uuid,
-    book: &BookRef,
-    document_id: Uuid,
-) -> ApiResult<(Uuid, Uuid)> {
-    let owner: Option<(Uuid,)> =
-        sqlx::query_as("select workspace_id from documents where id = $1 and not trashed")
-            .bind(document_id)
-            .fetch_optional(&state.pool)
-            .await?;
-    match owner {
-        Some((ws,)) if ws == workspace_id => {}
-        Some(_) => return Err(AppError::Forbidden),
-        None => return Err(AppError::BadRequest("that page does not exist".into())),
-    }
-
-    let title = if book.title.trim().is_empty() { "Untitled book" } else { book.title.trim() };
-    let row: (Uuid, Uuid) = sqlx::query_as(
-        "insert into ingested_books (workspace_id, document_id, source_key, title, author) \
-         values ($1, $2, $3, $4, $5) \
-         on conflict (workspace_id, source_key) do update set document_id = excluded.document_id \
-         returning id, document_id",
-    )
-    .bind(workspace_id)
-    .bind(document_id)
-    .bind(&book.key)
-    .bind(title)
-    .bind(&book.author)
-    .fetch_one(&state.pool)
-    .await?;
-    Ok(row)
-}
-
-/// The book's row and page, created on first sight. Created lazily so a book that
 /// is never highlighted leaves no empty page behind.
-async fn find_or_create_book(
-    state: &AppState,
-    workspace_id: Uuid,
-    book: &BookRef,
-) -> ApiResult<(Uuid, Uuid)> {
-    let existing: Option<(Uuid, Uuid)> = sqlx::query_as(
-        "select id, document_id from ingested_books where workspace_id = $1 and source_key = $2",
-    )
-    .bind(workspace_id)
-    .bind(&book.key)
-    .fetch_optional(&state.pool)
-    .await?;
-    if let Some(found) = existing {
-        return Ok(found);
-    }
-
-    let title = if book.title.trim().is_empty() { "Untitled book" } else { book.title.trim() };
-
-    let mut tx = state.pool.begin().await?;
-    let (document_id,): (Uuid,) = sqlx::query_as(
-        "insert into documents (workspace_id, parent_id, title, position) \
-         values ($1, null, $2, coalesce(( \
-             select max(position) + 1 from documents \
-             where workspace_id = $1 and parent_id is null \
-         ), 0)) returning id",
-    )
-    .bind(workspace_id)
-    .bind(title)
-    .fetch_one(&mut *tx)
-    .await?;
-
-    // Two clients syncing the same book at once both reach here; the unique index
-    // on (workspace_id, source_key) decides, and the loser reuses the winner's page
-    // rather than creating a second one.
-    let inserted: Option<(Uuid, Uuid)> = sqlx::query_as(
-        "insert into ingested_books (workspace_id, document_id, source_key, title, author) \
-         values ($1, $2, $3, $4, $5) on conflict (workspace_id, source_key) do nothing \
-         returning id, document_id",
-    )
-    .bind(workspace_id)
-    .bind(document_id)
-    .bind(&book.key)
-    .bind(title)
-    .bind(&book.author)
-    .fetch_optional(&mut *tx)
-    .await?;
-
-    match inserted {
-        Some(row) => {
-            tx.commit().await?;
-            Ok(row)
-        }
-        None => {
-            // Lost the race: drop our page so it does not linger unreferenced.
-            tx.rollback().await?;
-            let row: (Uuid, Uuid) = sqlx::query_as(
-                "select id, document_id from ingested_books \
-                 where workspace_id = $1 and source_key = $2",
-            )
-            .bind(workspace_id)
-            .bind(&book.key)
-            .fetch_one(&state.pool)
-            .await?;
-            Ok(row)
-        }
-    }
-}
-
 async fn known_client_ids(
     state: &AppState,
     book_id: Uuid,
@@ -356,66 +395,4 @@ async fn known_client_ids(
             .fetch_all(&state.pool)
             .await?;
     Ok(rows.into_iter().map(|r| r.0).collect())
-}
-
-/// Highlights as Markdown: the passage as a blockquote, the reader's own note as a
-/// paragraph under it. Deliberately plain, because once this lands it is an ordinary
-/// page the user can restructure however they like.
-fn render_markdown(highlights: &[&IncomingHighlight]) -> String {
-    let mut out = String::new();
-    for h in highlights {
-        let lines: Vec<&str> = h.text.trim().lines().collect();
-        for (i, line) in lines.iter().enumerate() {
-            out.push_str("> ");
-            out.push_str(&escape_markdown(line.trim()));
-            // Two trailing spaces force a hard break. Without them Markdown's lazy
-            // continuation folds a multi-line quotation into one run-on paragraph,
-            // and since the page is the only copy of the text, the line breaks the
-            // reader actually underlined cannot be recovered afterwards.
-            if i + 1 < lines.len() {
-                out.push_str("  ");
-            }
-            out.push('\n');
-        }
-        out.push('\n');
-        if let Some(note) = h.note.as_deref().map(str::trim).filter(|n| !n.is_empty()) {
-            for line in note.lines() {
-                out.push_str(&escape_markdown(line.trim()));
-                out.push('\n');
-            }
-            out.push('\n');
-        }
-    }
-    out.trim_end().to_string()
-}
-
-/// Neutralise Markdown syntax in text a person underlined in a book.
-///
-/// A passage reading `the *Bell* System [see note]` is prose, not emphasis and a
-/// link, and a note beginning `#` is a sentence, not a heading. Without this the
-/// text is silently reinterpreted on the way in, and a first line that happens to
-/// match `[!note]` is turned into a callout by the importer's own alert parsing.
-fn escape_markdown(line: &str) -> String {
-    let mut out = String::with_capacity(line.len() + 8);
-    for (i, ch) in line.chars().enumerate() {
-        let needs_escape = match ch {
-            '\\' | '`' | '*' | '_' | '[' | ']' | '<' | '>' | '&' => true,
-            // Only meaningful at the start of a line, where they would make a
-            // heading, a list, a rule or a blockquote.
-            '#' | '-' | '+' | '=' if i == 0 => true,
-            _ => false,
-        };
-        if needs_escape {
-            out.push('\\');
-        }
-        out.push(ch);
-    }
-    // "1." at the start of a line becomes an ordered list; escaping the dot is
-    // enough to stop that without touching the digits.
-    if let Some(dot) = out.find('.') {
-        if dot > 0 && out[..dot].chars().all(|c| c.is_ascii_digit()) {
-            out.insert(dot, '\\');
-        }
-    }
-    out
 }

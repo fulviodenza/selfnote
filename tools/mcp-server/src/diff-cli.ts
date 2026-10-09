@@ -26,6 +26,7 @@
  * caller can surface a clean 409 instead of a stack trace.
  */
 import {
+  appendHighlightBlocksDiff,
   computeProposal,
   docsToMarkdownMany,
   docToMarkdown,
@@ -49,6 +50,12 @@ async function run(job: any): Promise<unknown> {
       if (!op) throw new Error(`invalid op: ${JSON.stringify(job.op)}`);
       if (typeof job.markdown !== "string") throw new Error("markdown must be a string");
       return computeProposal(updates, op, job.markdown);
+    }
+    case "append_highlights": {
+      // Highlight text verbatim as quote blocks, never through Markdown; see
+      // appendHighlightBlocksDiff for why the Markdown route corrupted quotes.
+      if (!Array.isArray(job.highlights)) throw new Error("highlights must be an array");
+      return { diff_base64: appendHighlightBlocksDiff(updates, job.highlights) };
     }
     case "reapply": {
       if (typeof job.after_md !== "string") throw new Error("after_md must be a string");

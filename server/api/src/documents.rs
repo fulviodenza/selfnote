@@ -211,6 +211,35 @@ pub async fn load_content_updates(state: &AppState, doc_id: Uuid) -> ApiResult<V
     Ok(updates)
 }
 
+/// Append a Yjs update to a document inside the caller's transaction: the
+/// advisory lock, the insert, and the `updated_at` bump travel together.
+///
+/// The lock serialises content writers against the sync server's compaction.
+/// Without it, a row allocated inside an open transaction can fall below the
+/// compaction watermark and be skipped by every subsequent load while the
+/// caller believes it landed. The bump is what keeps body search able to see
+/// the change at all: search re-renders only when rendered_at < updated_at.
+pub async fn append_update_tx(
+    tx: &mut sqlx::Transaction<'_, sqlx::Postgres>,
+    doc_id: Uuid,
+    update: &[u8],
+) -> ApiResult<()> {
+    sqlx::query("select pg_advisory_xact_lock(hashtextextended($1::text, 0))")
+        .bind(doc_id)
+        .execute(&mut **tx)
+        .await?;
+    sqlx::query("insert into doc_updates (doc_id, update) values ($1, $2)")
+        .bind(doc_id)
+        .bind(update)
+        .execute(&mut **tx)
+        .await?;
+    sqlx::query("update documents set updated_at = now() where id = $1")
+        .bind(doc_id)
+        .execute(&mut **tx)
+        .await?;
+    Ok(())
+}
+
 /// Append a base64 Yjs update to a document's content log (the same mutation as
 /// `set_content`). Used when an AI edit proposal is accepted.
 pub async fn append_update(state: &AppState, doc_id: Uuid, update_base64: &str) -> ApiResult<()> {
@@ -218,11 +247,9 @@ pub async fn append_update(state: &AppState, doc_id: Uuid, update_base64: &str) 
     let bytes = base64::engine::general_purpose::STANDARD
         .decode(update_base64.as_bytes())
         .map_err(|_| AppError::BadRequest("invalid base64 update".into()))?;
-    sqlx::query("insert into doc_updates (doc_id, update) values ($1, $2)")
-        .bind(doc_id)
-        .bind(&bytes)
-        .execute(&state.pool)
-        .await?;
+    let mut tx = state.pool.begin().await?;
+    append_update_tx(&mut tx, doc_id, &bytes).await?;
+    tx.commit().await?;
     Ok(())
 }
 
