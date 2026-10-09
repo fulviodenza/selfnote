@@ -3,7 +3,7 @@
  * database side of the conversation. The page renders; this file decides what is
  * true.
  */
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { ActivityIndicator, Alert, AppState, StyleSheet, Text, TouchableOpacity, View } from "react-native";
 import RNWebView, { type WebViewMessageEvent, type WebViewProps } from "react-native-webview";
 // The legacy entry point on purpose: it reads a file straight to base64 natively.
@@ -316,27 +316,36 @@ export function Reader({
     post({ type: "showNote", id: page.id });
   }, [book.id, post]);
 
+  const activeNote = onNote ? (notePages.find((p) => p.id === onNote) ?? null) : null;
+  const notePagesRef = useRef(notePages);
+  notePagesRef.current = notePages;
   // The active insert's stored ink, split for the native surface: the
   // PKDrawing binary when one exists, else legacy web-canvas vectors to raise
   // into PKStrokes so nothing already written is lost.
-  const activeNote = onNote ? (notePages.find((p) => p.id === onNote) ?? null) : null;
-  let noteDrawing: string | null = null;
-  let noteVectors: string | null = null;
-  if (activeNote) {
+  //
+  // Frozen per note on purpose. The canvas owns the ink while a page is open;
+  // these props are its starting content only. Deriving them from live state
+  // handed the drawing back to the canvas after every save, and a reload
+  // landing between saves rolled back whatever was written in the gap, while
+  // one landing mid-stroke cancelled the stroke outright: fast handwriting
+  // lost characters.
+  const initialInk = useMemo(() => {
+    const note = onNote ? (notePagesRef.current.find((p) => p.id === onNote) ?? null) : null;
+    if (!note) return { drawing: null as string | null, vectors: null as string | null };
     try {
-      const parsed = JSON.parse(activeNote.strokes || "[]") as
-        | unknown[]
-        | { pk?: string; v?: unknown[] };
+      const parsed = JSON.parse(note.strokes || "[]") as unknown[] | { pk?: string; v?: unknown[] };
       if (Array.isArray(parsed)) {
-        noteVectors = parsed.length ? JSON.stringify(parsed) : null;
-      } else {
-        noteDrawing = parsed.pk ?? null;
-        noteVectors = parsed.v?.length ? JSON.stringify(parsed.v) : null;
+        return { drawing: null, vectors: parsed.length ? JSON.stringify(parsed) : null };
       }
+      return {
+        drawing: parsed.pk ?? null,
+        vectors: parsed.v?.length ? JSON.stringify(parsed.v) : null,
+      };
     } catch {
       /* unreadable ink loses to a blank page, not a crash */
+      return { drawing: null, vectors: null };
     }
-  }
+  }, [onNote]);
 
   const onInk = useCallback((noteId: string, e: { nativeEvent: PencilChange }) => {
     let v: unknown = [];
@@ -434,8 +443,8 @@ export function Reader({
             <PencilPageView
               key={activeNote.id}
               style={StyleSheet.absoluteFill}
-              drawing={noteDrawing}
-              vectors={noteVectors}
+              drawing={initialInk.drawing}
+              vectors={initialInk.vectors}
               onChange={(e) => onInk(activeNote.id, e)}
             />
           </View>

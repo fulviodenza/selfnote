@@ -32,6 +32,14 @@ class PencilPageView: ExpoView, PKCanvasViewDelegate {
   // the data waits here for the first real layout pass.
   private var pendingDrawing: String?
   private var pendingVectors: String?
+  // The props are starting content. Once the user has drawn, the canvas is
+  // the only owner of the ink: React re-delivers props on every render, and
+  // reloading on a re-delivery wiped whatever was written since the last
+  // save, while a reload landing mid-stroke cancelled the stroke outright.
+  // Fast handwriting lost characters both ways. A plain load-once latch is
+  // not the answer either: layout can run before the initial props arrive,
+  // and latching on that empty pass left stored ink permanently unloaded.
+  private var hasUserInk = false
   private var loadedKey: String?
 
   required init(appContext: AppContext? = nil) {
@@ -94,25 +102,31 @@ class PencilPageView: ExpoView, PKCanvasViewDelegate {
 
   private func applyPendingIfReady() {
     guard bounds.width > 0, bounds.height > 0 else { return }
-    // React re-delivers props on every render; only a different value loads.
-    let key = pendingDrawing ?? pendingVectors ?? ""
+    let key = (pendingDrawing ?? "") + "|" + (pendingVectors ?? "")
     guard key != loadedKey else { return }
     loadedKey = key
-    applying = true
-    defer { applying = false }
+    var loaded = PKDrawing()
     if let base64 = pendingDrawing, let data = Data(base64Encoded: base64),
       let drawing = try? PKDrawing(data: data)
     {
-      canvas.drawing = drawing
+      loaded = drawing
     } else if let json = pendingVectors {
-      canvas.drawing = Self.drawingFromVectors(json, in: bounds.size)
+      loaded = Self.drawingFromVectors(json, in: bounds.size)
+    }
+    applying = true
+    defer { applying = false }
+    if hasUserInk {
+      // Stored ink arriving after the pen already touched down lands under
+      // what was written, instead of replacing it.
+      canvas.drawing = PKDrawing(strokes: loaded.strokes + canvas.drawing.strokes)
     } else {
-      canvas.drawing = PKDrawing()
+      canvas.drawing = loaded
     }
   }
 
   func canvasViewDrawingDidChange(_ canvasView: PKCanvasView) {
     guard !applying else { return }
+    hasUserInk = true
     pendingEmit?.cancel()
     let work = DispatchWorkItem { [weak self] in self?.emit() }
     pendingEmit = work
