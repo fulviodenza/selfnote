@@ -88,6 +88,11 @@ let lastSelectionAt = 0;
  * otherwise an index into the inserts anchored after the current page. The
  * book page never changes while stepping through them, which is what keeps the
  * progress percentage still across the detour. */
+/** The rendered page's box, captured while it is visible. An insert is sized
+ * from this: measuring #page after hiding it returns 0 and the note canvas
+ * came out 0x0, which is a surface with nothing to draw on and no pointer
+ * events to receive. */
+let pageBox = { w: 0, h: 0 };
 let notes: NotePageWire[] = [];
 let noteIndex: number | null = null;
 let strokes: Stroke[] = [];
@@ -174,6 +179,7 @@ async function renderPage(): Promise<void> {
     canvas.style.width = `${viewport.width}px`;
     canvas.style.height = `${viewport.height}px`;
     holder.style.height = `${viewport.height}px`;
+    pageBox = { w: viewport.width, h: viewport.height };
 
     const ctx = canvas.getContext("2d")!;
     ctx.setTransform(ratio, 0, 0, ratio, 0, 0);
@@ -248,10 +254,18 @@ function noteEls() {
  * the same book rather than a floating pad. */
 function sizeNoteCanvas(): void {
   const { wrap, canvas } = noteEls();
-  const holder = document.getElementById("page");
-  if (!wrap || !canvas || !holder) return;
-  const w = holder.clientWidth;
-  const h = holder.clientHeight || Math.round(w * 1.294);
+  if (!wrap || !canvas) return;
+  // From the remembered page box, never from #page itself: by the time an
+  // insert is showing, #page is display:none and measures zero.
+  const scroll = document.getElementById("scroll");
+  const avail = scroll
+    ? scroll.clientWidth -
+      parseFloat(getComputedStyle(scroll).paddingLeft || "0") -
+      parseFloat(getComputedStyle(scroll).paddingRight || "0")
+    : 0;
+  const w = Math.round(pageBox.w || avail);
+  const h = Math.round(pageBox.h || w * 1.294);
+  if (w <= 0 || h <= 0) return;
   wrap.style.width = `${w}px`;
   wrap.style.height = `${h}px`;
   const ratio = window.devicePixelRatio || 1;
@@ -331,7 +345,8 @@ function canDraw(e: PointerEvent): boolean {
     penSeen = true;
     return true;
   }
-  return !penSeen && e.pointerType !== "mouse" ? true : e.pointerType === "mouse";
+  if (e.pointerType === "mouse") return true;
+  return !penSeen; // a finger draws only until a Pencil shows up
 }
 
 function eraseAt(pt: Point): void {
@@ -372,10 +387,21 @@ function bindNoteDrawing(): void {
     if (!drawing) return;
     // Coalesced events carry the samples the OS batched between frames, which
     // is the difference between a smooth fast stroke and a polygon.
-    const events = typeof e.getCoalescedEvents === "function" ? e.getCoalescedEvents() : [e];
-    for (const ev of events.length ? events : [e]) drawing.p.push(pointFrom(ev, box));
+    // Coalesced events carry the samples the OS batched between frames, which
+    // is the difference between a smooth fast stroke and a polygon. The count
+    // can be zero, so the number actually appended is what decides how much of
+    // the tail to repaint: sizing the slice from the raw count drew a dot per
+    // move instead of a segment.
+    const list = typeof e.getCoalescedEvents === "function" ? e.getCoalescedEvents() : [];
+    const samples = list.length ? list : [e];
+    for (const ev of samples) drawing.p.push(pointFrom(ev, box));
     const ctx = canvas.getContext("2d")!;
-    drawStroke(ctx, { ...drawing, p: drawing.p.slice(-(events.length + 1)) }, box.width, box.height);
+    drawStroke(
+      ctx,
+      { ...drawing, p: drawing.p.slice(-(samples.length + 1)) },
+      box.width,
+      box.height,
+    );
   });
 
   const finish = (e: PointerEvent) => {
