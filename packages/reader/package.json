@@ -1,0 +1,20 @@
+{
+  "name": "@selfnote/reader",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Framework-agnostic EPUB reader surface. Builds to a single self-contained HTML document so it runs offline, in a WebView on mobile or mounted directly on web and desktop.",
+  "main": "dist/index.js",
+  "types": "dist/index.d.ts",
+  "scripts": {
+    "build": "node build.mjs",
+    "typecheck": "tsc --noEmit"
+  },
+  "dependencies": {
+    "epubjs": "^0.3.93",
+    "pdfjs-dist": "^6.4.299"
+  },
+  "devDependencies": {
+    "esbuild": "^0.25.0",
+    "typescript": "~5.5.4"
+  }
+}

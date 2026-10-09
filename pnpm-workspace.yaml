@@ -8,5 +8,7 @@ packages:
   - "tools/*"
   - "!tools/mcp-server"
 allowBuilds:
+  core-js: false
+  es5-ext: false
   esbuild: true
   leveldown: false

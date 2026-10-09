@@ -1,0 +1,35 @@
+{
+  "expo": {
+    "name": "Selfnote eReader",
+    "slug": "selfnote-ereader",
+    "scheme": "selfnote-ereader",
+    "version": "0.1.0",
+    "orientation": "default",
+    "userInterfaceStyle": "automatic",
+    "newArchEnabled": true,
+    "ios": {
+      "supportsTablet": true,
+      "bundleIdentifier": "com.fulviodenza.selfnote",
+      "icon": "./assets/icon.png"
+    },
+    "android": {
+      "package": "app.selfnote.ereader",
+      "adaptiveIcon": {
+        "foregroundImage": "./assets/android-icon-foreground.png",
+        "backgroundColor": "#F7EFE4"
+      }
+    },
+    "plugins": [
+      "expo-sqlite"
+    ],
+    "icon": "./assets/icon.png",
+    "splash": {
+      "image": "./assets/splash-icon.png",
+      "resizeMode": "contain",
+      "backgroundColor": "#F7EFE4"
+    },
+    "web": {
+      "favicon": "./assets/favicon.png"
+    }
+  }
+}

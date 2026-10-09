@@ -119,9 +119,10 @@
         locally and will go out on the next attempt.</li>
         <li><b>Your token was revoked</b> in Selfnote. Reconnect from <b>Send highlights to
         Selfnote</b>.</li>
-        <li><b>Your Selfnote predates highlight ingest.</b> Sending needs a server that
-        accepts <code>POST /integrations/highlights</code>. Update your instance; the API
-        runs the migrations it needs on boot.</li>
+        <li><b>Your Selfnote is older than the highlight ingest endpoint.</b> Sending needs
+        a server that accepts <code>POST /integrations/highlights</code>
+        (<a href="https://github.com/fulviodenza/selfnote/issues/67">issue #67</a>). Update
+        your instance.</li>
       </ul>
       <p>Nothing is lost in any of these cases. An unsent highlight stays unsent and keeps
       being retried.</p>
