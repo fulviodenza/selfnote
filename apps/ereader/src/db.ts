@@ -105,6 +105,19 @@ export async function db(): Promise<SQLite.SQLiteDatabase> {
     );
     create index if not exists sessions_started_idx on reading_sessions (started_at);
     create table if not exists settings (key text primary key, value text not null);
+    -- Blank pages inserted into a book to work on with the Pencil. Deliberately
+    -- not part of the book: nothing here feeds progress or reading goals.
+    create table if not exists note_pages (
+      id         text primary key,
+      book_id    text not null references books(id) on delete cascade,
+      after_page integer not null,
+      position   integer not null default 0,
+      strokes    text not null default '[]',
+      created_at integer not null,
+      updated_at integer not null
+    );
+    create index if not exists note_pages_book_idx
+      on note_pages (book_id, after_page, position);
     create table if not exists reading_position (
       book_id    text primary key references books(id) on delete cascade,
       cfi        text not null,
@@ -272,6 +285,75 @@ export async function markSynced(ids: string[]): Promise<void> {
     now,
     ...ids,
   );
+}
+
+/* --------------------------------------------------------- note pages --- */
+
+export interface NotePage {
+  id: string;
+  book_id: string;
+  after_page: number;
+  position: number;
+  /** JSON array of strokes, each {c, w, p:[[x,y,pressure],...]} in page fractions. */
+  strokes: string;
+  created_at: number;
+  updated_at: number;
+}
+
+export async function listNotePages(bookId: string): Promise<NotePage[]> {
+  return (await db()).getAllAsync<NotePage>(
+    "select * from note_pages where book_id = ? order by after_page, position",
+    bookId,
+  );
+}
+
+/** Add a blank page after `afterPage`, stacking below any already there. */
+export async function addNotePage(bookId: string, afterPage: number): Promise<NotePage> {
+  const row = await (
+    await db()
+  ).getFirstAsync<{ n: number | null }>(
+    "select max(position) as n from note_pages where book_id = ? and after_page = ?",
+    bookId,
+    afterPage,
+  );
+  const page: NotePage = {
+    id: `${Date.now()}-${Math.random().toString(36).slice(2, 10)}`,
+    book_id: bookId,
+    after_page: afterPage,
+    position: (row?.n ?? -1) + 1,
+    strokes: "[]",
+    created_at: Date.now(),
+    updated_at: Date.now(),
+  };
+  await (
+    await db()
+  ).runAsync(
+    "insert into note_pages (id, book_id, after_page, position, strokes, created_at, updated_at) \
+     values (?, ?, ?, ?, ?, ?, ?)",
+    page.id,
+    page.book_id,
+    page.after_page,
+    page.position,
+    page.strokes,
+    page.created_at,
+    page.updated_at,
+  );
+  return page;
+}
+
+export async function saveNoteStrokes(id: string, strokes: string): Promise<void> {
+  await (
+    await db()
+  ).runAsync(
+    "update note_pages set strokes = ?, updated_at = ? where id = ?",
+    strokes,
+    Date.now(),
+    id,
+  );
+}
+
+export async function deleteNotePage(id: string): Promise<void> {
+  await (await db()).runAsync("delete from note_pages where id = ?", id);
 }
 
 export async function listHighlights(bookId: string): Promise<Highlight[]> {

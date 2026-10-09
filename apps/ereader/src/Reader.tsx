@@ -22,8 +22,12 @@ import {
   addHighlight,
   bookUri,
   deleteHighlight,
+  addNotePage,
+  deleteNotePage,
   getBook,
+  listNotePages,
   markSynced,
+  saveNoteStrokes,
   setSyncTarget,
   unsyncedHighlights,
   listHighlights,
@@ -35,6 +39,7 @@ import {
   updateBookMeta,
   type Book,
   type Highlight,
+  type NotePage,
 } from "./db";
 
 /** What we actually call on the WebView instance. */
@@ -70,12 +75,18 @@ export function Reader({
   const web = useRef<WebViewHandle>(null);
   const positionTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
   const sessionStart = useRef(Date.now());
+  /** The book page showing, which stays put while stepping through inserts. */
+  const currentPage = useRef(1);
   const [ready, setReady] = useState(false);
   const [loading, setLoading] = useState(true);
   const [highlights, setHighlights] = useState<Highlight[]>([]);
   const [progress, setProgress] = useState(0);
   const pendingCount = highlights.filter((h) => h.synced_at === null).length;
   const isPdf = book.file_path.toLowerCase().endsWith(".pdf");
+  const [notePages, setNotePages] = useState<NotePage[]>([]);
+  // Which insert is showing, if any. The reader reports it with every location.
+  const [onNote, setOnNote] = useState<string | null>(null);
+  const [noteTool, setNoteTool] = useState<"pen" | "eraser">("pen");
   const syncing = Boolean(connection && book.sync_document_id);
 
   const post = useCallback((msg: unknown) => {
@@ -102,6 +113,12 @@ export function Reader({
       } else {
         post({ type: "open", data, locations: current.locations });
         if (saved) post({ type: "goto", cfi: saved });
+      }
+      if (isPdf) {
+        const pages = await listNotePages(current.id);
+        if (cancelled) return;
+        setNotePages(pages);
+        post({ type: "notes", items: pages });
       }
       const rows = await listHighlights(book.id);
       if (cancelled) return;
@@ -219,7 +236,12 @@ export function Reader({
             setBook((b) => ({ ...b, title: msg.title.trim(), author: msg.author ?? b.author }));
           }
           return;
+        case "noteStrokes":
+          void saveNoteStrokes(msg.id, msg.strokes);
+          return;
         case "location":
+          setOnNote(msg.noteId ?? null);
+          if (isPdf && msg.cfi) currentPage.current = Number(msg.cfi) || 1;
           setProgress(msg.progress ?? 0);
           // Debounced: "relocated" fires on every page turn, and writing to
           // SQLite that often spins the disk for a value only the next launch
@@ -280,6 +302,33 @@ export function Reader({
     },
     [book, highlights, post, pushPending],
   );
+
+  const insertNotePage = useCallback(async () => {
+    // currentPage is tracked from the reader's own location messages, so the
+    // insert lands after the page actually on screen.
+    const page = await addNotePage(book.id, currentPage.current);
+    const pages = await listNotePages(book.id);
+    setNotePages(pages);
+    post({ type: "notes", items: pages });
+    post({ type: "showNote", id: page.id });
+  }, [book.id, post]);
+
+  const removeNotePage = useCallback(() => {
+    if (!onNote) return;
+    Alert.alert("Delete this page?", "Anything written on it is removed.", [
+      { text: "Keep", style: "cancel" },
+      {
+        text: "Delete",
+        style: "destructive",
+        onPress: async () => {
+          await deleteNotePage(onNote);
+          const pages = await listNotePages(book.id);
+          setNotePages(pages);
+          post({ type: "notes", items: pages });
+        },
+      },
+    ]);
+  }, [book.id, onNote, post]);
 
   return (
     <View style={styles.fill}>
@@ -350,7 +399,46 @@ export function Reader({
         >
           <Text style={styles.chevron}>‹</Text>
         </TouchableOpacity>
-        <Text style={styles.pagerHint}>Swipe to turn. Select text, then tap Save highlight.</Text>
+
+        {onNote ? (
+          // On an insert the middle of the bar becomes its tools: there is
+          // nothing to select or highlight on a blank page.
+          <View style={styles.noteTools}>
+            <TouchableOpacity
+              style={[styles.toolBtn, noteTool === "pen" && styles.toolOn]}
+              onPress={() => {
+                setNoteTool("pen");
+                post({ type: "noteTool", tool: "pen" });
+              }}
+            >
+              <Text style={[styles.toolText, noteTool === "pen" && styles.toolTextOn]}>Pen</Text>
+            </TouchableOpacity>
+            <TouchableOpacity
+              style={[styles.toolBtn, noteTool === "eraser" && styles.toolOn]}
+              onPress={() => {
+                setNoteTool("eraser");
+                post({ type: "noteTool", tool: "eraser" });
+              }}
+            >
+              <Text style={[styles.toolText, noteTool === "eraser" && styles.toolTextOn]}>
+                Eraser
+              </Text>
+            </TouchableOpacity>
+            <TouchableOpacity style={styles.toolBtn} onPress={() => post({ type: "noteUndo" })}>
+              <Text style={styles.toolText}>Undo</Text>
+            </TouchableOpacity>
+            <TouchableOpacity style={styles.toolBtn} onPress={removeNotePage}>
+              <Text style={[styles.toolText, styles.toolDanger]}>Delete page</Text>
+            </TouchableOpacity>
+          </View>
+        ) : isPdf ? (
+          <TouchableOpacity style={styles.addPageBtn} onPress={insertNotePage}>
+            <Text style={styles.addPageText}>+ Blank page</Text>
+          </TouchableOpacity>
+        ) : (
+          <Text style={styles.pagerHint}>Swipe to turn. Select text, then tap Save highlight.</Text>
+        )}
+
         <TouchableOpacity
           style={styles.pageBtn}
           onPress={() => post({ type: "turn", direction: "next" })}
@@ -427,6 +515,20 @@ const styles = StyleSheet.create({
     paddingHorizontal: 22, paddingTop: 8, paddingBottom: 26,
     backgroundColor: "#faf5ef",
   },
+  noteTools: { flexDirection: "row", alignItems: "center", gap: 8, flex: 1, justifyContent: "center" },
+  toolBtn: {
+    paddingHorizontal: 13, paddingVertical: 8, borderRadius: 9,
+    backgroundColor: "#f2ece3", borderWidth: 1, borderColor: "#e4dbcd",
+  },
+  toolOn: { backgroundColor: "#2b4162", borderColor: "#2b4162" },
+  toolText: { fontSize: 13, fontWeight: "600", color: "#2b4162" },
+  toolTextOn: { color: "#fff" },
+  toolDanger: { color: "#8c2f27" },
+  addPageBtn: {
+    paddingHorizontal: 16, paddingVertical: 9, borderRadius: 10,
+    backgroundColor: "#f2ece3", borderWidth: 1, borderColor: "#e4dbcd",
+  },
+  addPageText: { fontSize: 14, fontWeight: "600", color: "#2b4162" },
   pageBtn: {
     width: 54, height: 44, borderRadius: 12, alignItems: "center", justifyContent: "center",
     backgroundColor: "#f2ece3", borderWidth: 1, borderColor: "#e4dbcd",

@@ -102,11 +102,14 @@ const workerSrc = readFileSync(
   "utf8",
 ).replace(/<\/script>/gi, "<\\/script>");
 const pdfHtml = page(
-  `<div id="scroll"><div id="page">
-    <canvas id="canvas"></canvas>
-    <div id="text" class="textLayer"></div>
-    <div id="marks"></div>
-  </div></div>`,
+  `<div id="scroll">
+    <div id="page">
+      <canvas id="canvas"></canvas>
+      <div id="text" class="textLayer"></div>
+      <div id="marks"></div>
+    </div>
+    <div id="note"><canvas id="notecanvas"></canvas></div>
+  </div>`,
   `
   #scroll { position: absolute; inset: 0; overflow-y: auto;
     -webkit-overflow-scrolling: touch;
@@ -139,7 +142,19 @@ const pdfHtml = page(
   .textLayer ::selection { background: rgba(55, 48, 196, 0.28); }
   #marks { position: absolute; inset: 0; pointer-events: none; }
   #marks .mark { position: absolute; opacity: 0.38; border-radius: 3px;
-    pointer-events: auto; }`,
+    pointer-events: auto; }
+  /* An inserted blank page. Same box as the book page so it reads as a leaf of
+     the same volume, with a faint rule so it is obviously writing paper and
+     not a failed render. */
+  #note { display: none; position: relative; margin: 0 auto;
+    background: #fffdf8; box-shadow: 0 2px 14px rgba(0,0,0,0.10);
+    background-image: linear-gradient(to bottom,
+      rgba(43,65,98,0.08) 1px, transparent 1px);
+    background-size: 100% 2.2rem; }
+  /* touch-action none, or the browser claims the gesture for scrolling and the
+     stroke arrives in pieces. */
+  #notecanvas { display: block; touch-action: none;
+    -webkit-user-select: none; user-select: none; }`,
   `<script>window.__PDFJS_WORKER_SRC__=${JSON.stringify(workerSrc)};</script>
 <script>${pdfJs}</script>`,
 );
