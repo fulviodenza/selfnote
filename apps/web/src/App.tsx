@@ -165,6 +165,15 @@ function AppRoot() {
   const [error, setError] = useState<string | null>(null);
   // Import-vault modal (hosts the picker trigger + the AI bulk-label action).
   const [showImport, setShowImport] = useState(false);
+  // Labels are hidden until asked for: the chips are the one thing in the UI
+  // that is not ink on paper, and most pages do not need them in view. The
+  // choice is per device, like the theme.
+  const [labelsShown, setLabelsShown] = useState<boolean>(
+    () => localStorage.getItem("selfnote_labels_shown") === "1",
+  );
+  useEffect(() => {
+    localStorage.setItem("selfnote_labels_shown", labelsShown ? "1" : "0");
+  }, [labelsShown]);
 
   const openDoc = useCallback((id: string) => {
     setView("editor");
@@ -419,6 +428,8 @@ function AppRoot() {
         workspaceId={workspaceId}
         view={view}
         theme={theme}
+        labelsShown={labelsShown}
+        onToggleLabels={() => setLabelsShown((v) => !v)}
         onToggleTheme={toggleTheme}
         onOpen={openDoc}
         onOpenView={setView}
@@ -434,6 +445,7 @@ function AppRoot() {
       {showImport && workspaceId && (
         <ImportVaultModal
           workspaceId={workspaceId}
+          labelsShown={labelsShown}
           onPickVault={() => {
             setShowImport(false);
             fileInputRef.current?.click();
@@ -481,6 +493,7 @@ function AppRoot() {
             doc={activeDoc}
             user={user}
             theme={theme}
+            labelsShown={labelsShown}
             childPages={childPages}
             onOpenPage={openDoc}
             onAutoTitle={handleAutoTitle}
@@ -940,10 +953,13 @@ function ShelfView({
  */
 function ImportVaultModal({
   workspaceId,
+  labelsShown,
   onPickVault,
   onClose,
 }: {
   workspaceId: string;
+  /** The bulk-label step only makes sense while labels are in view. */
+  labelsShown: boolean;
   onPickVault: () => void;
   onClose: () => void;
 }) {
@@ -963,14 +979,16 @@ function ImportVaultModal({
         <button className="auth-submit" onClick={onPickVault}>
           Choose vault folder…
         </button>
-        <div className="import-modal-section">
-          <div className="import-modal-label">After importing</div>
-          <p className="conn-intro">
-            Let the AI read your notes and tag every unlabeled page, so the label
-            filters are useful from day one.
-          </p>
-          <BulkLabelButton workspaceId={workspaceId} />
-        </div>
+        {labelsShown && (
+          <div className="import-modal-section">
+            <div className="import-modal-label">After importing</div>
+            <p className="conn-intro">
+              Let the AI read your notes and tag every unlabeled page, so the label
+              filters are useful from day one.
+            </p>
+            <BulkLabelButton workspaceId={workspaceId} />
+          </div>
+        )}
       </div>
     </div>
   );
@@ -986,6 +1004,8 @@ function Sidebar({
   workspaceId,
   view,
   theme,
+  labelsShown,
+  onToggleLabels,
   onToggleTheme,
   onOpen,
   onOpenView,
@@ -1003,6 +1023,9 @@ function Sidebar({
   workspaceId: string | null;
   view: MainView;
   theme: "light" | "dark";
+  /** Whether label chips (filter row, note bar) are in view; see onToggleLabels. */
+  labelsShown: boolean;
+  onToggleLabels: () => void;
   onToggleTheme: () => void;
   onOpen: (id: string) => void;
   onOpenView: (view: MainView) => void;
@@ -1296,6 +1319,15 @@ function Sidebar({
           Tasks
         </button>
         <button
+          className={labelsShown || filterLabel ? "nav-item active" : "nav-item"}
+          aria-pressed={labelsShown}
+          title={labelsShown ? "Hide labels" : "Show labels"}
+          onClick={onToggleLabels}
+        >
+          <span className="nav-item-icon"><Icon name="tag" size={16} /></span>
+          Labels
+        </button>
+        <button
           className={view === "graph" ? "nav-item active" : "nav-item"}
           onClick={() => onOpenView("graph")}
         >
@@ -1303,16 +1335,17 @@ function Sidebar({
           Graph
         </button>
       </div>
-      {usedLabels.length > 0 && (
+      {/* An active filter keeps the row in view even with labels switched off,
+          so a filtered tree is never a mystery. */}
+      {(labelsShown || filterLabel) && usedLabels.length > 0 && (
         <div className="label-filter">
           {visibleLabels.map((l) => (
             <button
               key={l.id}
               className={filterLabel === l.id ? "label-chip filter on" : "label-chip filter"}
-              style={{ ["--chip" as string]: l.color }}
+              aria-pressed={filterLabel === l.id}
               onClick={() => setFilterLabel((cur) => (cur === l.id ? null : l.id))}
             >
-              <span className="label-dot" />
               {l.name}
             </button>
           ))}
@@ -1876,6 +1909,7 @@ function EditorPane(props: {
   doc: Document;
   user: EditorUser;
   theme: "light" | "dark";
+  labelsShown: boolean;
   childPages: Document[];
   onOpenPage: (id: string) => void;
   onAutoTitle: (title: string) => void;
@@ -1916,6 +1950,7 @@ function EditorPaneInner({
   mode,
   user,
   theme,
+  labelsShown,
   childPages,
   onOpenPage,
   onAutoTitle,
@@ -1925,6 +1960,7 @@ function EditorPaneInner({
   mode: "rw" | "ro";
   user: EditorUser;
   theme: "light" | "dark";
+  labelsShown: boolean;
   childPages: Document[];
   onOpenPage: (id: string) => void;
   onAutoTitle: (title: string) => void;
@@ -2236,6 +2272,7 @@ function EditorPaneInner({
       <LabelBar
         docId={doc.id}
         workspaceId={doc.workspace_id}
+        shown={labelsShown}
         aiAvailable={!!ai?.available}
         editor={editor as unknown as Parameters<typeof LabelBar>[0]["editor"]}
         /*
