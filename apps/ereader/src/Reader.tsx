@@ -42,6 +42,7 @@ import {
   docUri,
   deleteNotePage,
   getBook,
+  getNumberSetting,
   listNotePages,
   markSynced,
   saveNoteStrokes,
@@ -52,6 +53,7 @@ import {
   recordSession,
   saveLocations,
   savePosition,
+  setNumberSetting,
   touchOpened,
   updateBookMeta,
   type Book,
@@ -153,7 +155,11 @@ export function Reader({
         // A PDF position is its page number, carried with the open itself.
         post({ type: "open", data, position: saved ? Number(saved) : null });
       } else {
-        post({ type: "open", data, locations: current.locations });
+        // The pinched text size rides on the open, so the first layout is
+        // already at it.
+        const pct = await getNumberSetting(`fontsize:${current.id}`, 0);
+        if (cancelled) return;
+        post({ type: "open", data, locations: current.locations, fontSize: pct || null });
         if (saved) post({ type: "goto", cfi: saved });
       }
       const pages = await listNotePages(current.id);
@@ -293,6 +299,10 @@ export function Reader({
             const cfi = msg.cfi;
             positionTimer.current = setTimeout(() => void savePosition(book.id, cfi), 1000);
           }
+          return;
+        case "fontSize":
+          // A pinch in an EPUB; the page has already applied it.
+          if (typeof msg.pct === "number") void setNumberSetting(`fontsize:${book.id}`, msg.pct);
           return;
         case "locationsReady":
           // Generated rather than loaded from cache, so store it: the next open
