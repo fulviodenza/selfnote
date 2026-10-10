@@ -517,6 +517,29 @@ export function editorHtml(theme: "light" | "dark"): string {
         }, true);
       }
 
+      // iPad Return during composition (autocorrect, predictive text) arrives
+      // as keyCode 229, so ProseMirror's Enter keymap never sees it and WebKit
+      // runs its native contenteditable split instead: an empty line above,
+      // caret left at the start of the line. Catch that default insertParagraph
+      // and replay the editor's own Enter, so lists, checklists and the slash
+      // menu keep their usual behavior. On the normal path ProseMirror handles
+      // Enter at keydown and cancels it, so this never fires.
+      function setupParagraphInputShim(editor) {
+        let tiptap = null;
+        try { tiptap = editor._tiptapEditor; } catch {}
+        const dom = tiptap && tiptap.view && tiptap.view.dom;
+        if (!dom) return;
+        dom.addEventListener("beforeinput", (e) => {
+          if (e.inputType !== "insertParagraph") return;
+          if (!(e.target instanceof Node) || !dom.contains(e.target)) return;
+          // A non-cancelable event would still run WebKit's own split after
+          // ours, inserting the paragraph twice. Leave those to WebKit.
+          if (!e.cancelable) return;
+          e.preventDefault();
+          try { tiptap.commands.keyboardShortcut("Enter"); } catch {}
+        }, true);
+      }
+
       /*
        * Markdown paste, for the nodes BlockNote does not know about. Mirrors
        * packages/editor/src/markdownPaste.ts.
@@ -1441,6 +1464,7 @@ export function editorHtml(theme: "light" | "dark"): string {
           setupSlashMenu(editor);
           setupCalloutInputRule(editor);
           setupMathInputRule(editor);
+          setupParagraphInputShim(editor);
           setupMarkdownPaste(editor);
           setupSelectAll(editor);
           setupSelectionToolbar(editor);
