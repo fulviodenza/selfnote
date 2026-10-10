@@ -72,7 +72,7 @@ ${scripts}
 /* --------------------------------------------------------------- EPUB --- */
 const epubJs = await bundle("src/webview/reader.ts");
 const epubHtml = page(
-  '<div id="viewer"></div>',
+  '<div id="viewer"></div>\n<div id="note"><div class="paper"></div></div>',
   `
   /* The page margin lives on <body> as padding, and #viewer fills body's
      CONTENT box. epub.js measures #viewer for column geometry and only gets it
@@ -88,7 +88,22 @@ const epubHtml = page(
       calc(var(--margin-x) + env(safe-area-inset-left));
   }
   #viewer { width: 100%; height: 100%; }
-  #viewer iframe { -webkit-user-select: text; user-select: text; }`,
+  #viewer iframe { -webkit-user-select: text; user-select: text; }
+  /* An inserted blank page, laid over the book rather than in its place so
+     #viewer keeps its box and epub.js its pagination. Fixed, so it takes no
+     room in body's flow; the same margins as the book page. */
+  #note { display: none; position: fixed; inset: 0; z-index: 5;
+    box-sizing: border-box; background: var(--paper);
+    padding:
+      calc(var(--margin-y) + env(safe-area-inset-top))
+      calc(var(--margin-x) + env(safe-area-inset-right))
+      calc(var(--margin-y) + env(safe-area-inset-bottom))
+      calc(var(--margin-x) + env(safe-area-inset-left)); }
+  #note .paper { width: 100%; height: 100%; background: #fffdf8;
+    box-shadow: 0 2px 14px rgba(0,0,0,0.10);
+    background-image: linear-gradient(to bottom,
+      rgba(43,65,98,0.08) 1px, transparent 1px);
+    background-size: 100% 2.2rem; }`,
   `<script>${epubJs}</script>`,
 );
 

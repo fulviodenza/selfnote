@@ -4,12 +4,24 @@
  * true.
  */
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { ActivityIndicator, Alert, AppState, StyleSheet, Text, TouchableOpacity, View } from "react-native";
+import {
+  ActivityIndicator,
+  Alert,
+  AppState,
+  Image,
+  PanResponder,
+  StyleSheet,
+  Text,
+  TouchableOpacity,
+  View,
+} from "react-native";
 import RNWebView, { type WebViewMessageEvent, type WebViewProps } from "react-native-webview";
 // The legacy entry point on purpose: it reads a file straight to base64 natively.
 // The current File API exposes only arrayBuffer(), which would mean base64-encoding
 // a multi-megabyte book in JS on the main thread every time it opens.
 import * as FileSystem from "expo-file-system/legacy";
+import { ImageManipulator, SaveFormat } from "expo-image-manipulator";
+import { captureRef } from "react-native-view-shot";
 import { pdfReaderHtml, readerHtml } from "@selfnote/reader";
 
 /** Stable identity on purpose: a fresh {html} object per render invites the
@@ -27,6 +39,7 @@ import {
   bookUri,
   deleteHighlight,
   addNotePage,
+  docUri,
   deleteNotePage,
   getBook,
   listNotePages,
@@ -61,6 +74,28 @@ const WebView = RNWebView as unknown as React.ComponentType<
   WebViewProps & { ref?: React.Ref<WebViewHandle> }
 >;
 
+/** A page region copied onto an insert. The box is in fractions of the paper,
+ * the file relative to the documents directory. */
+interface NoteImage {
+  file: string;
+  x: number;
+  y: number;
+  w: number;
+  h: number;
+}
+
+interface Rect {
+  x: number;
+  y: number;
+  w: number;
+  h: number;
+}
+
+/** The paper's inset inside the book area: the notePaper style and the
+ * fallback for placing an image before the paper has ever been laid out. */
+const PAPER_INSET = { x: 28, y: 12 };
+const IMAGE_GAP = 0.02;
+
 export function Reader({
   book: initialBook,
   connection,
@@ -81,6 +116,8 @@ export function Reader({
   const sessionStart = useRef(Date.now());
   /** The book page showing, which stays put while stepping through inserts. */
   const currentPage = useRef(1);
+  /** The EPUB spine section showing, or the section of the insert showing. */
+  const currentSection = useRef(0);
   const [ready, setReady] = useState(false);
   const [loading, setLoading] = useState(true);
   const [highlights, setHighlights] = useState<Highlight[]>([]);
@@ -88,6 +125,8 @@ export function Reader({
   const pendingCount = highlights.filter((h) => h.synced_at === null).length;
   const isPdf = book.file_path.toLowerCase().endsWith(".pdf");
   const [notePages, setNotePages] = useState<NotePage[]>([]);
+  const notePagesRef = useRef(notePages);
+  notePagesRef.current = notePages;
   // Which insert is showing, if any. The reader reports it with every location.
   const [onNote, setOnNote] = useState<string | null>(null);
   const syncing = Boolean(connection && book.sync_document_id);
@@ -117,15 +156,14 @@ export function Reader({
         post({ type: "open", data, locations: current.locations });
         if (saved) post({ type: "goto", cfi: saved });
       }
-      if (isPdf) {
-        const pages = await listNotePages(current.id);
-        if (cancelled) return;
-        setNotePages(pages);
-        post({ type: "notes", items: pages });
-      }
+      const pages = await listNotePages(current.id);
+      if (cancelled) return;
+      setNotePages(pages);
+      post({ type: "notes", items: pages });
       const rows = await listHighlights(book.id);
       if (cancelled) return;
       setHighlights(rows);
+      setMarksLoaded(true);
       post({ type: "highlights", items: rows.map((h) => toWire(h, syncing, isPdf)) });
     })().catch((err) => Alert.alert("Could not open this book", String(err)));
     return () => {
@@ -145,6 +183,18 @@ export function Reader({
     // undo the incremental drawing the page does.
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [syncing, ready]);
+
+  // How to highlight, said once when an EPUB with none opens. On the status
+  // strip because it overlays the book: a hint line of its own in the layout
+  // would resize the WebView and repaginate it.
+  const [marksLoaded, setMarksLoaded] = useState(false);
+  const hinted = useRef(false);
+  useEffect(() => {
+    if (isPdf || loading || !marksLoaded || hinted.current) return;
+    hinted.current = true;
+    if (highlights.length) return;
+    setSyncNote((n) => n ?? { kind: "ok", text: "Select text, then tap Save highlight" });
+  }, [isPdf, loading, marksLoaded, highlights.length]);
 
   useEffect(() => {
     if (syncNote?.kind !== "ok") return;
@@ -239,12 +289,23 @@ export function Reader({
             setBook((b) => ({ ...b, title: msg.title.trim(), author: msg.author ?? b.author }));
           }
           return;
-        case "noteStrokes":
-          void saveNoteStrokes(msg.id, msg.strokes);
+        case "noteStrokes": {
+          // The web insert canvas only ever writes legacy vectors. Once the
+          // native canvas has saved a note its row carries pk, and a stray
+          // web stroke (a touch below the native paper, say) must not
+          // overwrite that drawing with a bare array.
+          const stored = notePagesRef.current.find((p) => p.id === msg.id);
+          if (stored && hasPencilKit(stored.strokes)) return;
+          const images = noteImages(stored?.strokes);
+          const strokes: string = images.length ? withImages(msg.strokes, images) : msg.strokes;
+          void saveNoteStrokes(msg.id, strokes);
+          setNotePages((pages) => pages.map((p) => (p.id === msg.id ? { ...p, strokes } : p)));
           return;
+        }
         case "location":
           setOnNote(msg.noteId ?? null);
           if (isPdf && msg.cfi) currentPage.current = Number(msg.cfi) || 1;
+          if (!isPdf && typeof msg.section === "number") currentSection.current = msg.section;
           setProgress(msg.progress ?? 0);
           // Debounced: "relocated" fires on every page turn, and writing to
           // SQLite that often spins the disk for a value only the next launch
@@ -306,19 +367,23 @@ export function Reader({
     [book, highlights, post, pushPending],
   );
 
+  /** Where a new insert anchors: the PDF page, or the EPUB spine section. Both
+   * are tracked from the reader's own location messages, so an insert lands
+   * after what is actually on screen. */
+  const anchor = useCallback(
+    () => (isPdf ? currentPage.current : currentSection.current),
+    [isPdf],
+  );
+
   const insertNotePage = useCallback(async () => {
-    // currentPage is tracked from the reader's own location messages, so the
-    // insert lands after the page actually on screen.
-    const page = await addNotePage(book.id, currentPage.current);
+    const page = await addNotePage(book.id, anchor());
     const pages = await listNotePages(book.id);
     setNotePages(pages);
     post({ type: "notes", items: pages });
     post({ type: "showNote", id: page.id });
-  }, [book.id, post]);
+  }, [anchor, book.id, post]);
 
   const activeNote = onNote ? (notePages.find((p) => p.id === onNote) ?? null) : null;
-  const notePagesRef = useRef(notePages);
-  notePagesRef.current = notePages;
   // The active insert's stored ink, split for the native surface: the
   // PKDrawing binary when one exists, else legacy web-canvas vectors to raise
   // into PKStrokes so nothing already written is lost.
@@ -354,7 +419,13 @@ export function Reader({
     } catch {
       /* the pk binary is still the full drawing */
     }
-    const envelope = JSON.stringify({ pk: e.nativeEvent.pk, v });
+    // The canvas reports ink only. The page's copied images ride along from
+    // the stored row, or the first stroke after a copy would delete them. The
+    // ref is current here: images are only added while no insert is open.
+    const images = noteImages(notePagesRef.current.find((p) => p.id === noteId)?.strokes);
+    const envelope = JSON.stringify(
+      images.length ? { pk: e.nativeEvent.pk, v, images } : { pk: e.nativeEvent.pk, v },
+    );
     void saveNoteStrokes(noteId, envelope);
     // Keep local state current too, or reopening this insert in the same
     // session would load the ink as it was when the book opened.
@@ -362,6 +433,163 @@ export function Reader({
       pages.map((p) => (p.id === noteId ? { ...p, strokes: envelope } : p)),
     );
   }, []);
+
+  // Images on the insert showing. Keyed on the note alone, like initialInk:
+  // they change only by a copy, which happens with no insert open.
+  const activeImages = useMemo(
+    () => noteImages(notePagesRef.current.find((p) => p.id === onNote)?.strokes),
+    [onNote],
+  );
+  const [paperBox, setPaperBox] = useState({ w: 0, h: 0 });
+
+  /* Copy area: drag a rectangle over the book, snapshot the web view, crop,
+   * and drop the result onto an insert. Host side, so pdf.js canvas and epub.js
+   * frame are the same pixels to it. */
+  const shot = useRef<View>(null);
+  const [bookBox, setBookBox] = useState({ w: 0, h: 0 });
+  const bookBoxRef = useRef(bookBox);
+  bookBoxRef.current = bookBox;
+  const [capturing, setCapturing] = useState(false);
+  const [copying, setCopying] = useState(false);
+  const [rect, setRect] = useState<Rect | null>(null);
+  const dragFrom = useRef({ x: 0, y: 0 });
+  const drawRect = useMemo(
+    () =>
+      PanResponder.create({
+        onStartShouldSetPanResponder: () => true,
+        onMoveShouldSetPanResponder: () => true,
+        onPanResponderTerminationRequest: () => false,
+        onPanResponderGrant: (e) => {
+          dragFrom.current = { x: e.nativeEvent.locationX, y: e.nativeEvent.locationY };
+          setRect({ ...dragFrom.current, w: 0, h: 0 });
+        },
+        onPanResponderMove: (_e, g) => {
+          const { w: bw, h: bh } = bookBoxRef.current;
+          const { x: x0, y: y0 } = dragFrom.current;
+          const x1 = clamp(x0 + g.dx, 0, bw);
+          const y1 = clamp(y0 + g.dy, 0, bh);
+          setRect({
+            x: Math.min(x0, x1),
+            y: Math.min(y0, y1),
+            w: Math.abs(x1 - x0),
+            h: Math.abs(y1 - y0),
+          });
+        },
+      }),
+    [],
+  );
+
+  const startCapture = useCallback(() => {
+    setRect(null);
+    setCapturing(true);
+  }, []);
+
+  const cancelCapture = useCallback(() => {
+    setCapturing(false);
+    setRect(null);
+  }, []);
+
+  // Capture is modal: the pager is inert while it runs, but a location message
+  // can still open an insert under the overlay, and a copy made then would land
+  // on a page whose images are already frozen for display.
+  useEffect(() => {
+    if (capturing && onNote) cancelCapture();
+  }, [capturing, onNote, cancelCapture]);
+
+  const copyArea = useCallback(async () => {
+    if (!rect || rect.w < MIN_RECT || rect.h < MIN_RECT || !bookBox.w || !bookBox.h) return;
+    setCopying(true);
+    let snapshot: string | null = null;
+    // The cropped PNG while it is still a temporary file, then where it moved.
+    let png: string | null = null;
+    let moved: string | null = null;
+    let show: string | null = null;
+    try {
+      snapshot = await captureRef(shot, { format: "png", result: "tmpfile" });
+      // Read from the file's header, so the snapshot is decoded once, for the
+      // crop. It is in pixels and the rectangle in points.
+      const full = await Image.getSize(snapshot);
+      const scale = full.width / bookBox.w;
+      const originX = clamp(Math.round(rect.x * scale), 0, full.width - 1);
+      const originY = clamp(Math.round(rect.y * scale), 0, full.height - 1);
+      const crop = {
+        originX,
+        originY,
+        width: Math.max(1, Math.min(Math.round(rect.w * scale), full.width - originX)),
+        height: Math.max(1, Math.min(Math.round(rect.h * scale), full.height - originY)),
+      };
+      // Both hold native image memory until released, which the garbage
+      // collector gets round to whenever it likes.
+      const context = ImageManipulator.manipulate(snapshot).crop(crop);
+      try {
+        const cropped = await context.renderAsync();
+        try {
+          png = (await cropped.saveAsync({ format: SaveFormat.PNG })).uri;
+        } finally {
+          cropped.release();
+        }
+      } finally {
+        context.release();
+      }
+
+      const paper = paperBox.w
+        ? paperBox
+        : { w: bookBox.w - 2 * PAPER_INSET.x, h: bookBox.h - 2 * PAPER_INSET.y };
+      const aspect = crop.height / crop.width;
+      const at = anchor();
+      // The first insert after this page with room takes it. Only when every
+      // one is full does the image start a new one, rather than hang off the
+      // bottom of a full page.
+      let target: NotePage | null = null;
+      let box: Omit<NoteImage, "file"> | null = null;
+      for (const p of notePagesRef.current
+        .filter((n) => n.after_page === at)
+        .sort((a, b) => a.position - b.position)) {
+        box = placeImage(noteImages(p.strokes), aspect, paper);
+        if (box) {
+          target = p;
+          break;
+        }
+      }
+      if (!target || !box) {
+        target = await addNotePage(book.id, at);
+        box = placeImage([], aspect, paper)!;
+      }
+
+      const dir = `notes/${target.id}`;
+      const file = `${dir}/${Date.now()}-${Math.random().toString(36).slice(2, 10)}.png`;
+      await FileSystem.makeDirectoryAsync(docUri(dir), { intermediates: true });
+      await FileSystem.moveAsync({ from: png, to: docUri(file) });
+      png = null;
+      moved = docUri(file);
+
+      const envelope = withImages(target.strokes, [...noteImages(target.strokes), { file, ...box }]);
+      await saveNoteStrokes(target.id, envelope);
+      moved = null;
+      setCapturing(false);
+      setRect(null);
+      show = target.id;
+    } catch (err) {
+      // An image no row points at is never shown and never cleaned up.
+      if (moved) await FileSystem.deleteAsync(moved, { idempotent: true }).catch(() => undefined);
+      Alert.alert("Could not copy this area", err instanceof Error ? err.message : String(err));
+    } finally {
+      setCopying(false);
+      for (const tmp of [snapshot, png]) {
+        if (tmp) FileSystem.deleteAsync(tmp, { idempotent: true }).catch(() => undefined);
+      }
+      // Refreshed either way: a failure can still leave a new insert behind,
+      // and the list must show what the database holds.
+      try {
+        const pages = await listNotePages(book.id);
+        setNotePages(pages);
+        post({ type: "notes", items: pages });
+      } catch {
+        /* the next open reloads the list */
+      }
+      if (show) post({ type: "showNote", id: show });
+    }
+  }, [anchor, book.id, bookBox, paperBox, post, rect]);
 
   const removeNotePage = useCallback(() => {
     if (!onNote) return;
@@ -372,6 +600,11 @@ export function Reader({
         style: "destructive",
         onPress: async () => {
           await deleteNotePage(onNote);
+          try {
+            await FileSystem.deleteAsync(docUri(`notes/${onNote}`), { idempotent: true });
+          } catch {
+            /* an orphaned image costs disk, not correctness */
+          }
           const pages = await listNotePages(book.id);
           setNotePages(pages);
           post({ type: "notes", items: pages });
@@ -413,8 +646,16 @@ export function Reader({
           which read as a reload) and its auto-hide grew it back seconds later,
           snapping the book to the start of the section: a page turn nobody
           asked for. Status must never change the book's geometry. */}
-      <View style={styles.bookArea}>
-        <WebView
+      <View
+        style={styles.bookArea}
+        onLayout={(e) =>
+          setBookBox({ w: e.nativeEvent.layout.width, h: e.nativeEvent.layout.height })
+        }
+      >
+        {/* The snapshot source for Copy area: the web view alone, so nothing
+            laid over the book (status strip, the capture overlay) is copied. */}
+        <View ref={shot} collapsable={false} style={styles.fill}>
+          <WebView
           ref={web}
           source={isPdf ? PDF_SOURCE : READER_SOURCE}
           originWhitelist={["*"]}
@@ -431,15 +672,37 @@ export function Reader({
           scrollEnabled={false}
           bounces={false}
           style={styles.fill}
-        />
+          />
+        </View>
         {activeNote ? (
           // The writing surface. Native PencilKit over the WebView, which
           // keeps rendering the book underneath and never sees the pen. The
           // system tool picker floats over this and carries the pens.
-          <View style={styles.notePaper}>
+          <View
+            style={styles.notePaper}
+            onLayout={(e) =>
+              setPaperBox({ w: e.nativeEvent.layout.width, h: e.nativeEvent.layout.height })
+            }
+          >
             {Array.from({ length: 40 }, (_, i) => (
               <View key={i} style={[styles.noteRule, { top: 72 + i * 34 }]} />
             ))}
+            {paperBox.w > 0
+              ? activeImages.map((img) => (
+                  <Image
+                    key={img.file}
+                    source={{ uri: docUri(img.file) }}
+                    resizeMode="contain"
+                    style={{
+                      position: "absolute",
+                      left: img.x * paperBox.w,
+                      top: img.y * paperBox.h,
+                      width: img.w * paperBox.w,
+                      height: img.h * paperBox.h,
+                    }}
+                  />
+                ))
+              : null}
             <PencilPageView
               key={activeNote.id}
               style={StyleSheet.absoluteFill}
@@ -465,6 +728,40 @@ export function Reader({
             ) : null}
           </View>
         ) : null}
+        {capturing ? (
+          <View style={StyleSheet.absoluteFill}>
+            <View style={[StyleSheet.absoluteFill, styles.captureDim]} {...drawRect.panHandlers}>
+              {rect ? (
+                <View
+                  pointerEvents="none"
+                  style={[
+                    styles.captureRect,
+                    { left: rect.x, top: rect.y, width: rect.w, height: rect.h },
+                  ]}
+                />
+              ) : null}
+            </View>
+            <View style={styles.captureBar}>
+              <Text style={styles.captureHint}>Drag over the part of the page to copy</Text>
+              <TouchableOpacity style={styles.addPageBtn} onPress={cancelCapture} disabled={copying}>
+                <Text style={styles.addPageText}>Cancel</Text>
+              </TouchableOpacity>
+              <TouchableOpacity
+                style={[
+                  styles.addPageBtn,
+                  styles.captureGo,
+                  (!rect || rect.w < MIN_RECT || rect.h < MIN_RECT || copying) && styles.disabled,
+                ]}
+                onPress={() => void copyArea()}
+                disabled={!rect || rect.w < MIN_RECT || rect.h < MIN_RECT || copying}
+              >
+                <Text style={[styles.addPageText, styles.captureGoText]}>
+                  {copying ? "Copying" : "Copy"}
+                </Text>
+              </TouchableOpacity>
+            </View>
+          </View>
+        ) : null}
       </View>
       {loading && (
         <View style={styles.loading}>
@@ -474,27 +771,47 @@ export function Reader({
       <View style={styles.pager}>
         <TouchableOpacity
           style={styles.pageBtn}
-          onPress={() => post({ type: "turn", direction: "prev" })}
+          onPress={() => {
+            if (!capturing) post({ type: "turn", direction: "prev" });
+          }}
           hitSlop={14}
           accessibilityLabel="Previous page"
         >
           <Text style={styles.chevron}>‹</Text>
         </TouchableOpacity>
 
-        {isPdf ? (
-          // Available on an insert too: several pages of working after one
-          // exercise is normal. The writing tools themselves live in the
-          // floating system picker, and Delete page sits in the top bar.
-          <TouchableOpacity style={styles.addPageBtn} onPress={insertNotePage}>
+        <View style={styles.pagerCentre}>
+          {/* Available on an insert too: several pages of working after one
+              exercise is normal. The writing tools themselves live in the
+              floating system picker, and Delete page sits in the top bar. */}
+          {/* Inert during capture, like the chevrons: an insert opened under
+              the overlay would take the copy without showing it. */}
+          <TouchableOpacity
+            style={styles.addPageBtn}
+            onPress={() => {
+              if (!capturing) void insertNotePage();
+            }}
+          >
             <Text style={styles.addPageText}>+ Blank page</Text>
           </TouchableOpacity>
-        ) : (
-          <Text style={styles.pagerHint}>Swipe to turn. Select text, then tap Save highlight.</Text>
-        )}
+          {!onNote && !loading ? (
+            <TouchableOpacity
+              style={styles.addPageBtn}
+              onPress={() => {
+                if (!capturing) startCapture();
+              }}
+              disabled={capturing}
+            >
+              <Text style={styles.addPageText}>Copy area</Text>
+            </TouchableOpacity>
+          ) : null}
+        </View>
 
         <TouchableOpacity
           style={styles.pageBtn}
-          onPress={() => post({ type: "turn", direction: "next" })}
+          onPress={() => {
+            if (!capturing) post({ type: "turn", direction: "next" });
+          }}
           hitSlop={14}
           accessibilityLabel="Next page"
         >
@@ -535,6 +852,70 @@ export function Reader({
  * every highlight as permanently unsent would be a warning about a thing the user
  * never asked for.
  */
+/** Below this, in points, a drag reads as a tap and copies nothing useful. */
+const MIN_RECT = 12;
+
+function clamp(n: number, lo: number, hi: number): number {
+  return Math.min(Math.max(n, lo), hi);
+}
+
+/** The images on an insert, whichever envelope shape its ink is stored in. */
+function noteImages(strokes: string | undefined): NoteImage[] {
+  if (!strokes) return [];
+  try {
+    const parsed = JSON.parse(strokes);
+    return !Array.isArray(parsed) && Array.isArray(parsed?.images) ? parsed.images : [];
+  } catch {
+    return [];
+  }
+}
+
+/** Whether an insert's ink is already a PencilKit drawing. */
+function hasPencilKit(strokes: string | undefined): boolean {
+  if (!strokes) return false;
+  try {
+    const parsed = JSON.parse(strokes);
+    return !Array.isArray(parsed) && typeof parsed?.pk === "string";
+  } catch {
+    return false;
+  }
+}
+
+/** Store `images` on an insert, keeping its ink in whatever form it is in. */
+function withImages(strokes: string, images: NoteImage[]): string {
+  let base: Record<string, unknown> = {};
+  try {
+    const parsed = JSON.parse(strokes || "[]");
+    if (Array.isArray(parsed)) base = parsed.length ? { v: parsed } : {};
+    else if (parsed && typeof parsed === "object") base = parsed;
+  } catch {
+    /* unreadable ink is already lost to the renderers; keep the image */
+  }
+  return JSON.stringify({ ...base, images });
+}
+
+/**
+ * Where a new image goes on an insert: 90% of the paper wide, centred, below
+ * the lowest image already there, its aspect kept in paper points. Shrunk to
+ * fit the space left, or null when too little is left to be worth it.
+ */
+function placeImage(
+  existing: NoteImage[],
+  aspect: number,
+  paper: { w: number; h: number },
+): Omit<NoteImage, "file"> | null {
+  const y = existing.reduce((low, i) => Math.max(low, i.y + i.h), 0) + IMAGE_GAP;
+  const room = 1 - IMAGE_GAP - y;
+  let w = 0.9;
+  let h = (w * paper.w * aspect) / paper.h;
+  if (h > room) {
+    if (room < 0.15) return null;
+    w *= room / h;
+    h = room;
+  }
+  return { x: (1 - w) / 2, y, w, h };
+}
+
 const PENDING = "#f2c94c";
 const SAVED = "#6fcf97";
 
@@ -572,7 +953,8 @@ const styles = StyleSheet.create({
   // The native writing surface, styled as the same paper the web insert draws
   // so the page does not change character when the surface goes native.
   notePaper: {
-    position: "absolute", top: 12, bottom: 12, left: 28, right: 28,
+    position: "absolute",
+    top: PAPER_INSET.y, bottom: PAPER_INSET.y, left: PAPER_INSET.x, right: PAPER_INSET.x,
     backgroundColor: "#fffdf8", borderRadius: 2, overflow: "hidden",
     shadowColor: "#000", shadowOpacity: 0.1, shadowRadius: 7,
     shadowOffset: { width: 0, height: 2 },
@@ -591,7 +973,24 @@ const styles = StyleSheet.create({
     backgroundColor: "#f2ece3", borderWidth: 1, borderColor: "#e4dbcd",
   },
   chevron: { fontSize: 26, lineHeight: 30, color: "#2b4162", fontWeight: "600" },
-  pagerHint: { fontSize: 12, color: "#9a9183" },
+  pagerCentre: { flexDirection: "row", alignItems: "center", gap: 10 },
+  captureDim: { backgroundColor: "rgba(20, 17, 14, 0.28)" },
+  captureRect: {
+    position: "absolute", borderWidth: 2, borderColor: "#3730c4",
+    backgroundColor: "rgba(255, 255, 255, 0.18)",
+  },
+  captureBar: {
+    position: "absolute", top: 16, alignSelf: "center",
+    flexDirection: "row", alignItems: "center", gap: 10,
+    paddingVertical: 8, paddingHorizontal: 12, borderRadius: 14,
+    backgroundColor: "#faf5ef",
+    shadowColor: "#000", shadowOpacity: 0.12, shadowRadius: 8,
+    shadowOffset: { width: 0, height: 2 },
+  },
+  captureHint: { fontSize: 13, color: "#6b6b6b", paddingHorizontal: 4 },
+  captureGo: { backgroundColor: "#2b4162", borderColor: "#2b4162" },
+  captureGoText: { color: "#faf5ef" },
+  disabled: { opacity: 0.45 },
   overlay: {
     position: "absolute", top: 0, left: 0, right: 0, bottom: 0,
     backgroundColor: "#faf5ef",

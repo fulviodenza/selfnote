@@ -20,6 +20,8 @@ type Inbound =
   | { type: "highlights"; items: Highlight[] }
   | { type: "goto"; cfi: string }
   | { type: "turn"; direction: "next" | "prev" }
+  | { type: "notes"; items: NotePageWire[] }
+  | { type: "showNote"; id: string }
   | { type: "fontSize"; percent: number }
   | { type: "theme"; mode: "light" | "dark" };
 
@@ -29,10 +31,49 @@ interface Highlight {
   color?: string | null;
 }
 
+/** A blank page inserted after a spine section. after_page is the section's
+ * spine index; the name is shared with PDF books, where it is a page number. */
+interface NotePageWire {
+  id: string;
+  after_page: number;
+  position: number;
+  strokes: string;
+}
+
 let book: Book | null = null;
 let rendition: Rendition | null = null;
 /** Drawn highlights, so a re-send can remove what is gone instead of stacking. */
 const drawn = new Map<string, Highlight>();
+
+/* Inserted pages. They sit after the last page of their section. While one
+ * shows, epub.js stays wherever it was and every location report repeats that
+ * position's cfi and progress, which is what keeps an insert from moving the
+ * progress percentage.
+ *
+ * `noteFrom` records which side of the inserts the book is parked on: "before"
+ * when they were reached by turning forward (or jumped to from inside their own
+ * section), "after" when reached by turning back from the start of the next
+ * section. Leaving the run of inserts toward the parked side only hides them;
+ * leaving toward the other side is a real page turn. */
+let notes: NotePageWire[] = [];
+let noteSection: number | null = null;
+let noteIndex: number | null = null;
+let noteFrom: "before" | "after" = "before";
+/** The last position epub.js reported, repeated while an insert covers it. */
+let lastLoc: { cfi: string | null; progress: number; section: number | null } = {
+  cfi: null,
+  progress: 0,
+  section: null,
+};
+
+function notesAfter(section: number): NotePageWire[] {
+  return notes.filter((n) => n.after_page === section).sort((a, b) => a.position - b.position);
+}
+
+function currentNote(): NotePageWire | null {
+  if (noteSection === null || noteIndex === null) return null;
+  return notesAfter(noteSection)[noteIndex] ?? null;
+}
 
 /** Post to whichever host is embedding us: RN WebView, or a parent frame on web. */
 function send(message: unknown): void {
@@ -65,6 +106,8 @@ async function open(base64: string, cachedLocations?: string | null): Promise<vo
     book = null;
   }
   drawn.clear();
+  hideNote();
+  lastLoc = { cfi: null, progress: 0, section: null };
 
   book = ePub(bytesFromBase64(base64));
   rendition = book.renderTo("viewer", {
@@ -140,15 +183,15 @@ async function open(base64: string, cachedLocations?: string | null): Promise<vo
         const dy = t.clientY - sy;
         const dt = Date.now() - st;
         if (dt < 600 && Math.abs(dx) >= 48 && Math.abs(dx) > Math.abs(dy) * 1.5) {
-          void (dx < 0 ? rendition.next() : rendition.prev());
+          requestTurn(dx < 0 ? "next" : "prev");
           return;
         }
         // A tap is short and still. A long-press is neither, and belongs to
         // selection even when it ends up selecting nothing.
         if (dt < 300 && Math.abs(dx) < 12 && Math.abs(dy) < 12) {
           const width = contents.window?.innerWidth ?? window.innerWidth;
-          if (t.clientX < width / 3) void rendition.prev();
-          else if (t.clientX > width - width / 3) void rendition.next();
+          if (t.clientX < width / 3) requestTurn("prev");
+          else if (t.clientX > width - width / 3) requestTurn("next");
         }
       },
       { passive: true },
@@ -163,8 +206,8 @@ async function open(base64: string, cachedLocations?: string | null): Promise<vo
         if (sel && !sel.isCollapsed) return;
         if (Date.now() - lastSelectionAt < 600) return;
         const width = contents.window?.innerWidth ?? window.innerWidth;
-        if (e.clientX < width / 3) void rendition.prev();
-        else if (e.clientX > width - width / 3) void rendition.next();
+        if (e.clientX < width / 3) requestTurn("prev");
+        else if (e.clientX > width - width / 3) requestTurn("next");
       });
       doc.addEventListener("mouseup", () =>
         window.setTimeout(() => prepareSelection(contents), 50),
@@ -173,11 +216,12 @@ async function open(base64: string, cachedLocations?: string | null): Promise<vo
   });
 
   rendition.on("relocated", (location: any) => {
-    send({
-      type: "location",
+    lastLoc = {
       cfi: location?.start?.cfi ?? null,
       progress: location?.start?.percentage ?? 0,
-    });
+      section: typeof location?.start?.index === "number" ? location.start.index : null,
+    };
+    sendLocation();
   });
 
   applyTypography(rendition);
@@ -355,6 +399,143 @@ function applyHighlights(items: Highlight[]): void {
   }
 }
 
+/* --------------------------------------------------------------- inserts */
+
+function noteEl(): HTMLElement | null {
+  return document.getElementById("note");
+}
+
+/** The note is drawn over #viewer, never instead of it: hiding or resizing the
+ * viewer makes epub.js repaginate and lose its place. */
+function showNote(section: number, index: number, from: "before" | "after"): void {
+  noteSection = section;
+  noteIndex = index;
+  noteFrom = from;
+  clearPending();
+  const el = noteEl();
+  if (el) el.style.display = "block";
+  sendLocation();
+}
+
+function hideNote(): void {
+  noteSection = null;
+  noteIndex = null;
+  const el = noteEl();
+  if (el) el.style.display = "none";
+}
+
+/** Progress and cfi always describe the book position, insert or not. The
+ * section is the insert's own while one shows, so a new blank page added from
+ * an insert lands beside it, as it does in a PDF. */
+function sendLocation(): void {
+  const note = currentNote();
+  send({
+    type: "location",
+    cfi: lastLoc.cfi,
+    progress: lastLoc.progress,
+    section: note ? noteSection : lastLoc.section,
+    noteId: note?.id ?? null,
+  });
+}
+
+/** Move epub.js one page and wait for it to report where it landed. Its
+ * promise settles before the deferred "relocated", and deciding the next turn
+ * from the stale location would skip a section's inserts. */
+async function move(direction: "next" | "prev"): Promise<void> {
+  const r = rendition;
+  if (!r) return;
+  const landed = new Promise<void>((resolve) => {
+    const done = () => {
+      window.clearTimeout(timer);
+      r.off("relocated", done);
+      resolve();
+    };
+    const timer = window.setTimeout(done, 1500);
+    r.on("relocated", done);
+  });
+  await (direction === "next" ? r.next() : r.prev());
+  await landed;
+}
+
+async function turn(direction: "next" | "prev"): Promise<void> {
+  if (!rendition || !book) return;
+  const loc: any = (rendition as any).location;
+  if (direction === "next") {
+    if (noteSection !== null && noteIndex !== null) {
+      const here = notesAfter(noteSection);
+      if (noteIndex + 1 < here.length) return showNote(noteSection, noteIndex + 1, noteFrom);
+      if (noteFrom === "after") {
+        hideNote();
+        return sendLocation();
+      }
+      // Past the book's last page there is nothing to turn to; stay on paper.
+      if (loc?.atEnd) return;
+      hideNote();
+      return move("next");
+    }
+    const end = loc?.end;
+    if (end && end.displayed && end.displayed.page >= end.displayed.total) {
+      if (notesAfter(end.index).length) return showNote(end.index, 0, "before");
+    }
+    // Nowhere to go past either end. epub.js would re-report the same page,
+    // and nothing in move() should depend on it doing so: a missed report
+    // waits out the landing timeout and stalls every turn queued behind it.
+    if (loc?.atEnd) return;
+    return move("next");
+  }
+  if (noteSection !== null && noteIndex !== null) {
+    if (noteIndex > 0) return showNote(noteSection, noteIndex - 1, noteFrom);
+    if (noteFrom === "before") {
+      hideNote();
+      return sendLocation();
+    }
+    hideNote();
+    return move("prev");
+  }
+  // At a section start the previous section's inserts come first. This has to
+  // be decided before moving: once epub.js is on the previous section's last
+  // page, nothing says the turn crossed a boundary.
+  const start = loc?.start;
+  if (start && start.displayed && start.displayed.page === 1) {
+    const prev = (book.spine.get(start.index) as any)?.prev?.();
+    const before = prev ? notesAfter(prev.index) : [];
+    if (before.length) return showNote(prev.index, before.length - 1, "after");
+  }
+  if (loc?.atStart) return;
+  return move("prev");
+}
+
+/** Jump to an insert. Inside its own section the book stays where it is, so
+ * turning back off the insert returns to the page the user came from. From
+ * anywhere else the book parks at the start of the next section, which is
+ * where an insert sits in reading order. */
+async function jumpToNote(id: string): Promise<void> {
+  if (!rendition || !book) return;
+  const target = notes.find((n) => n.id === id);
+  if (!target) return;
+  const index = notesAfter(target.after_page).findIndex((n) => n.id === id);
+  if (index < 0) return;
+  if (lastLoc.section === target.after_page) return showNote(target.after_page, index, "before");
+  const section = book.spine.get(target.after_page) as any;
+  const next = section?.next?.();
+  hideNote();
+  await rendition.display((next ?? section)?.href);
+  showNote(target.after_page, index, next ? "after" : "before");
+}
+
+/** Turns are serialised: each one decides from where the last one landed. */
+let turnChain: Promise<void> = Promise.resolve();
+
+function enqueue(job: () => Promise<void> | void): Promise<void> {
+  const run = turnChain.then(job);
+  turnChain = run.catch(() => undefined);
+  return run;
+}
+
+function requestTurn(direction: "next" | "prev"): void {
+  enqueue(() => turn(direction)).catch((err) => fail("turn", err));
+}
+
 /* --------------------------------------------------------------- dispatch */
 
 async function handle(msg: Inbound): Promise<void> {
@@ -364,11 +545,25 @@ async function handle(msg: Inbound): Promise<void> {
     case "highlights":
       return applyHighlights(msg.items);
     case "goto":
-      await rendition?.display(msg.cfi);
-      return;
+      return enqueue(async () => {
+        hideNote();
+        await rendition?.display(msg.cfi);
+      });
     case "turn":
-      await (msg.direction === "next" ? rendition?.next() : rendition?.prev());
+      return enqueue(() => turn(msg.direction));
+    case "notes": {
+      const shown = currentNote()?.id ?? null;
+      notes = msg.items;
+      if (shown === null || noteSection === null) return;
+      // The insert showing may have been deleted underneath us.
+      const index = notesAfter(noteSection).findIndex((n) => n.id === shown);
+      if (index < 0) hideNote();
+      else noteIndex = index;
+      sendLocation();
       return;
+    }
+    case "showNote":
+      return enqueue(() => jumpToNote(msg.id));
     case "fontSize":
       rendition?.themes.fontSize(`${msg.percent}%`);
       return;
