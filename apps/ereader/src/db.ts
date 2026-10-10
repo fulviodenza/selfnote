@@ -63,6 +63,12 @@ export function bookUri(book: Pick<Book, "file_path">): string {
   return dir + (tail.startsWith("books/") ? tail : `books/${stored.split("/").pop()}`);
 }
 
+/** Absolute URI for a path stored relative to the documents directory. The
+ * container moves between installs, so nothing absolute is ever stored. */
+export function docUri(relative: string): string {
+  return (FileSystem.documentDirectory ?? "") + relative;
+}
+
 let handle: SQLite.SQLiteDatabase | null = null;
 
 export async function db(): Promise<SQLite.SQLiteDatabase> {
@@ -294,7 +300,14 @@ export interface NotePage {
   book_id: string;
   after_page: number;
   position: number;
-  /** JSON array of strokes, each {c, w, p:[[x,y,pressure],...]} in page fractions. */
+  /**
+   * JSON. Either a bare array of vector strokes, each {c, w, p:[[x,y,pressure],...]}
+   * in page fractions (the original web canvas), or the envelope
+   * {pk, v, images?}: pk the PKDrawing binary as base64, v the same ink as
+   * vectors, images the page regions copied onto this page as
+   * [{file, x, y, w, h}], file relative to the documents directory and the box
+   * in fractions of the paper.
+   */
   strokes: string;
   created_at: number;
   updated_at: number;
