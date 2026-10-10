@@ -1,0 +1,160 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Moving from Notion to a self-hosted workspace | Selfnote</title>
+  <meta name="description" content="How to move your notes out of Notion into a self-hosted workspace: the Markdown export, what it contains, stripping the id suffixes, importing into Selfnote, and what does not carry over." />
+  <link rel="canonical" href="https://selfnote.fulvio.dev/articles/moving-from-notion-to-self-hosted.html" />
+  <meta property="og:title" content="Moving from Notion to a self-hosted workspace" />
+  <meta property="og:description" content="How to move your notes out of Notion into a self-hosted workspace: the Markdown export, what it contains, stripping the id suffixes, importing into Selfnote, and what does not carry over." />
+  <meta property="og:site_name" content="Selfnote" />
+  <meta property="og:type" content="article" />
+  <meta property="og:url" content="https://selfnote.fulvio.dev/articles/moving-from-notion-to-self-hosted.html" />
+  <meta property="og:image" content="https://selfnote.fulvio.dev/assets/og.png" />
+  <meta name="twitter:card" content="summary_large_image" />
+  <script type="application/ld+json">
+  {"@context":"https://schema.org","@type":"HowTo","name":"Moving from Notion to a self-hosted workspace","step":[{"@type":"HowToStep","name":"Export from Notion","text":"In Notion, Settings, Workspace, General, Export all workspace content, as Markdown and CSV with subpages; download the zip from the emailed link and unzip it."},{"@type":"HowToStep","name":"Look at the export","text":"Check the Markdown, decide what to do with CSV databases, and optionally strip the id suffixes from file names."},{"@type":"HowToStep","name":"Import into Selfnote","text":"Open the gear menu at the bottom of the sidebar, choose Import Obsidian vault and pick the export folder; folders become nested pages and images are uploaded."},{"@type":"HowToStep","name":"Label everything","text":"Switch labels on in the sidebar; with an AI provider configured, run Label all notes (AI), or label the pages that matter by hand."},{"@type":"HowToStep","name":"Rebuild links","text":"Link pages with [[ where Notion links arrived as text."},{"@type":"HowToStep","name":"Check you can leave again","text":"Back up the Postgres database before closing the Notion workspace."}]}
+  </script>
+  <link rel="icon" type="image/png" href="/assets/favicon.png" />
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+  <link href="https://fonts.googleapis.com/css2?family=Source+Serif+4:opsz,wght@8..60,400..700&family=Inter+Tight:wght@400..700&display=swap" rel="stylesheet" />
+  <link rel="stylesheet" href="/assets/site.css" />
+</head>
+<body>
+
+<header class="site-head">
+  <div class="wrap">
+    <a class="brand" href="/"><img src="/assets/logo.png" alt="" />Selfnote</a>
+    <nav class="site-nav">
+      <a href="/docs/">Docs</a>
+      <a href="/use-cases.html" class="hide-sm">Use cases</a>
+      <a href="/resources.html" class="hide-sm">Resources</a>
+      <a href="/articles/" class="hide-sm" aria-current="page">Articles</a>
+      <a href="/ereader/" class="hide-sm">eReader</a>
+      <a href="/download.html">Download</a>
+      <a href="https://github.com/fulviodenza/selfnote">GitHub</a>
+    </nav>
+  </div>
+</header>
+
+<div class="docs-shell">
+  <div class="wrap" style="display:block">
+    <article class="prose">
+      <h1>Moving from Notion to a self-hosted workspace</h1>
+      <p class="subtitle">Export as Markdown, clean the file names, import as a vault, and know in advance what carries over and what you will rebuild by hand.</p>
+      <p>Leaving Notion is mostly waiting for an export to finish. This is the whole route
+      from a Notion workspace to a self-hosted one, what comes across intact, and what you
+      will fix by hand. It is written for Selfnote, but the first half applies to any tool
+      that imports Markdown.</p>
+
+      <h2>1. Export from Notion</h2>
+      <p>In Notion, open Settings, then Workspace, then General, and choose <b>Export all
+      workspace content</b>. Pick <b>Markdown &amp; CSV</b>, include subpages, and start it.
+      Notion emails a download link when the zip is ready, valid for a week; large
+      workspaces take a while. Unzip it somewhere you can look at.</p>
+      <p>What you get is a folder tree. Every page is a Markdown file, every page with
+      children is also a folder of the same name, and every file name ends with the
+      page's Notion id, like <code>Reading list 3f2a9c1b7d4e4a0c9b1e6f2d8c5a7b90.md</code>. Databases become CSV
+      files, one per database, plus a folder of Markdown files for their rows. Images
+      and attachments sit next to the pages that use them.</p>
+
+      <h2>2. Look at the export before importing it</h2>
+      <p>Open a few files. Headings, todos, code blocks and tables are plain Markdown and
+      will import as those blocks. Callouts are exported as HTML, which importers read as
+      text. Links between pages are relative Markdown links with encoded spaces; most
+      importers, Selfnote's included, do not resolve those. Decide now whether you want
+      the databases: a CSV is a spreadsheet, not a page, and no page-based tool will turn
+      it back into a board view.</p>
+      <p>If you want tidy titles, this is the moment to strip the id suffixes. On a Mac or
+      Linux, from inside the export folder:</p>
+<pre><code>find . -depth -name '* [0-9a-f]*' -exec sh -c '
+  for p; do
+    n="$(dirname "$p")/$(basename "$p" | sed -E "s/ [0-9a-f]{32}//")"
+    [ "$n" = "$p" ] || mv -n "$p" "$n"
+  done
+' sh {} +</code></pre>
+      <p>The <code>-n</code> matters: if two pages shared a title, which Notion allowed and
+      most tools do not, the second one keeps its id instead of overwriting the first.
+      Spot check the result and rename those by hand.</p>
+
+      <h2>3. Import into Selfnote</h2>
+      <p>In the Selfnote web client, open the gear menu at the bottom of the sidebar and
+      choose <b>Import Obsidian vault</b>, then pick the export folder. The importer treats
+      it like an Obsidian vault:</p>
+      <ul>
+        <li>folders become pages, nested the way the folders were nested,</li>
+        <li>each Markdown file becomes a page under its folder, with YAML frontmatter
+        titles respected,</li>
+        <li>images referenced by the pages are uploaded and shown in place,</li>
+        <li>todos stay checkboxes, tables stay tables, code stays code,</li>
+        <li>wiki-style <code>[[links]]</code> are resolved to page links.</li>
+      </ul>
+      <p>Three things a Notion export does that the importer does not yet handle, tracked
+      in <a href="https://github.com/fulviodenza/selfnote/issues/115">issue #115</a>:</p>
+      <ul>
+        <li>a Notion page with children is exported as both a file and a folder of the same
+        name, so it arrives twice: an empty page holding the children and a page with the
+        content beside it. Drag the children under the content page and delete the empty
+        one, or leave the pair until the importer merges them,</li>
+        <li>Notion's links between pages arrive as links that point nowhere. Replace the
+        ones you use with <code>[[</code> links, which is step 5,</li>
+        <li>callouts arrive as their text, since Notion exports them as HTML.</li>
+      </ul>
+      <p>CSV files are skipped. If a database matters, open its CSV in a spreadsheet and
+      paste what you need into a table block, or keep the CSV as an attached file on a
+      page.</p>
+
+      <h2>4. Label everything</h2>
+      <p>A big import lands as a tree with no labels. Labels are hidden until you switch
+      them on with the <b>Labels</b> entry in the sidebar; once they are on, the import
+      dialog also offers <b>Label all notes (AI)</b> if your server has an AI provider,
+      which reads every page and tags it. Review the result page by page, since labels
+      are easy to change. With no provider, labels are a few minutes with the picker on
+      the pages that matter.</p>
+
+      <h2>5. Rebuild the links that mattered</h2>
+      <p>Notion's links arrived pointing nowhere, so search for pages that mention other
+      pages by name and link them with <code>[[</code>. The backlinks panel then shows you
+      the web you had in Notion, and the graph view shows the shape of it. This is the one
+      part that is manual, and it is also the part that tells you which links you actually
+      used.</p>
+
+      <h2>6. Check you can leave again</h2>
+      <p>Before you delete the Notion workspace, make sure the new home passes the test
+      Notion just failed: take a backup of the Postgres database and keep it somewhere
+      else. With Selfnote the database is the whole workspace, so a dump of it is a
+      complete, restorable export, and the Helm chart does this on a schedule. Then close
+      the Notion account, or leave it read only for a month; nobody has ever regretted
+      the month.</p>
+
+      <h2>What you gain</h2>
+      <p>Your notes on a machine you control, offline editing that merges, no per-seat bill,
+      an AI assistant whose provider you choose, and a database you can back up with one
+      command. What you give up is in
+      <a href="/notion-alternative.html">the honest comparison</a>. If Selfnote is not the
+      right shape, the same export works for
+      <a href="/articles/self-hosted-notion-alternatives.html">the other self-hosted
+      options</a>.</p>
+
+    </article>
+  </div>
+</div>
+
+<footer class="site-foot">
+  <div class="wrap">
+    <span>Selfnote</span>
+    <a href="/docs/">Documentation</a>
+    <a href="/articles/">Articles</a>
+    <a href="/notion-alternative.html">Notion alternative</a>
+    <a href="/support.html">Support</a>
+    <a href="/privacy.html">Privacy</a>
+    <span class="spacer"></span>
+    <a href="https://github.com/fulviodenza/selfnote">Source on GitHub</a>
+    <a href="https://github.com/fulviodenza/selfnote/blob/main/LICENSE">License</a>
+  </div>
+</footer>
+
+</body>
+</html>
