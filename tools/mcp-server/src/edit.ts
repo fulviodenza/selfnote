@@ -133,6 +133,20 @@ export async function docsToMarkdownMany(
   return out;
 }
 
+/** Markdown to BlockNote blocks, callouts and math included. */
+export function markdownToBlocks(markdown: string): Promise<any[]> {
+  return parseMarkdown(editor(), markdown);
+}
+
+/**
+ * Diff that replaces the whole note body with `blocks`, for callers that need
+ * something Markdown cannot carry, such as a `selfnote:<id>` note reference
+ * (the Markdown parser drops hrefs in schemes it does not know).
+ */
+export function replaceBlocksDiff(updatesBase64: string[], blocks: any[]): string {
+  return diffToBlocks(loadDoc(updatesBase64), blocks);
+}
+
 /** Diff that appends `markdown`'s blocks after the note's existing content. */
 export async function appendMarkdownDiff(
   updatesBase64: string[],
