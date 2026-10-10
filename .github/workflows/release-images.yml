@@ -134,10 +134,13 @@ jobs:
       matrix:
         image: ${{ fromJSON(needs.plan.outputs.images) }}
     steps:
+      # A full checkout, on purpose. Every job on this runner shares one
+      # workspace. A non-cone sparse checkout of deploy/ci here writes
+      # core.sparseCheckout into .git/config, and the next job's
+      # `git sparse-checkout disable` (which actions/checkout runs) does not
+      # clear that, so the APK build that followed found no apps/mobile
+      # (issue #111).
       - uses: actions/checkout@v4
-        with:
-          sparse-checkout: deploy/ci
-          sparse-checkout-cone-mode: false
 
       - uses: azure/setup-kubectl@v4
         with:
