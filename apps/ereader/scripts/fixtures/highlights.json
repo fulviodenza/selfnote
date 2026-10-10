@@ -1,0 +1,92 @@
+{
+  "epub": [
+    {
+      "text": "The sea does not rise at an even pace.",
+      "cfi": "epubcfi(/6/4!/4/14,/1:285,/1:323)"
+    },
+    {
+      "text": "Once you have the rhythm, the shore starts to make sense as a set of bands.",
+      "cfi": "epubcfi(/6/4!/4/18,/1:0,/1:75)"
+    },
+    {
+      "text": "they begin the long work of turning the sea’s leftovers into food for everything else",
+      "cfi": "epubcfi(/6/6!/4/10,/1:267,/1:352)"
+    },
+    {
+      "text": "Two or three lines, one above another, record a sequence of falling tides after a spring peak",
+      "cfi": "epubcfi(/6/6!/4/14,/1:109,/1:202)"
+    }
+  ],
+  "epubPosition": "epubcfi(/6/6!/4/10/1:0)",
+  "pdf": [
+    {
+      "text": "A rain garden reverses that pattern on a small scale.",
+      "locator": {
+        "page": 1,
+        "rects": [
+          {
+            "x": 0.1176,
+            "y": 0.3742,
+            "w": 0.4196,
+            "h": 0.0164
+          }
+        ]
+      }
+    },
+    {
+      "text": "pools to a depth of six to twelve inches before any excess spills out",
+      "locator": {
+        "page": 2,
+        "rects": [
+          {
+            "x": 0.4183,
+            "y": 0.1432,
+            "w": 0.4641,
+            "h": 0.0164
+          },
+          {
+            "x": 0.1176,
+            "y": 0.1646,
+            "w": 0.0714,
+            "h": 0.0164
+          }
+        ]
+      }
+    },
+    {
+      "text": "lets water move downward quickly while still trapping fine particles",
+      "locator": {
+        "page": 2,
+        "rects": [
+          {
+            "x": 0.3263,
+            "y": 0.6331,
+            "w": 0.5353,
+            "h": 0.0164
+          }
+        ]
+      }
+    },
+    {
+      "text": "make the basin about one fifth of that drainage area",
+      "locator": {
+        "page": 3,
+        "rects": [
+          {
+            "x": 0.8399,
+            "y": 0.1432,
+            "w": 0.0425,
+            "h": 0.0164
+          },
+          {
+            "x": 0.1176,
+            "y": 0.1646,
+            "w": 0.3616,
+            "h": 0.0164
+          }
+        ]
+      }
+    }
+  ],
+  "pdfFigurePage": 2
+}

@@ -1,10 +1,11 @@
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { StatusBar } from "expo-status-bar";
 import { Connect } from "./src/Connect";
 import { Library } from "./src/Library";
 import { Reader } from "./src/Reader";
 import { listBooks, type Book } from "./src/db";
 import { loadConnection, type Connection } from "./src/selfnote";
+import { readTour } from "./src/tour";
 
 type Screen = { name: "library" } | { name: "connect" } | { name: "reader"; book: Book };
 
@@ -22,6 +23,18 @@ export default function App() {
   useEffect(() => {
     loadConnection().then(setConnection).catch(() => setConnection(null));
   }, []);
+
+  // The screenshot tour opens its book once the shelf has loaded, and only
+  // from the shelf, so it never pulls the user out of anything.
+  const toured = useRef(false);
+  useEffect(() => {
+    if (toured.current || !books.length) return;
+    toured.current = true;
+    void readTour().then((tour) => {
+      const book = tour?.open ? books.find((b) => b.id === tour.open) : undefined;
+      if (book) setScreen((s) => (s.name === "library" ? { name: "reader", book } : s));
+    });
+  }, [books]);
 
   return (
     <>

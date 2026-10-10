@@ -29,6 +29,7 @@ import { pdfReaderHtml, readerHtml } from "@selfnote/reader";
 const READER_SOURCE = { html: readerHtml };
 const PDF_SOURCE = { html: pdfReaderHtml };
 import { PagePicker } from "./PagePicker";
+import { readTour } from "./tour";
 // Ink goes through PencilKit, not the WebView: pointer events in WKWebView are
 // batched to display rate with no low-latency path, which reads as lag under a
 // Pencil, and the web view's internal recognizers can still swallow touches.
@@ -201,6 +202,23 @@ export function Reader({
     if (highlights.length) return;
     setSyncNote((n) => n ?? { kind: "ok", text: "Select text, then tap Save highlight" });
   }, [isPdf, loading, marksLoaded, highlights.length]);
+
+  // The screenshot tour, once per mount. Waits for "opened" as well as the
+  // notes: the PDF page drops a goto that arrives before its document loads.
+  const toured = useRef(false);
+  useEffect(() => {
+    if (loading || !marksLoaded || toured.current) return;
+    toured.current = true;
+    void readTour().then((tour) => {
+      if (!tour) return;
+      if (tour.page && isPdf) post({ type: "goto", page: tour.page });
+      if (!tour.note) return;
+      const at = tour.page && isPdf ? tour.page : isPdf ? currentPage.current : currentSection.current;
+      const pages = notePagesRef.current;
+      const first = pages.find((p) => p.after_page >= at) ?? pages[0];
+      if (first) post({ type: "showNote", id: first.id });
+    });
+  }, [loading, marksLoaded, isPdf, post]);
 
   useEffect(() => {
     if (syncNote?.kind !== "ok") return;
