@@ -477,6 +477,10 @@ async function turn(direction: "next" | "prev"): Promise<void> {
     if (end && end.displayed && end.displayed.page >= end.displayed.total) {
       if (notesAfter(end.index).length) return showNote(end.index, 0, "before");
     }
+    // Nowhere to go past either end. epub.js would re-report the same page,
+    // and nothing in move() should depend on it doing so: a missed report
+    // waits out the landing timeout and stalls every turn queued behind it.
+    if (loc?.atEnd) return;
     return move("next");
   }
   if (noteSection !== null && noteIndex !== null) {
@@ -497,6 +501,7 @@ async function turn(direction: "next" | "prev"): Promise<void> {
     const before = prev ? notesAfter(prev.index) : [];
     if (before.length) return showNote(prev.index, before.length - 1, "after");
   }
+  if (loc?.atStart) return;
   return move("prev");
 }
 

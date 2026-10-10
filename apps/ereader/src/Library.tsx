@@ -14,7 +14,9 @@ import {
   bookUri,
   booksFinishedSince,
   deleteBookRow,
+  docUri,
   getNumberSetting,
+  listNotePages,
   readingSecondsSince,
   setFinished,
   setNumberSetting,
@@ -107,6 +109,16 @@ export function Library({
             // File first: if this throws, the row survives and the book still
             // opens, which beats a ghost row pointing at nothing.
             await FileSystem.deleteAsync(bookUri(book), { idempotent: true }).catch(() => {});
+            // Copied images live in a folder per insert. The rows go with the
+            // book; the folders would not, so they go first.
+            const pages = await listNotePages(book.id).catch(() => []);
+            for (const p of pages) {
+              try {
+                await FileSystem.deleteAsync(docUri(`notes/${p.id}`), { idempotent: true });
+              } catch {
+                /* an orphaned image costs disk, not correctness */
+              }
+            }
             await deleteBookRow(book.id);
             onChanged();
           },

@@ -163,6 +163,7 @@ export function Reader({
       const rows = await listHighlights(book.id);
       if (cancelled) return;
       setHighlights(rows);
+      setMarksLoaded(true);
       post({ type: "highlights", items: rows.map((h) => toWire(h, syncing, isPdf)) });
     })().catch((err) => Alert.alert("Could not open this book", String(err)));
     return () => {
@@ -182,6 +183,18 @@ export function Reader({
     // undo the incremental drawing the page does.
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [syncing, ready]);
+
+  // How to highlight, said once when an EPUB with none opens. On the status
+  // strip because it overlays the book: a hint line of its own in the layout
+  // would resize the WebView and repaginate it.
+  const [marksLoaded, setMarksLoaded] = useState(false);
+  const hinted = useRef(false);
+  useEffect(() => {
+    if (isPdf || loading || !marksLoaded || hinted.current) return;
+    hinted.current = true;
+    if (highlights.length) return;
+    setSyncNote((n) => n ?? { kind: "ok", text: "Select text, then tap Save highlight" });
+  }, [isPdf, loading, marksLoaded, highlights.length]);
 
   useEffect(() => {
     if (syncNote?.kind !== "ok") return;
@@ -276,9 +289,19 @@ export function Reader({
             setBook((b) => ({ ...b, title: msg.title.trim(), author: msg.author ?? b.author }));
           }
           return;
-        case "noteStrokes":
-          void saveNoteStrokes(msg.id, msg.strokes);
+        case "noteStrokes": {
+          // The web insert canvas only ever writes legacy vectors. Once the
+          // native canvas has saved a note its row carries pk, and a stray
+          // web stroke (a touch below the native paper, say) must not
+          // overwrite that drawing with a bare array.
+          const stored = notePagesRef.current.find((p) => p.id === msg.id);
+          if (stored && hasPencilKit(stored.strokes)) return;
+          const images = noteImages(stored?.strokes);
+          const strokes: string = images.length ? withImages(msg.strokes, images) : msg.strokes;
+          void saveNoteStrokes(msg.id, strokes);
+          setNotePages((pages) => pages.map((p) => (p.id === msg.id ? { ...p, strokes } : p)));
           return;
+        }
         case "location":
           setOnNote(msg.noteId ?? null);
           if (isPdf && msg.cfi) currentPage.current = Number(msg.cfi) || 1;
@@ -466,14 +489,26 @@ export function Reader({
     setRect(null);
   }, []);
 
+  // Capture is modal: the pager is inert while it runs, but a location message
+  // can still open an insert under the overlay, and a copy made then would land
+  // on a page whose images are already frozen for display.
+  useEffect(() => {
+    if (capturing && onNote) cancelCapture();
+  }, [capturing, onNote, cancelCapture]);
+
   const copyArea = useCallback(async () => {
     if (!rect || rect.w < MIN_RECT || rect.h < MIN_RECT || !bookBox.w || !bookBox.h) return;
     setCopying(true);
     let snapshot: string | null = null;
+    // The cropped PNG while it is still a temporary file, then where it moved.
+    let png: string | null = null;
+    let moved: string | null = null;
+    let show: string | null = null;
     try {
       snapshot = await captureRef(shot, { format: "png", result: "tmpfile" });
-      const full = await ImageManipulator.manipulate(snapshot).renderAsync();
-      // The snapshot is in pixels and the rectangle in points.
+      // Read from the file's header, so the snapshot is decoded once, for the
+      // crop. It is in pixels and the rectangle in points.
+      const full = await Image.getSize(snapshot);
       const scale = full.width / bookBox.w;
       const originX = clamp(Math.round(rect.x * scale), 0, full.width - 1);
       const originY = clamp(Math.round(rect.y * scale), 0, full.height - 1);
@@ -483,21 +518,39 @@ export function Reader({
         width: Math.max(1, Math.min(Math.round(rect.w * scale), full.width - originX)),
         height: Math.max(1, Math.min(Math.round(rect.h * scale), full.height - originY)),
       };
-      const cropped = await ImageManipulator.manipulate(snapshot).crop(crop).renderAsync();
-      const png = await cropped.saveAsync({ format: SaveFormat.PNG });
+      // Both hold native image memory until released, which the garbage
+      // collector gets round to whenever it likes.
+      const context = ImageManipulator.manipulate(snapshot).crop(crop);
+      try {
+        const cropped = await context.renderAsync();
+        try {
+          png = (await cropped.saveAsync({ format: SaveFormat.PNG })).uri;
+        } finally {
+          cropped.release();
+        }
+      } finally {
+        context.release();
+      }
 
       const paper = paperBox.w
         ? paperBox
         : { w: bookBox.w - 2 * PAPER_INSET.x, h: bookBox.h - 2 * PAPER_INSET.y };
       const aspect = crop.height / crop.width;
       const at = anchor();
-      // The first insert after this page takes it, unless it is full, in which
-      // case the image starts a new one rather than hanging off the bottom.
-      let target: NotePage | null =
-        notePagesRef.current
-          .filter((p) => p.after_page === at)
-          .sort((a, b) => a.position - b.position)[0] ?? null;
-      let box = target ? placeImage(noteImages(target.strokes), aspect, paper) : null;
+      // The first insert after this page with room takes it. Only when every
+      // one is full does the image start a new one, rather than hang off the
+      // bottom of a full page.
+      let target: NotePage | null = null;
+      let box: Omit<NoteImage, "file"> | null = null;
+      for (const p of notePagesRef.current
+        .filter((n) => n.after_page === at)
+        .sort((a, b) => a.position - b.position)) {
+        box = placeImage(noteImages(p.strokes), aspect, paper);
+        if (box) {
+          target = p;
+          break;
+        }
+      }
       if (!target || !box) {
         target = await addNotePage(book.id, at);
         box = placeImage([], aspect, paper)!;
@@ -506,23 +559,35 @@ export function Reader({
       const dir = `notes/${target.id}`;
       const file = `${dir}/${Date.now()}-${Math.random().toString(36).slice(2, 10)}.png`;
       await FileSystem.makeDirectoryAsync(docUri(dir), { intermediates: true });
-      await FileSystem.moveAsync({ from: png.uri, to: docUri(file) });
+      await FileSystem.moveAsync({ from: png, to: docUri(file) });
+      png = null;
+      moved = docUri(file);
 
       const envelope = withImages(target.strokes, [...noteImages(target.strokes), { file, ...box }]);
       await saveNoteStrokes(target.id, envelope);
-      const pages = await listNotePages(book.id);
-      setNotePages(pages);
-      post({ type: "notes", items: pages });
+      moved = null;
       setCapturing(false);
       setRect(null);
-      post({ type: "showNote", id: target.id });
+      show = target.id;
     } catch (err) {
+      // An image no row points at is never shown and never cleaned up.
+      if (moved) await FileSystem.deleteAsync(moved, { idempotent: true }).catch(() => undefined);
       Alert.alert("Could not copy this area", err instanceof Error ? err.message : String(err));
     } finally {
       setCopying(false);
-      if (snapshot) {
-        FileSystem.deleteAsync(snapshot, { idempotent: true }).catch(() => undefined);
+      for (const tmp of [snapshot, png]) {
+        if (tmp) FileSystem.deleteAsync(tmp, { idempotent: true }).catch(() => undefined);
       }
+      // Refreshed either way: a failure can still leave a new insert behind,
+      // and the list must show what the database holds.
+      try {
+        const pages = await listNotePages(book.id);
+        setNotePages(pages);
+        post({ type: "notes", items: pages });
+      } catch {
+        /* the next open reloads the list */
+      }
+      if (show) post({ type: "showNote", id: show });
     }
   }, [anchor, book.id, bookBox, paperBox, post, rect]);
 
@@ -706,7 +771,9 @@ export function Reader({
       <View style={styles.pager}>
         <TouchableOpacity
           style={styles.pageBtn}
-          onPress={() => post({ type: "turn", direction: "prev" })}
+          onPress={() => {
+            if (!capturing) post({ type: "turn", direction: "prev" });
+          }}
           hitSlop={14}
           accessibilityLabel="Previous page"
         >
@@ -717,11 +784,24 @@ export function Reader({
           {/* Available on an insert too: several pages of working after one
               exercise is normal. The writing tools themselves live in the
               floating system picker, and Delete page sits in the top bar. */}
-          <TouchableOpacity style={styles.addPageBtn} onPress={insertNotePage}>
+          {/* Inert during capture, like the chevrons: an insert opened under
+              the overlay would take the copy without showing it. */}
+          <TouchableOpacity
+            style={styles.addPageBtn}
+            onPress={() => {
+              if (!capturing) void insertNotePage();
+            }}
+          >
             <Text style={styles.addPageText}>+ Blank page</Text>
           </TouchableOpacity>
           {!onNote && !loading ? (
-            <TouchableOpacity style={styles.addPageBtn} onPress={startCapture} disabled={capturing}>
+            <TouchableOpacity
+              style={styles.addPageBtn}
+              onPress={() => {
+                if (!capturing) startCapture();
+              }}
+              disabled={capturing}
+            >
               <Text style={styles.addPageText}>Copy area</Text>
             </TouchableOpacity>
           ) : null}
@@ -729,7 +809,9 @@ export function Reader({
 
         <TouchableOpacity
           style={styles.pageBtn}
-          onPress={() => post({ type: "turn", direction: "next" })}
+          onPress={() => {
+            if (!capturing) post({ type: "turn", direction: "next" });
+          }}
           hitSlop={14}
           accessibilityLabel="Next page"
         >
@@ -785,6 +867,17 @@ function noteImages(strokes: string | undefined): NoteImage[] {
     return !Array.isArray(parsed) && Array.isArray(parsed?.images) ? parsed.images : [];
   } catch {
     return [];
+  }
+}
+
+/** Whether an insert's ink is already a PencilKit drawing. */
+function hasPencilKit(strokes: string | undefined): boolean {
+  if (!strokes) return false;
+  try {
+    const parsed = JSON.parse(strokes);
+    return !Array.isArray(parsed) && typeof parsed?.pk === "string";
+  } catch {
+    return false;
   }
 }
 
