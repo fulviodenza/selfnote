@@ -463,13 +463,21 @@ export function editorHtml(theme: "light" | "dark"): string {
         return Object.prototype.hasOwnProperty.call(CALLOUT_ALIASES, k) ? CALLOUT_ALIASES[k] : null;
       }
 
+      // The editor's contenteditable root, or null if the view is not ready.
+      function editorDom(editor) {
+        try {
+          return (editor._tiptapEditor && editor._tiptapEditor.view && editor._tiptapEditor.view.dom) || null;
+        } catch {
+          return null;
+        }
+      }
+
       // Input rule: on the trailing space after "[!kind]" at the start of an
       // empty paragraph, convert it to a callout. Implemented as a keydown on the
       // editor DOM (the WebView bundle has no prosemirror-inputrules import), so
       // it mirrors the web editor's behavior closely without extra deps.
       function setupCalloutInputRule(editor) {
-        let dom = null;
-        try { dom = editor._tiptapEditor && editor._tiptapEditor.view && editor._tiptapEditor.view.dom; } catch {}
+        const dom = editorDom(editor);
         if (!dom) return;
         dom.addEventListener("keydown", (e) => {
           if (e.key !== " " && e.key !== "Spacebar") return;
@@ -497,8 +505,7 @@ export function editorHtml(theme: "light" | "dark"): string {
       // equivalent. Inline math still reaches mobile through pasted or synced
       // Markdown, and renders and edits identically once there.
       function setupMathInputRule(editor) {
-        let dom = null;
-        try { dom = editor._tiptapEditor && editor._tiptapEditor.view && editor._tiptapEditor.view.dom; } catch {}
+        const dom = editorDom(editor);
         if (!dom) return;
         dom.addEventListener("keydown", (e) => {
           if (e.key !== " " && e.key !== "Spacebar") return;
@@ -517,26 +524,53 @@ export function editorHtml(theme: "light" | "dark"): string {
         }, true);
       }
 
-      // iPad Return during composition (autocorrect, predictive text) arrives
-      // as keyCode 229, so ProseMirror's Enter keymap never sees it and WebKit
-      // runs its native contenteditable split instead: an empty line above,
-      // caret left at the start of the line. Catch that default insertParagraph
-      // and replay the editor's own Enter, so lists, checklists and the slash
-      // menu keep their usual behavior. On the normal path ProseMirror handles
-      // Enter at keydown and cancels it, so this never fires.
+      // iPad Return while autocorrect or predictive text is pending arrives as
+      // keydown keyCode 229. ProseMirror ignores that keydown, so WebKit runs its
+      // native contenteditable split: an empty line above, caret left at the
+      // start of the line. This catches that default insertParagraph and runs
+      // the editor's own Enter instead, so lists, checklists and other block
+      // specific Enter behavior stay the same.
+      //
+      // It must stay out of the plain Return path. On iOS ProseMirror does not
+      // handle Enter at keydown either: for keyCode 13 it lets the native split
+      // happen, recognizes it in the DOM observer and replaces it with its own
+      // Enter, with a 200ms fallback (view.input.lastIOSEnter) that replays
+      // Enter if no split was seen. Cancelling that split and replaying here
+      // would make the fallback fire too and insert two paragraphs. So the shim
+      // only engages when the last keydown was 229 or there was no keydown.
       function setupParagraphInputShim(editor) {
-        let tiptap = null;
-        try { tiptap = editor._tiptapEditor; } catch {}
-        const dom = tiptap && tiptap.view && tiptap.view.dom;
+        const dom = editorDom(editor);
         if (!dom) return;
+        const view = editor._tiptapEditor.view;
+        let lastKeyCode = null;
+        dom.addEventListener("keydown", (e) => { lastKeyCode = e.keyCode; }, true);
         dom.addEventListener("beforeinput", (e) => {
           if (e.inputType !== "insertParagraph") return;
-          if (!(e.target instanceof Node) || !dom.contains(e.target)) return;
+          if (!editable) return;
+          if (lastKeyCode !== null && lastKeyCode !== 229) return;
           // A non-cancelable event would still run WebKit's own split after
           // ours, inserting the paragraph twice. Leave those to WebKit.
           if (!e.cancelable) return;
+          // Never dispatch mid-composition: that can duplicate or drop the word
+          // being composed. WebKit keeps its native behavior in that case.
+          if (view.composing) return;
+          let handled = false;
+          try {
+            // The same call ProseMirror's own iOS Enter fallback makes. Unlike
+            // tiptap's keyboardShortcut command, it reports whether a handler
+            // took the key, so an unclaimed Return is never swallowed.
+            const enter = new KeyboardEvent("keydown", { key: "Enter", code: "Enter", keyCode: 13, bubbles: true, cancelable: true });
+            handled = !!view.someProp("handleKeyDown", (f) => f(view, enter));
+          } catch (err) {
+            send({ type: "console", level: "error", text: "enter shim failed: " + err });
+          }
+          if (!handled) return;
           e.preventDefault();
-          try { tiptap.commands.keyboardShortcut("Enter"); } catch {}
+          // Internal ProseMirror state: make sure no pending iOS Enter fallback
+          // replays on top of ours. Skipped when the field does not exist.
+          try {
+            if (view.input && "lastIOSEnter" in view.input) view.input.lastIOSEnter = 0;
+          } catch {}
         }, true);
       }
 
@@ -568,8 +602,7 @@ export function editorHtml(theme: "light" | "dark"): string {
       }
 
       function setupMarkdownPaste(editor) {
-        let dom = null;
-        try { dom = editor._tiptapEditor && editor._tiptapEditor.view && editor._tiptapEditor.view.dom; } catch {}
+        const dom = editorDom(editor);
         if (!dom) return;
         dom.addEventListener("paste", (e) => {
           // Writes through replaceBlocks/insertBlocks rather than ProseMirror,
@@ -638,10 +671,9 @@ export function editorHtml(theme: "light" | "dark"): string {
       // the whole document. Capture-phase so it beats ProseMirror's handler.
       // Mirrors packages/editor/src/selectAll.ts.
       function setupSelectAll(editor) {
+        const dom = editorDom(editor);
+        if (!dom) return;
         const tiptap = editor._tiptapEditor;
-        let dom = null;
-        try { dom = tiptap && tiptap.view && tiptap.view.dom; } catch {}
-        if (!dom || !tiptap) return;
         dom.addEventListener("keydown", (e) => {
           if (!(e.metaKey || e.ctrlKey) || e.shiftKey || e.altKey) return;
           if (e.key !== "a" && e.key !== "A") return;
