@@ -81,6 +81,7 @@ import { AssetsScreen } from "./src/screens/AssetsScreen";
 import { ShelfScreen, type Shelf } from "./src/screens/ShelfScreen";
 import { CalendarFeedSection } from "./src/screens/CalendarFeedSection";
 import { VoiceSection } from "./src/screens/VoiceSection";
+import { readTour, type Tour } from "./src/tour";
 
 const COLLAPSED_KEY = "selfnote.collapsed";
 const TABS_KEY = "selfnote.tabs";
@@ -288,8 +289,39 @@ function AppInner() {
     setPhase(restored ? "app" : "auth");
   }, []);
 
+  /**
+   * App Store screenshot runs only (src/tour.ts): point at the demo server,
+   * sign in, and open the screen the tour names. False sends boot down the
+   * normal path.
+   */
+  const startTour = useCallback(
+    async (tour: Tour): Promise<boolean> => {
+      try {
+        await saveSettings(tour.server);
+        await api.login(tour.login.email, tour.login.password);
+        const ws = await ensureWorkspace();
+        setWorkspaceId(ws);
+        if (tour.open === "graph") setShowGraph(true);
+        else if (tour.open === "tasks") setShowTasks(true);
+        else if (typeof tour.open === "object") {
+          const title = tour.open.note;
+          const doc = (await api.listDocuments(ws)).find((d) => d.title === title);
+          if (doc) openPage(doc);
+        }
+        setPhase("app");
+        return true;
+      } catch {
+        return false;
+      }
+    },
+    [openPage],
+  );
+
   useEffect(() => {
     (async () => {
+      // No tour file (every real launch) means no change to the boot below.
+      const tour = await readTour();
+      if (tour && (await startTour(tour))) return;
       await loadSettings();
       // No server configured yet → first-launch onboarding to pick the instance.
       if (!isConfigured()) {
@@ -298,7 +330,7 @@ function AppInner() {
       }
       await goPostConfig();
     })();
-  }, [goPostConfig]);
+  }, [goPostConfig, startTour]);
 
   // Android back: close the topmost thing, one level at a time. The editor
   // registers its own handler for its overlays (RN runs handlers LIFO, so the
