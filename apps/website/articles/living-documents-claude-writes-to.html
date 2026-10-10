@@ -1,0 +1,143 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Living documents Claude writes to | Selfnote</title>
+  <meta name="description" content="How Claude can append to and update your notes over MCP without ever rewriting them behind your back: staged proposals, CRDT merges, version history and save_conversation." />
+  <meta property="og:title" content="Living documents Claude writes to" />
+  <meta property="og:description" content="How Claude can append to and update your notes over MCP without ever rewriting them behind your back: staged proposals, CRDT merges, version history and save_conversation." />
+  <meta property="og:site_name" content="Selfnote" />
+  <meta property="og:type" content="article" />
+  <script type="application/ld+json">
+  {"@context":"https://schema.org","@type":"Article","headline":"Living documents Claude writes to","description":"How Claude can append to and update your notes over MCP without ever rewriting them behind your back: staged proposals, CRDT merges, version history and save_conversation.","datePublished":"2026-10-10","dateModified":"2026-10-10","author":{"@type":"Organization","name":"Selfnote"},"publisher":{"@type":"Organization","name":"Selfnote"}}
+  </script>
+  <link rel="icon" type="image/png" href="/assets/favicon.png" />
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+  <link href="https://fonts.googleapis.com/css2?family=Source+Serif+4:opsz,wght@8..60,400..700&family=Inter+Tight:wght@400..700&display=swap" rel="stylesheet" />
+  <link rel="stylesheet" href="/assets/site.css" />
+</head>
+<body>
+
+<header class="site-head">
+  <div class="wrap">
+    <a class="brand" href="/"><img src="/assets/logo.png" alt="" />Selfnote</a>
+    <nav class="site-nav">
+      <a href="/docs/">Docs</a>
+      <a href="/use-cases.html" class="hide-sm">Use cases</a>
+      <a href="/resources.html" class="hide-sm">Resources</a>
+      <a href="/articles/" class="hide-sm" aria-current="page">Articles</a>
+      <a href="/ereader/" class="hide-sm">eReader</a>
+      <a href="/download.html">Download</a>
+      <a href="https://github.com/fulviodenza/selfnote">GitHub</a>
+    </nav>
+  </div>
+</header>
+
+<div class="docs-shell">
+  <div class="wrap" style="display:block">
+    <article class="prose">
+      <h1>Living documents Claude writes to</h1>
+      <p class="subtitle">A note that grows across weeks of unrelated conversations, with every edit arriving as a diff you accept. How the proposal pipeline works and why it exists.</p>
+      <p>Most AI writing features produce a block of text you paste somewhere. The
+      interesting thing happens when the AI can edit the page itself, over time, from
+      anywhere, and the page keeps being yours. That is a living document, and getting it
+      right is mostly about restraint.</p>
+
+      <h2>The pattern</h2>
+      <p>You keep a note called "Feature ideas", or "Reading list", or "Things to tell the
+      accountant". Over the following weeks you have conversations with Claude about
+      unrelated things, and now and then you say "add that to my feature ideas". Claude
+      finds the note, reads it, appends a few lines in the same style, and moves on. The
+      note grows on every device you own, in the place you would look for it.</p>
+      <p>What makes this different from pasting is that nothing is lost in the handoff:
+      Claude sees the existing content before writing, so new entries respect the structure
+      already there; the edit lands as a real change to a real collaborative document, so
+      it merges with whatever you were typing on your phone at the same moment; and you
+      never have to be at the notes app for it to happen.</p>
+
+      <h2>Why the edits are proposals</h2>
+      <p>The obvious implementation is to let the MCP tool write straight into the page.
+      Selfnote did that first and took it out. A model with a token can rewrite a whole
+      document, and a remote tool call from a chat you are not looking at should not be
+      able to do that silently.</p>
+      <p>So every body edit that originates from AI, whether it is Claude over MCP or the
+      Assist panel inside the app, becomes a <em>proposal</em>. The server computes the
+      change against the note's current state, stores it alongside a Markdown rendering of
+      the page before and after, and leaves the note untouched. The app shows a badge on
+      the note, you open the diff, and you accept or reject. Accepting applies the change
+      as a normal edit. Rejecting discards it. If the note moved on underneath while a
+      proposal waited, the server recomputes the change against the new state, and if it
+      can no longer be applied cleanly the proposal is marked superseded rather than
+      forced.</p>
+      <p>Metadata is treated differently on purpose. Moving a note, renaming it, labelling
+      it, or trashing it applies immediately through the MCP, because each of those is one
+      gesture to undo in the app and the diff would add friction for no safety. Body text
+      is where the damage can hide, so body text gets the review.</p>
+
+      <h2>How a merge works underneath</h2>
+      <p>Every Selfnote note is a Yjs document, a CRDT, which is what lets two people type
+      in the same sentence while one of them is offline. The MCP server does not send
+      Markdown to be pasted; it reconstructs the Yjs document, applies the change to it, and
+      produces an incremental update that the sync server merges like any client's
+      keystrokes. That is why an accepted proposal appears instantly in every open editor,
+      and why Claude's append and your simultaneous edit never collide.</p>
+
+      <h2>Save the conversation, then keep it alive</h2>
+      <p>The simplest living document is the one <code>save_conversation</code> creates:
+      a summary of a chat filed as a sub-page under a "Conversations" note, or under any
+      note you name. Over months that parent becomes a searchable log of everything you
+      worked through with Claude, each entry linked back from the place it was about. Later,
+      from a new chat, "what did I conclude about the ingress controller" is a search and
+      a read away.</p>
+      <p>The <a href="https://github.com/fulviodenza/selfnote/tree/main/skills/save-to-selfnote">save-to-selfnote
+      skill</a> makes the summaries good: a one line overview, the decisions as bullets, the
+      open questions, no transcript. Teaching the model what a good note looks like is most
+      of the work, and it is work you do once.</p>
+
+      <h2>What keeps it honest</h2>
+      <ul>
+        <li><b>Version history.</b> Every note has a timeline of restore points, saved
+        automatically and on demand. A restore is a new forward edit, so even a bad accept
+        is recoverable and nothing is ever destroyed.</li>
+        <li><b>A record.</b> Every proposal keeps its origin, who resolved it and when,
+        and the before and after text, so you can see afterwards which edits came from
+        the AI and what they changed.</li>
+        <li><b>The token.</b> One personal access token, revocable in one tap, is the
+        entire authority the MCP server has.</li>
+        <li><b>Your server.</b> The proposal, the diff and the note never visit anyone
+        else's infrastructure, unless you chose a cloud provider for the model itself.</li>
+      </ul>
+
+      <h2>Try it in one afternoon</h2>
+      <p>Create a note called "Ideas". <a href="/docs/mcp.html">Connect Claude</a>. In your
+      next unrelated chat, when something is worth keeping, say "append this to my Ideas
+      note". Open the app, read the diff, accept it. Then do it again next week without
+      thinking about it. That is the whole feature, and it is quietly the most useful
+      thing a notebook has learned to do in a long while.</p>
+
+      <div class="callout"><p>Related: <a href="/articles/what-claude-can-do-with-your-notes.html">what
+      Claude can do with your notes over MCP</a> and
+      <a href="/articles/ai-summaries-you-can-trust.html">AI summaries you can
+      trust</a>.</p></div>
+
+    </article>
+  </div>
+</div>
+
+<footer class="site-foot">
+  <div class="wrap">
+    <span>Selfnote</span>
+    <a href="/docs/">Documentation</a>
+    <a href="/articles/">Articles</a>
+    <a href="/support.html">Support</a>
+    <a href="/privacy.html">Privacy</a>
+    <span class="spacer"></span>
+    <a href="https://github.com/fulviodenza/selfnote">Source on GitHub</a>
+    <a href="https://github.com/fulviodenza/selfnote/blob/main/LICENSE">License</a>
+  </div>
+</footer>
+
+</body>
+</html>

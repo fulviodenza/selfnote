@@ -1,0 +1,139 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Why self-host your notes in the AI era | Selfnote</title>
+  <meta name="description" content="Notes are now the most valuable thing you can hand to a model. Why self-hosting your notes app answers the AI era's three hard questions, and what it costs." />
+  <meta property="og:title" content="Why self-host your notes in the AI era" />
+  <meta property="og:description" content="Notes are now the most valuable thing you can hand to a model. Why self-hosting your notes app answers the AI era's three hard questions, and what it costs." />
+  <meta property="og:site_name" content="Selfnote" />
+  <meta property="og:type" content="article" />
+  <script type="application/ld+json">
+  {"@context":"https://schema.org","@type":"Article","headline":"Why self-host your notes in the AI era","description":"Notes are now the most valuable thing you can hand to a model. Why self-hosting your notes app answers the AI era's three hard questions, and what it costs.","datePublished":"2026-10-10","dateModified":"2026-10-10","author":{"@type":"Organization","name":"Selfnote"},"publisher":{"@type":"Organization","name":"Selfnote"}}
+  </script>
+  <link rel="icon" type="image/png" href="/assets/favicon.png" />
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+  <link href="https://fonts.googleapis.com/css2?family=Source+Serif+4:opsz,wght@8..60,400..700&family=Inter+Tight:wght@400..700&display=swap" rel="stylesheet" />
+  <link rel="stylesheet" href="/assets/site.css" />
+</head>
+<body>
+
+<header class="site-head">
+  <div class="wrap">
+    <a class="brand" href="/"><img src="/assets/logo.png" alt="" />Selfnote</a>
+    <nav class="site-nav">
+      <a href="/docs/">Docs</a>
+      <a href="/use-cases.html" class="hide-sm">Use cases</a>
+      <a href="/resources.html" class="hide-sm">Resources</a>
+      <a href="/articles/" class="hide-sm" aria-current="page">Articles</a>
+      <a href="/ereader/" class="hide-sm">eReader</a>
+      <a href="/download.html">Download</a>
+      <a href="https://github.com/fulviodenza/selfnote">GitHub</a>
+    </nav>
+  </div>
+</header>
+
+<div class="docs-shell">
+  <div class="wrap" style="display:block">
+    <article class="prose">
+      <h1>Why self-host your notes in the AI era</h1>
+      <p class="subtitle">Your notes went from a text box to a training set. Here is why that makes running your own server the practical choice, not the austere one.</p>
+      <p>For twenty years the argument for hosting your own software was about control
+      in the abstract: your data, your machine, your rules. It convinced the people it was
+      always going to convince. Then the AI era arrived and the argument stopped being
+      abstract. Your notes are now the most valuable thing you can hand to a model, and
+      every notes vendor knows it.</p>
+
+      <h2>Notes used to be a text box. Now they are a training set.</h2>
+      <p>A notes app holds the most honest record of a person that exists anywhere: what
+      you are working on, what you are afraid of, who you met, what you decided and why.
+      Until recently that text sat in a database and was mostly read by you. The economics
+      of a hosted notes app were storage and sync, both cheap, so the product could afford
+      to leave your data alone.</p>
+      <p>Language models changed what that text is worth. Your notes are perfect grounding
+      material: personal, long-lived, written in your own voice. Every hosted vendor is now
+      shipping "AI features", and every one of those features needs your notes sent to a
+      model. Read the terms of service updates of the last two years with that in mind.
+      The words to look for are "improve our services" and "trusted partners".</p>
+
+      <h2>Three questions a hosted vendor cannot answer well</h2>
+      <ol class="steps">
+        <li><b>Which model saw my notes, and where does it run?</b> With a hosted app, the
+        answer is whichever provider they signed with this quarter, in whichever region
+        was cheapest. You are not told when it changes.</li>
+        <li><b>Can I turn it off?</b> Often you can turn off the button. You can rarely
+        turn off the indexing that makes the button work, and the indexing is where the
+        text leaves.</li>
+        <li><b>What happens when the company pivots?</b> Notes apps get acquired, sunset,
+        and "reimagined" at a rate that would be funny if the content were not your life.
+        Export tools exist, but the export is never the whole thing.</li>
+      </ol>
+
+      <h2>Self-hosting answers all three in one move</h2>
+      <p>When the server is yours, the AI question becomes a configuration choice instead
+      of a trust exercise. Selfnote ships with AI off. You turn it on by giving your server
+      one provider, and the choice is yours: a Claude command line tool running on the
+      server itself, so the text never leaves the box; the Anthropic API, if you are happy
+      with that trade; or an Ollama model on a GPU in your closet, which is the first time
+      "my notes never leave the house" has been true of an AI feature. The
+      <a href="/articles/private-ai-for-your-notes.html">three options are compared
+      here</a>.</p>
+      <p>Turning it off is deleting one environment variable. There is no indexing you
+      cannot see, because the whole server is open source and the AI code is
+      <a href="https://github.com/fulviodenza/selfnote/blob/main/server/api/src/ai.rs">one
+      file</a>.</p>
+      <p>And the pivot risk inverts. A vendor pivot takes your notes with it. A self-hosted
+      project that stops being maintained leaves you with a Postgres database you already
+      own, a documented schema, and clients that keep working against the last version
+      forever.</p>
+
+      <h2>The part people get wrong: self-hosting is not giving up on AI</h2>
+      <p>The old framing was privacy versus convenience, and self-hosting sat on the
+      privacy end looking austere. That is backwards now. The most useful AI features are
+      the ones with the deepest access, and deep access is exactly what you cannot
+      responsibly grant to a vendor's model. On your own server you can.</p>
+      <p>Selfnote's <a href="/docs/mcp.html">MCP server</a> is what that looks like. Any
+      Claude, in a conversation about anything, can search your notes, read one, propose an
+      edit to it, file a summary of the chat under the right page, or ask what is overdue
+      this week. That is a level of integration no hosted vendor will give a third-party
+      model, because they want their own model to be the one you talk to. On your server
+      there is no such conflict of interest. See
+      <a href="/articles/what-claude-can-do-with-your-notes.html">what Claude can do with
+      your notes</a>.</p>
+
+      <h2>What it costs</h2>
+      <p>Less than it did. A Selfnote server is three small processes and a Postgres; it
+      runs on the machine that already hosts your other services, or on a five dollar
+      VPS. The Helm chart does backups and point in time recovery through CloudNativePG.
+      The clients are free, on web, desktop, iPhone, iPad and Android, and they work
+      offline. The <a href="/docs/self-hosting.html">self-hosting guide</a> is an evening's
+      work for someone who has run a container before.</p>
+      <p>The price of the alternative is harder to see but not smaller: your notes, read by
+      a model you did not pick, under terms that will change, to build a product you do not
+      own.</p>
+
+      <div class="callout"><p>Related: <a href="/articles/your-notes-are-the-context.html">Your
+      notes are the context window now</a>, and <a href="/articles/ai-note-taking-what-to-look-for.html">what
+      to look for in an AI note taking app</a>.</p></div>
+
+    </article>
+  </div>
+</div>
+
+<footer class="site-foot">
+  <div class="wrap">
+    <span>Selfnote</span>
+    <a href="/docs/">Documentation</a>
+    <a href="/articles/">Articles</a>
+    <a href="/support.html">Support</a>
+    <a href="/privacy.html">Privacy</a>
+    <span class="spacer"></span>
+    <a href="https://github.com/fulviodenza/selfnote">Source on GitHub</a>
+    <a href="https://github.com/fulviodenza/selfnote/blob/main/LICENSE">License</a>
+  </div>
+</footer>
+
+</body>
+</html>

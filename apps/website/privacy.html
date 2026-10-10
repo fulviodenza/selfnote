@@ -1,0 +1,169 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Selfnote privacy policy | Selfnote</title>
+  <meta name="description" content="Selfnote collects nothing. The app talks only to the Selfnote server you configure, stores credentials and a note cache on your device, and has no analytics, tracking or third-party SDKs." />
+  <meta property="og:title" content="Selfnote privacy policy" />
+  <meta property="og:description" content="Selfnote collects nothing. The app talks only to the Selfnote server you configure, stores credentials and a note cache on your device, and has no analytics, tracking or third-party SDKs." />
+  <meta property="og:site_name" content="Selfnote" />
+  <meta property="og:type" content="website" />
+  <link rel="icon" type="image/png" href="/assets/favicon.png" />
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+  <link href="https://fonts.googleapis.com/css2?family=Source+Serif+4:opsz,wght@8..60,400..700&family=Inter+Tight:wght@400..700&display=swap" rel="stylesheet" />
+  <link rel="stylesheet" href="/assets/site.css" />
+</head>
+<body>
+
+<header class="site-head">
+  <div class="wrap">
+    <a class="brand" href="/"><img src="/assets/logo.png" alt="" />Selfnote</a>
+    <nav class="site-nav">
+      <a href="/docs/">Docs</a>
+      <a href="/use-cases.html" class="hide-sm">Use cases</a>
+      <a href="/resources.html" class="hide-sm">Resources</a>
+      <a href="/articles/" class="hide-sm">Articles</a>
+      <a href="/ereader/" class="hide-sm">eReader</a>
+      <a href="/download.html">Download</a>
+      <a href="https://github.com/fulviodenza/selfnote">GitHub</a>
+    </nav>
+  </div>
+</header>
+
+<div class="docs-shell">
+  <div class="wrap" style="display:block">
+    <article class="prose">
+      <h1>Selfnote privacy policy</h1>
+      <p class="subtitle">Last updated 10 October 2026. In one line: the developer of Selfnote collects nothing about you, and the only place your notes are ever sent is the server you connect the app to.</p>
+      <h2>Who this covers</h2>
+      <p>This policy covers the Selfnote clients: the iPhone, iPad and Android app, the web
+      client that ships with every Selfnote server, and the desktop app for macOS, Linux
+      and Windows. They are three builds of the same program and behave the same way. The
+      separate Selfnote eReader has <a href="/ereader/privacy.html">its own policy</a>.</p>
+      <p>Selfnote is self-hosted software. There is no Selfnote cloud, no account with the
+      developer, and no server in the middle. The app connects to one Selfnote server, the
+      one you type in on first launch, and to nothing else.</p>
+
+      <h2>What the app stores on your device</h2>
+      <ul>
+        <li>the address of the Selfnote server you connected,</li>
+        <li>an access token and a refresh token for your account on that server, kept in
+        the app's private storage on mobile and in the browser's local storage on web and
+        desktop,</li>
+        <li>a cache of every note you have opened on that device, so it opens instantly
+        and keeps working offline (SQLite on mobile, IndexedDB on web and desktop),</li>
+        <li>interface preferences: which notes are open as tabs, which folders of the
+        page tree are collapsed, and your light or dark theme choice.</li>
+      </ul>
+      <p>Your password is not stored. You type it to sign in, the server answers with
+      the two tokens above, and the app keeps only those. Nothing is written outside the
+      app's own storage, and nothing is shared with other apps on the device.</p>
+
+      <h2>What the app sends, and where</h2>
+      <p><b>Before a server is configured, the app makes exactly one kind of request:</b>
+      when you type an address and tap connect, it asks that address whether a Selfnote
+      server is running there. Nothing else is contacted, ever, by the app itself.</p>
+      <p>Once connected, everything the app sends goes to that server and only there:</p>
+      <ul>
+        <li>your email address and password, to sign in or create an account on it,</li>
+        <li>the notes you write, as live edits over an encrypted connection, so they sync
+        to your other devices and to anyone you share the workspace with,</li>
+        <li>files you attach to a note,</li>
+        <li>tasks, labels, links between notes, share links you create, and the calendar
+        feed you turn on,</li>
+        <li>if that server has AI enabled, the text of the note or selection you ask about,
+        your prompt, and the writing sample you optionally save for "Rewrite in my
+        voice".</li>
+      </ul>
+      <p>Who can see what you send is decided by the server, not by the app. In a shared
+      workspace, other members can read the notes in it and see your name next to your
+      cursor while you both edit a page. A share link makes that one note readable by
+      anyone who has the link, until you revoke it. A calendar feed URL does the same for
+      your tasks.</p>
+
+      <h2>AI</h2>
+      <p>AI features are off until whoever runs the server turns them on, and the app
+      shows them only when the server says a provider is available. When you use them,
+      the note text leaves your device for your server, which forwards it to the provider
+      the operator chose: a Claude command line tool running on the server itself, the
+      Anthropic API, or an Ollama model on the operator's own hardware. With the first and
+      third option, your notes never leave that machine. With the Anthropic API, the text
+      of the request goes to Anthropic under <a href="https://www.anthropic.com/legal/privacy">their
+      terms</a>. The <a href="/docs/ai.html">AI guide</a> explains how each is configured.</p>
+      <p>AI never writes into a note on its own. Every AI edit, whether it comes from the
+      in-app assistant or from Claude connected over MCP, is staged as a proposal that you
+      review as a before and after diff and accept or reject.</p>
+
+      <h2>If the server is not yours</h2>
+      <p>Many people run Selfnote for a household or a small team, so you may be using a
+      server someone else operates. That person has the same access to your notes that any
+      server operator has to the data stored on their machine: the database holds your
+      notes, your email address, and a hash of your password. What they do with it is
+      governed by your arrangement with them, not by this policy. The developer of
+      Selfnote has no access to any instance.</p>
+
+      <h2>What the app never does</h2>
+      <p>No advertising, no analytics, no tracking, no crash reporting, no device
+      identifiers, no push notification service, and no third-party SDKs that contact
+      anyone. The app makes no request to the developer's servers because the developer
+      runs none. Nothing is sold, because nothing is collected.</p>
+
+      <h2>Children</h2>
+      <p>The developer collects no data from anyone, including children. Whether children
+      may have an account on a given server is up to the person running it.</p>
+
+      <h2>Removing your data</h2>
+      <p>On the phone, <b>Log out</b> in Settings removes the tokens and closes your tabs.
+      <b>Delete all data on this phone</b>, also in Settings, removes everything the
+      device holds: tokens, server address, the cached notes, and your preferences. Deleting
+      the app does the same. On the web, clearing the site's data in your browser removes
+      the tokens and the note cache. The desktop app keeps its cache in the system web view
+      and does not yet offer a one-tap wipe; this is tracked in
+      <a href="https://github.com/fulviodenza/selfnote/issues/28">issue #28</a>.</p>
+      <p>None of this touches the notes on the server, because they are on your server.
+      Trash a note in the app to remove it from the workspace, and empty the trash to
+      delete it. To remove your account entirely, ask the person who runs the server, or
+      drop the database if that is you.</p>
+
+      <h2>This website</h2>
+      <p>This site is static pages served by nginx with no analytics or cookies. It loads
+      two typefaces from Google Fonts, which means Google's servers see the request for
+      the font files. Nothing else is loaded from a third party.</p>
+
+      <h2>Changes</h2>
+      <p>If this policy changes, the new version appears here with a new date. Selfnote is
+      open source, so every claim above can be checked rather than trusted: the mobile app
+      is at <a href="https://github.com/fulviodenza/selfnote/tree/main/apps/mobile"><code>apps/mobile</code></a>,
+      everything it stores is in
+      <a href="https://github.com/fulviodenza/selfnote/blob/main/apps/mobile/src/api.ts"><code>src/api.ts</code></a>,
+      <a href="https://github.com/fulviodenza/selfnote/blob/main/apps/mobile/src/settings.ts"><code>src/settings.ts</code></a>
+      and <a href="https://github.com/fulviodenza/selfnote/blob/main/apps/mobile/src/persistence/sqlite.ts"><code>src/persistence/sqlite.ts</code></a>,
+      and the AI provider logic is in
+      <a href="https://github.com/fulviodenza/selfnote/blob/main/server/api/src/ai.rs"><code>server/api/src/ai.rs</code></a>.</p>
+
+      <h2>Contact</h2>
+      <p>Questions about this policy:
+      <a href="https://github.com/fulviodenza/selfnote/issues">open an issue</a>. For help
+      using the app, see the <a href="/support.html">support page</a>.</p>
+
+    </article>
+  </div>
+</div>
+
+<footer class="site-foot">
+  <div class="wrap">
+    <span>Selfnote</span>
+    <a href="/docs/">Documentation</a>
+    <a href="/articles/">Articles</a>
+    <a href="/support.html">Support</a>
+    <a href="/privacy.html">Privacy</a>
+    <span class="spacer"></span>
+    <a href="https://github.com/fulviodenza/selfnote">Source on GitHub</a>
+    <a href="https://github.com/fulviodenza/selfnote/blob/main/LICENSE">License</a>
+  </div>
+</footer>
+
+</body>
+</html>

@@ -1,0 +1,135 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Your notes are the context window now | Selfnote</title>
+  <meta name="description" content="AI assistants remember through context, and your notes are the best context there is. Why the owner of your notes controls your AI memory, and how a self-hosted workspace with MCP changes that." />
+  <meta property="og:title" content="Your notes are the context window now" />
+  <meta property="og:description" content="AI assistants remember through context, and your notes are the best context there is. Why the owner of your notes controls your AI memory, and how a self-hosted workspace with MCP changes that." />
+  <meta property="og:site_name" content="Selfnote" />
+  <meta property="og:type" content="article" />
+  <script type="application/ld+json">
+  {"@context":"https://schema.org","@type":"Article","headline":"Your notes are the context window now","description":"AI assistants remember through context, and your notes are the best context there is. Why the owner of your notes controls your AI memory, and how a self-hosted workspace with MCP changes that.","datePublished":"2026-10-10","dateModified":"2026-10-10","author":{"@type":"Organization","name":"Selfnote"},"publisher":{"@type":"Organization","name":"Selfnote"}}
+  </script>
+  <link rel="icon" type="image/png" href="/assets/favicon.png" />
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+  <link href="https://fonts.googleapis.com/css2?family=Source+Serif+4:opsz,wght@8..60,400..700&family=Inter+Tight:wght@400..700&display=swap" rel="stylesheet" />
+  <link rel="stylesheet" href="/assets/site.css" />
+</head>
+<body>
+
+<header class="site-head">
+  <div class="wrap">
+    <a class="brand" href="/"><img src="/assets/logo.png" alt="" />Selfnote</a>
+    <nav class="site-nav">
+      <a href="/docs/">Docs</a>
+      <a href="/use-cases.html" class="hide-sm">Use cases</a>
+      <a href="/resources.html" class="hide-sm">Resources</a>
+      <a href="/articles/" class="hide-sm" aria-current="page">Articles</a>
+      <a href="/ereader/" class="hide-sm">eReader</a>
+      <a href="/download.html">Download</a>
+      <a href="https://github.com/fulviodenza/selfnote">GitHub</a>
+    </nav>
+  </div>
+</header>
+
+<div class="docs-shell">
+  <div class="wrap" style="display:block">
+    <article class="prose">
+      <h1>Your notes are the context window now</h1>
+      <p class="subtitle">Whoever holds your notebook decides what every assistant knows about you. The case for making that person you.</p>
+      <p>There is a quiet shift in what a notebook is for. It used to be a place you wrote
+      things so you could read them later. It is becoming the place a model reads so that
+      it can know you. Whoever holds that notebook decides what every assistant you use
+      knows about your life.</p>
+
+      <h2>Memory is the product</h2>
+      <p>Models themselves forget everything between conversations. What makes an assistant
+      feel like it knows you is the text it is handed at the start of each chat: the
+      "context". Every AI company is racing to own that layer, because owning the context
+      means owning the relationship. The chat app wants to be your memory. The notes app
+      wants to be your memory. The browser, the email client and the operating system want
+      to be your memory.</p>
+      <p>Notes have a structural advantage in that race. They are already written by you,
+      in your words, about the things you actually care about, and they are already
+      organised. A good notes workspace is the highest quality context a model can get,
+      and it needs no scraping of your inbox to produce.</p>
+
+      <h2>So the question is who you want holding it</h2>
+      <p>If your notes live with a vendor, that vendor's model is the one with the deep
+      access, and every other assistant gets whatever crumbs the vendor's integration
+      allows. That is a commercial decision made for you. If your notes live on your
+      server, you decide which model gets to read them, how much, and through which
+      door.</p>
+      <p>Selfnote is built around that second shape. The server is yours. AI is a provider
+      you plug in, and the <a href="/docs/mcp.html">MCP server</a> is a door with a lock on
+      it: a personal access token you mint, scoped to your account, revocable from the
+      Connections screen the moment you change your mind.</p>
+
+      <h2>What it feels like when the memory is yours</h2>
+      <p>A few things stop being science fiction once your notes are reachable by the model
+      you already pay for, on your terms.</p>
+      <ul>
+        <li><b>You never finish a conversation empty handed.</b> You and Claude spend
+        forty minutes debugging a Kubernetes networking problem. You say "save this to my
+        homelab notes". Claude writes a clean summary, files it as a sub-page under the
+        right note, and hands you the link. Next time the problem recurs, the fix is
+        where you will look for it.</li>
+        <li><b>Notes become living documents.</b> A "Feature ideas" page that Claude
+        appends to across weeks of unrelated chats. A reading list that grows as you
+        mention books. Each addition arrives as a proposal with a diff that you accept in
+        the app, so the page grows without ever being rewritten behind your back.</li>
+        <li><b>The model can answer from what you know.</b> Ask "what did I decide about
+        the database migration in March" and Claude searches your workspace, reads the
+        note, and answers with a link to it. Your notes are the source, not a vendor's
+        summary of them.</li>
+        <li><b>The agenda is a sentence away.</b> "What is overdue on the renovation
+        project?" is a question Claude can answer because tasks are notes with dates, and
+        the MCP exposes them.</li>
+      </ul>
+
+      <h2>The guardrail that makes it safe</h2>
+      <p>Giving a model write access to the record of your life is only sensible if it
+      cannot quietly change the record. In Selfnote, every AI write to a note's body is a
+      <em>proposal</em>: the server stores the suggested change next to a before and after
+      rendering, and nothing is applied until you tap accept. Metadata changes that are
+      trivially reversible, such as moving a note or adding a label, apply at once. The
+      distinction is deliberate and it is explained in
+      <a href="/articles/living-documents-claude-writes-to.html">how living documents
+      work</a>.</p>
+      <p>Combine that with version history, where every restore is itself a new edit and
+      nothing is ever destroyed, and you have a memory that a model can contribute to
+      without being able to erase.</p>
+
+      <h2>Own the context</h2>
+      <p>The companies building assistants will tell you that the model is the thing. For
+      most of what you actually want from an assistant, the context is the thing, and the
+      context is your notes. Keep them where you can see the server, pick the model you
+      trust, and open exactly one door.</p>
+
+      <div class="callout"><p>Start here: <a href="/docs/self-hosting.html">run a
+      server</a>, then <a href="/docs/mcp.html">connect Claude</a>. Related:
+      <a href="/articles/why-self-host-your-notes-in-the-ai-era.html">why self-host your
+      notes in the AI era</a>.</p></div>
+
+    </article>
+  </div>
+</div>
+
+<footer class="site-foot">
+  <div class="wrap">
+    <span>Selfnote</span>
+    <a href="/docs/">Documentation</a>
+    <a href="/articles/">Articles</a>
+    <a href="/support.html">Support</a>
+    <a href="/privacy.html">Privacy</a>
+    <span class="spacer"></span>
+    <a href="https://github.com/fulviodenza/selfnote">Source on GitHub</a>
+    <a href="https://github.com/fulviodenza/selfnote/blob/main/LICENSE">License</a>
+  </div>
+</footer>
+
+</body>
+</html>
