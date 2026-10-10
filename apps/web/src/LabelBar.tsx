@@ -1,8 +1,14 @@
 /**
- * LabelBar (web) — the note's labels as colored chips under the topbar, with an
- * add/remove picker over the workspace vocabulary and an AI "Suggest" flow
- * (`POST /ai/labels/suggest`) that proposes labels the user can accept one by
- * one. Suggestions are never persisted until accepted.
+ * LabelBar (web): the note's labels as ink-on-paper chips under the topbar,
+ * with an add/remove picker over the workspace vocabulary and an AI "Suggest"
+ * flow (`POST /ai/labels/suggest`) that proposes labels the user can accept one
+ * by one. Suggestions are never persisted until accepted.
+ *
+ * Labels carry a server-side color, but the UI does not show it: the design
+ * system is neutrals plus one accent, and a row of tinted chips was the one
+ * thing on the page that broke that. The bar is also hidden until the user
+ * switches labels on (the sidebar's Labels entry), so a page reads as text
+ * first; `shown` false renders only the trailing page-metadata affordances.
  */
 import { useCallback, useEffect, useRef, useState, type ReactNode } from "react";
 import { api, type BulkLabelStatus, type Label, type LabelSuggestion } from "./api";
@@ -15,11 +21,6 @@ import { Icon } from "./Icon";
  */
 export const LABELS_CHANGED_EVENT = "selfnote:labels-changed";
 const emitLabelsChanged = () => window.dispatchEvent(new Event(LABELS_CHANGED_EVENT));
-
-/** The server's default palette, offered as swatches when editing a label. */
-export const LABEL_COLORS = [
-  "#2B44C7", "#1F9E6A", "#C1841E", "#8B5CF6", "#C4392B", "#0E7490", "#B4468A", "#5B6472",
-];
 
 /**
  * Sidebar entry point for the bulk "label everything" job — useful right after
@@ -91,12 +92,15 @@ interface TextSource {
 export function LabelBar({
   docId,
   workspaceId,
+  shown,
   aiAvailable,
   editor,
   trailing,
 }: {
   docId: string;
   workspaceId: string;
+  /** Labels switched on by the user. Off, only `trailing` renders. */
+  shown: boolean;
   aiAvailable: boolean;
   editor: TextSource | null;
   /**
@@ -132,8 +136,9 @@ export function LabelBar({
     setSuggestions(null);
     setPickerOpen(false);
     setQuery("");
-    void reload();
-  }, [reload]);
+    // Nothing to fetch while hidden; the switch flipping on loads them.
+    if (shown) void reload();
+  }, [reload, shown]);
 
   const save = async (ids: string[]) => {
     try {
@@ -145,16 +150,13 @@ export function LabelBar({
     }
   };
 
-  // Manage mode: the label being edited in the picker (rename/recolor/delete).
+  // Manage mode: the label being edited in the picker (rename/delete).
   const [editing, setEditing] = useState<Label | null>(null);
 
   const saveEdit = async () => {
     if (!editing) return;
     try {
-      const updated = await api.updateLabel(editing.id, {
-        name: editing.name.trim(),
-        color: editing.color,
-      });
+      const updated = await api.updateLabel(editing.id, { name: editing.name.trim() });
       setAll((prev) => prev.map((l) => (l.id === updated.id ? updated : l)));
       setLabels((prev) => prev.map((l) => (l.id === updated.id ? updated : l)));
       setEditing(null);
@@ -240,11 +242,15 @@ export function LabelBar({
   const filtered = all.filter((l) => !q || l.name.toLowerCase().includes(q));
   const exactExists = all.some((l) => l.name.toLowerCase() === q);
 
+  if (!shown) {
+    // The row still hosts page metadata (the Make task chip) when there is any.
+    return trailing ? <div className="label-bar">{trailing}</div> : null;
+  }
+
   return (
     <div className="label-bar">
       {labels.map((l) => (
-        <span key={l.id} className="label-chip" style={{ ["--chip" as string]: l.color }}>
-          <span className="label-dot" />
+        <span key={l.id} className="label-chip">
           {l.name}
           <button
             className="label-chip-x"
@@ -290,17 +296,6 @@ export function LabelBar({
                       if (e.key === "Escape") setEditing(null);
                     }}
                   />
-                  <div className="label-swatches">
-                    {LABEL_COLORS.map((c) => (
-                      <button
-                        key={c}
-                        className={editing.color === c ? "label-swatch on" : "label-swatch"}
-                        style={{ ["--chip" as string]: c }}
-                        aria-label={`Color ${c}`}
-                        onClick={() => setEditing({ ...editing, color: c })}
-                      />
-                    ))}
-                  </div>
                   <div className="label-edit-actions">
                     <button className="label-edit-delete" onClick={() => void removeLabel()}>
                       Delete
@@ -318,7 +313,6 @@ export function LabelBar({
                   return (
                     <div key={l.id} className={on ? "label-pop-item on" : "label-pop-item"}>
                       <button className="label-pop-main" onClick={() => toggle(l)}>
-                        <span className="label-dot" style={{ ["--chip" as string]: l.color }} />
                         <span className="label-pop-name">{l.name}</span>
                         {on ? <Icon name="check" size={13} /> : null}
                       </button>
@@ -363,7 +357,6 @@ export function LabelBar({
             <button
               key={s.name}
               className="label-chip suggestion"
-              style={{ ["--chip" as string]: s.color ?? "var(--accent)" }}
               title={s.existing_id ? "Existing label" : "New label"}
               onClick={() => void accept(s)}
             >

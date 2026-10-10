@@ -179,10 +179,7 @@ export function SearchModal({
                   {results.labels.map((label) =>
                     row({ kind: "label", label }, (
                       <>
-                        <span
-                          className="label-dot"
-                          style={{ ["--chip" as string]: label.color }}
-                        />
+                        <span className="search-item-icon"><Icon name="tag" size={14} /></span>
                         <span className="search-item-title">{label.name}</span>
                         <span className="search-item-hint">filter pages</span>
                       </>

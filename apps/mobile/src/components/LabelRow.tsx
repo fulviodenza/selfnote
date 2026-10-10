@@ -1,8 +1,14 @@
 /**
- * LabelRow (mobile) — the note's labels as colored chips above the editor, with
- * an add/remove sheet over the workspace vocabulary and an AI "Suggest" flow.
- * Mobile parity for web's LabelBar (apps/web/src/LabelBar.tsx): suggestions are
- * only persisted when the user accepts them.
+ * LabelRow (mobile): the note's labels as ink-on-paper chips above the editor,
+ * with an add/remove sheet over the workspace vocabulary and an AI "Suggest"
+ * flow. Mobile parity for web's LabelBar (apps/web/src/LabelBar.tsx):
+ * suggestions are only persisted when the user accepts them.
+ *
+ * Labels carry a server-side color, but the UI does not show it: the design
+ * system is neutrals plus one accent, and tinted chips were the one thing on
+ * the page that broke that. The row is hidden until the user switches labels
+ * on from the list header; `shown` false renders only the trailing
+ * page-metadata affordances.
  */
 import { useCallback, useEffect, useMemo, useState, type ReactNode } from "react";
 import { Feather } from "@expo/vector-icons";
@@ -20,14 +26,9 @@ import { api, type BulkLabelStatus, type Label, type LabelSuggestion } from "../
 import { hitSlop, spacing } from "../theme";
 import { useTheme } from "../theme-context";
 
-/** The server's default palette, offered as swatches when editing a label. */
-export const LABEL_COLORS = [
-  "#2B44C7", "#1F9E6A", "#C1841E", "#8B5CF6", "#C4392B", "#0E7490", "#B4468A", "#5B6472",
-];
-
 /**
  * Entry point for the bulk "label everything" job (mobile parity for web's
- * BulkLabelButton) — shown on the document list; polls progress while running.
+ * BulkLabelButton), shown on the document list; polls progress while running.
  */
 export function BulkLabelButton({
   workspaceId,
@@ -50,7 +51,7 @@ export function BulkLabelButton({
         setStatus(s);
         if (s.running) timer = setTimeout(tick, 2000);
       } catch {
-        /* older server / offline — leave idle */
+        /* older server / offline: leave idle */
       }
     };
     void tick();
@@ -102,6 +103,7 @@ export function BulkLabelButton({
 export function LabelRow({
   docId,
   workspaceId,
+  shown,
   aiAvailable,
   getText,
   trailing,
@@ -109,6 +111,8 @@ export function LabelRow({
 }: {
   docId: string;
   workspaceId: string;
+  /** Labels switched on by the user. Off, only `trailing` renders. */
+  shown: boolean;
   aiAvailable: boolean;
   /** The note's current text/Markdown (for the AI suggester). */
   getText: () => Promise<string>;
@@ -129,7 +133,7 @@ export function LabelRow({
   const [query, setQuery] = useState("");
   const [suggestions, setSuggestions] = useState<LabelSuggestion[]>([]);
   const [suggesting, setSuggesting] = useState(false);
-  // Manage mode: the label being renamed/recolored/deleted in the sheet.
+  // Manage mode: the label being renamed/deleted in the sheet.
   const [editing, setEditing] = useState<Label | null>(null);
 
   const reload = useCallback(async () => {
@@ -141,7 +145,7 @@ export function LabelRow({
       setLabels(mine);
       setAll(vocab);
     } catch {
-      /* offline / older server — hide quietly */
+      /* offline / older server: hide quietly */
     }
   }, [docId, workspaceId]);
 
@@ -170,10 +174,7 @@ export function LabelRow({
   const saveEdit = async () => {
     if (!editing) return;
     try {
-      const updated = await api.updateLabel(editing.id, {
-        name: editing.name.trim(),
-        color: editing.color,
-      });
+      const updated = await api.updateLabel(editing.id, { name: editing.name.trim() });
       setAll((prev) => prev.map((l) => (l.id === updated.id ? updated : l)));
       setLabels((prev) => prev.map((l) => (l.id === updated.id ? updated : l)));
       setEditing(null);
@@ -247,15 +248,20 @@ export function LabelRow({
   const filtered = all.filter((l) => !q || l.name.toLowerCase().includes(q));
   const exactExists = all.some((l) => l.name.toLowerCase() === q);
 
+  if (!shown) {
+    // The row still hosts page metadata (the Make task chip) when there is any.
+    return trailing ? (
+      <View style={styles.wrap}>
+        <View style={styles.row}>{trailing}</View>
+      </View>
+    ) : null;
+  }
+
   return (
     <View style={styles.wrap}>
       <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={styles.row}>
         {labels.map((l) => (
-          <View
-            key={l.id}
-            style={[styles.chip, { borderColor: l.color, backgroundColor: `${l.color}20` }]}
-          >
-            <View style={[styles.dot, { backgroundColor: l.color }]} />
+          <View key={l.id} style={styles.chip}>
             <Text style={styles.chipText}>{l.name}</Text>
             <Pressable
               onPress={() => toggle(l)}
@@ -284,7 +290,7 @@ export function LabelRow({
         {suggestions.map((s) => (
           <Pressable
             key={s.name}
-            style={[styles.chip, styles.suggestion, { borderColor: s.color ?? colors.accent }]}
+            style={[styles.chip, styles.suggestion]}
             onPress={() => void accept(s)}
           >
             <Feather name="plus" size={11} color={colors.inkSoft} />
@@ -318,22 +324,6 @@ export function LabelRow({
                 onChangeText={(name) => setEditing({ ...editing, name })}
                 onSubmitEditing={() => void saveEdit()}
               />
-              <View style={styles.swatches}>
-                {LABEL_COLORS.map((c) => (
-                  <Pressable
-                    key={c}
-                    onPress={() => setEditing({ ...editing, color: c })}
-                    style={[
-                      styles.swatch,
-                      { backgroundColor: c },
-                      editing.color === c && { borderColor: colors.ink },
-                    ]}
-                    accessibilityRole="button"
-                    accessibilityLabel={`Color ${c}`}
-                    accessibilityState={{ selected: editing.color === c }}
-                  />
-                ))}
-              </View>
               <View style={styles.editActions}>
                 <Pressable
                   onPress={() => void removeLabel()}
@@ -368,7 +358,6 @@ export function LabelRow({
                       accessibilityState={{ selected: on }}
                       accessibilityLabel={`Label ${l.name}`}
                     >
-                      <View style={[styles.dot, { backgroundColor: l.color }]} />
                       <Text style={[styles.itemText, on && styles.itemOn]}>{l.name}</Text>
                       {on ? <Feather name="check" size={15} color={colors.accent} /> : null}
                     </Pressable>
@@ -405,6 +394,7 @@ const makeStyles = (colors: ReturnType<typeof useTheme>["colors"]) =>
   StyleSheet.create({
     wrap: { paddingVertical: 2 },
     row: {
+      flexDirection: "row",
       alignItems: "center",
       gap: spacing.xs,
       // The editor body's gutter, so the chips line up with the page text and
@@ -419,9 +409,9 @@ const makeStyles = (colors: ReturnType<typeof useTheme>["colors"]) =>
       paddingVertical: 3,
       borderRadius: 999,
       borderWidth: 1,
+      borderColor: colors.hairline,
     },
-    suggestion: { borderStyle: "dashed", backgroundColor: "transparent" },
-    dot: { width: 7, height: 7, borderRadius: 4 },
+    suggestion: { borderStyle: "dashed" },
     chipText: { fontSize: 12, color: colors.ink },
     addBtn: {
       flexDirection: "row",
@@ -464,8 +454,6 @@ const makeStyles = (colors: ReturnType<typeof useTheme>["colors"]) =>
     itemMain: { flex: 1, flexDirection: "row", alignItems: "center", gap: 10 },
     itemText: { flex: 1, fontSize: 14, color: colors.ink },
     edit: { gap: spacing.sm, marginTop: spacing.sm },
-    swatches: { flexDirection: "row", flexWrap: "wrap", gap: spacing.sm },
-    swatch: { width: 28, height: 28, borderRadius: 14, borderWidth: 2, borderColor: "transparent" },
     editActions: { flexDirection: "row", alignItems: "center", gap: spacing.lg },
     editDelete: { fontSize: 14, fontWeight: "600", color: colors.danger, marginRight: "auto" },
     editAction: { fontSize: 14, fontWeight: "600", color: colors.inkSoft },

@@ -13,6 +13,7 @@ export type IconName =
   | "moon"
   | "sun"
   | "file-text"
+  | "tag"
   | "download"
   | "settings"
   | "arrow-up"
@@ -55,6 +56,12 @@ const PATHS: Record<IconName, ReactNode> = {
     </>
   ),
   plus: <path d="M12 5v14M5 12h14" />,
+  tag: (
+    <>
+      <path d="M20.59 13.41l-7.17 7.17a2 2 0 0 1-2.83 0L2 12V2h10l8.59 8.59a2 2 0 0 1 0 2.82Z" />
+      <path d="M7 7h.01" />
+    </>
+  ),
   sparkles: (
     <>
       <path d="M12 3 13.9 8.1 19 10l-5.1 1.9L12 17l-1.9-5.1L5 10l5.1-1.9L12 3Z" />

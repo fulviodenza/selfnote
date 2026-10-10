@@ -85,6 +85,12 @@ import { readTour, startTour, type Tour } from "./src/tour";
 
 const COLLAPSED_KEY = "selfnote.collapsed";
 const TABS_KEY = "selfnote.tabs";
+/*
+ * Labels are hidden until asked for: the chips are the one thing in the UI
+ * that is not ink on paper, and most pages do not need them in view. Per
+ * device, like the theme and the collapsed folders.
+ */
+const LABELS_KEY = "selfnote.labelsShown";
 
 const USER: EditorUser = {
   name: `Mobile ${Math.floor(Math.random() * 90 + 10)}`,
@@ -137,6 +143,19 @@ function AppInner() {
   // System shelves (web sidebar's "System" group): the workspace's uploaded
   // files, plus the archived and trashed pages. null = the page tree.
   const [systemView, setSystemView] = useState<SystemView | null>(null);
+
+  const [labelsShown, setLabelsShown] = useState(false);
+  useEffect(() => {
+    AsyncStorage.getItem(LABELS_KEY)
+      .then((raw) => raw === "1" && setLabelsShown(true))
+      .catch(() => undefined);
+  }, []);
+  const toggleLabels = useCallback(() => {
+    setLabelsShown((v) => {
+      AsyncStorage.setItem(LABELS_KEY, v ? "0" : "1").catch(() => undefined);
+      return !v;
+    });
+  }, []);
 
   // Restore the open set once on launch, then keep it written back. The write
   // waits for the read so the initial empty state can't erase it.
@@ -390,6 +409,7 @@ function AppInner() {
             <EditorScreen
               key={openDoc.id}
               doc={openDoc}
+              labelsShown={labelsShown}
               tabCount={tabs.length}
               onShowTabs={() => setShowTabs(true)}
               onBack={() => setActiveId(null)}
@@ -425,6 +445,8 @@ function AppInner() {
               onOpen={openPage}
               onDocs={syncDocs}
               onWorkspace={setWorkspaceId}
+              labelsShown={labelsShown}
+              onToggleLabels={toggleLabels}
               onTasks={() => setShowTasks(true)}
               onGraph={() => setShowGraph(true)}
               onSystem={setSystemView}
@@ -663,6 +685,8 @@ function DocListScreen({
   onOpen,
   onDocs,
   onWorkspace,
+  labelsShown,
+  onToggleLabels,
   onTasks,
   onGraph,
   onSystem,
@@ -673,6 +697,9 @@ function DocListScreen({
   /** Report the loaded page list up, so the tab strip can track it. */
   onDocs: (docs: Document[]) => void;
   onWorkspace: (id: string) => void;
+  /** Label chips in view (filter row, bulk-label button); see onToggleLabels. */
+  labelsShown: boolean;
+  onToggleLabels: () => void;
   onTasks: () => void;
   onGraph: () => void;
   onSystem: (view: SystemView) => void;
@@ -976,6 +1003,11 @@ function DocListScreen({
           onPress={toggleCollapseAll}
           disabled={parentIds.length === 0}
         />
+        <IconButton
+          icon="tag"
+          label={labelsShown ? "Hide labels" : "Show labels"}
+          onPress={onToggleLabels}
+        />
         <IconButton icon="check-square" label="Tasks" onPress={onTasks} />
         <IconButton icon="git-branch" label="Graph" onPress={onGraph} />
         <IconButton icon="more-horizontal" label="Menu" onPress={() => setMenuOpen(true)} />
@@ -987,11 +1019,13 @@ function DocListScreen({
         </View>
       ) : null}
 
-      {workspaceId && docs && docs.length > 0 ? (
+      {labelsShown && workspaceId && docs && docs.length > 0 ? (
         <BulkLabelButton workspaceId={workspaceId} onError={(m) => toast(m)} />
       ) : null}
 
-      {usedLabels.length > 0 ? (
+      {/* An active filter keeps the row in view even with labels switched off,
+          so a filtered list is never a mystery. */}
+      {(labelsShown || filterLabel) && usedLabels.length > 0 ? (
         <ScrollView
           horizontal
           showsHorizontalScrollIndicator={false}
@@ -1006,15 +1040,14 @@ function DocListScreen({
                 onPress={() => setFilterLabel((cur) => (cur === l.id ? null : l.id))}
                 style={[
                   styles.labelFilterChip,
-                  { borderColor: l.color },
-                  on && { backgroundColor: `${l.color}22` },
+                  { borderColor: colors.hairline },
+                  on && { backgroundColor: colors.accentWash, borderColor: colors.accentWash },
                 ]}
                 accessibilityRole="button"
                 accessibilityState={{ selected: on }}
                 accessibilityLabel={`Filter by label ${l.name}`}
               >
-                <View style={[styles.labelFilterDot, { backgroundColor: l.color }]} />
-                <Text style={[styles.labelFilterText, on && { color: colors.ink, fontWeight: "600" }]}>
+                <Text style={[styles.labelFilterText, on && { color: colors.accent, fontWeight: "600" }]}>
                   {l.name}
                 </Text>
               </Pressable>
@@ -1062,7 +1095,7 @@ function DocListScreen({
                         accessibilityLabel={`Filter by label ${l.name}`}
                       >
                         <View style={styles.rowInner}>
-                          <View style={[styles.labelFilterDot, { backgroundColor: l.color }]} />
+                          <Feather name="tag" size={14} color={colors.inkSoft} />
                           <Text style={[type.docTitle, styles.flex]} numberOfLines={1}>
                             {l.name}
                           </Text>
@@ -1304,12 +1337,15 @@ function RenameSheet({
 
 function EditorScreen({
   doc,
+  labelsShown,
   tabCount,
   onShowTabs,
   onBack,
   onNavigateToDoc,
 }: {
   doc: Document;
+  /** Label chips in view above the editor; see the list header's toggle. */
+  labelsShown: boolean;
   /** Open pages, shown on the topbar's tab-count button. */
   tabCount: number;
   onShowTabs: () => void;
@@ -1383,6 +1419,7 @@ function EditorScreen({
       doc={doc}
       token={token}
       canWrite={mode === "rw"}
+      labelsShown={labelsShown}
       tabCount={tabCount}
       onShowTabs={onShowTabs}
       onBack={onBack}
@@ -1395,6 +1432,7 @@ function ConnectedEditor({
   doc,
   token,
   canWrite,
+  labelsShown,
   tabCount,
   onShowTabs,
   onBack,
@@ -1403,6 +1441,7 @@ function ConnectedEditor({
   doc: Document;
   token: string;
   canWrite: boolean;
+  labelsShown: boolean;
   tabCount: number;
   onShowTabs: () => void;
   onBack: () => void;
@@ -1640,6 +1679,7 @@ function ConnectedEditor({
       <LabelRow
         docId={doc.id}
         workspaceId={doc.workspace_id}
+        shown={labelsShown}
         aiAvailable={ai?.available ?? false}
         getText={() => editorRef.current?.getText() ?? Promise.resolve("")}
         /*
@@ -2080,7 +2120,6 @@ const makeStyles = (colors: Palette, type: TypeRoles) =>
     borderRadius: 999,
     borderWidth: 1,
   },
-  labelFilterDot: { width: 7, height: 7, borderRadius: 4 },
   labelFilterText: { fontSize: 12, color: colors.inkSoft },
   searchSection: {
     fontSize: 11,
