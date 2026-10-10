@@ -1,0 +1,130 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Your agenda from a chat | Selfnote</title>
+  <meta name="description" content="Managing tasks from a Claude conversation with the Selfnote MCP server: ask what is overdue, capture tasks without switching apps, promote checklist items, and run a weekly review." />
+  <meta property="og:title" content="Your agenda from a chat" />
+  <meta property="og:description" content="Managing tasks from a Claude conversation with the Selfnote MCP server: ask what is overdue, capture tasks without switching apps, promote checklist items, and run a weekly review." />
+  <meta property="og:site_name" content="Selfnote" />
+  <meta property="og:type" content="article" />
+  <script type="application/ld+json">
+  {"@context":"https://schema.org","@type":"Article","headline":"Your agenda from a chat","description":"Managing tasks from a Claude conversation with the Selfnote MCP server: ask what is overdue, capture tasks without switching apps, promote checklist items, and run a weekly review.","datePublished":"2026-10-10","dateModified":"2026-10-10","author":{"@type":"Organization","name":"Selfnote"},"publisher":{"@type":"Organization","name":"Selfnote"}}
+  </script>
+  <link rel="icon" type="image/png" href="/assets/favicon.png" />
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+  <link href="https://fonts.googleapis.com/css2?family=Source+Serif+4:opsz,wght@8..60,400..700&family=Inter+Tight:wght@400..700&display=swap" rel="stylesheet" />
+  <link rel="stylesheet" href="/assets/site.css" />
+</head>
+<body>
+
+<header class="site-head">
+  <div class="wrap">
+    <a class="brand" href="/"><img src="/assets/logo.png" alt="" />Selfnote</a>
+    <nav class="site-nav">
+      <a href="/docs/">Docs</a>
+      <a href="/use-cases.html" class="hide-sm">Use cases</a>
+      <a href="/resources.html" class="hide-sm">Resources</a>
+      <a href="/articles/" class="hide-sm" aria-current="page">Articles</a>
+      <a href="/ereader/" class="hide-sm">eReader</a>
+      <a href="/download.html">Download</a>
+      <a href="https://github.com/fulviodenza/selfnote">GitHub</a>
+    </nav>
+  </div>
+</header>
+
+<div class="docs-shell">
+  <div class="wrap" style="display:block">
+    <article class="prose">
+      <h1>Your agenda from a chat</h1>
+      <p class="subtitle">Tasks in Selfnote are notes with dates, and the MCP server exposes them. Capture, ask what is overdue, and tidy up in plain sentences from any Claude.</p>
+      <p>Tasks in most notes apps are checkboxes that know nothing. In Selfnote a task is a
+      note, or a block inside one, with a due date, a status and a priority, and the
+      workspace has an agenda across all of them. Because the <a href="/docs/mcp.html">MCP
+      server</a> exposes that agenda, Claude can read it and change it from any
+      conversation. Here is what that looks like day to day.</p>
+
+      <h2>Ask what matters</h2>
+      <p>"What is overdue?" Claude calls <code>list_tasks</code> with a status filter and
+      a due window ending now, and answers with the titles, how late each is, and links
+      that open them. "What is due this week on the renovation?" adds a parent note, so only
+      tasks under that project page come back. "Anything tagged urgent I have not
+      started?" filters by label and status. None of this needs you to open the app; the
+      app is where you go to do the work, not to find out what it is.</p>
+
+      <h2>Capture without switching</h2>
+      <p>Half of task management is the moment of capture, and that moment is usually in
+      the middle of something else. In a chat about planning a trip you say "make a task
+      to book the ferry, due Friday, under the Sicily note". Claude creates a page task in
+      the right place with the right date and tells you where it landed. Because tasks feed
+      the workspace calendar, it appears on your phone's calendar through the iCal feed the
+      next time the calendar refreshes.</p>
+      <p>Checklist items work too. "Turn the third item of my packing list into a task due
+      Thursday" has Claude read the note with block ids, find the item, and promote that
+      single block. The checklist stays where it was; it has simply gained a due date.</p>
+
+      <h2>Keep it tidy</h2>
+      <p>Tidying is where most systems die, because it is boring. With the MCP it is a
+      sentence. "Mark the ferry booking done." "Move everything under Inbox that mentions
+      the bathroom to the Renovation note." "Label the last five notes I made as
+      homelab." Claude uses <code>manage_task</code>, <code>organize_note</code> and
+      <code>manage_labels</code>, and each of those applies immediately because each is a
+      single gesture to undo in the app. Moving, labelling and renaming never go through
+      the proposal review, by design; body edits do.</p>
+
+      <h2>Weekly review, assisted</h2>
+      <p>A review is a conversation, and this one has a well informed partner. Ask Claude
+      to list what you finished this week and what slipped. Ask it to draft the next week's
+      plan from the overdue items and the ones due soon. Then say "save this review under
+      my Weekly notes" and the plan is filed as a page under it, with links to the task
+      pages if you ask for them. The following week, Claude reads last week's review first. The loop closes without a
+      template.</p>
+
+      <h2>Where the boundaries are</h2>
+      <ul>
+        <li><b>Claude cannot permanently delete anything.</b> Trash is the furthest it
+        can go, and trash is reversible.</li>
+        <li><b>Claude cannot change a note's body without review.</b> Appending a line to
+        the review page produces a proposal you accept; a task's due date changes at
+        once. The difference is whether a mistake would be hidden.</li>
+        <li><b>Claude sees what your account sees.</b> The token is yours, scoped to your
+        workspaces, enforced by the server on each call.</li>
+        <li><b>Everything is on your server.</b> The agenda, the notes, the proposals. The
+        only thing that leaves is whatever your chosen model provider needs to answer, and
+        <a href="/articles/private-ai-for-your-notes.html">that can be nothing</a>.</li>
+      </ul>
+
+      <h2>Why this is better than a to-do app with AI bolted on</h2>
+      <p>Task apps that add AI add a model that knows your tasks. A notes workspace with
+      tasks in it and an MCP door gives the model your tasks <em>and</em> the pages they
+      came from, the notes those link to, and the conversations that produced them.
+      "Why did I decide to postpone the deck?" is answerable because the decision is a
+      paragraph in a note the task lives in. Context is the product, and in this setup
+      the context is yours.</p>
+
+      <div class="callout"><p>Setup: <a href="/docs/mcp.html">Claude and MCP</a>. The
+      task model is described in the
+      <a href="https://github.com/fulviodenza/selfnote/blob/main/docs/features/calendar-task-sync.md">calendar
+      and task sync brief</a>.</p></div>
+
+    </article>
+  </div>
+</div>
+
+<footer class="site-foot">
+  <div class="wrap">
+    <span>Selfnote</span>
+    <a href="/docs/">Documentation</a>
+    <a href="/articles/">Articles</a>
+    <a href="/support.html">Support</a>
+    <a href="/privacy.html">Privacy</a>
+    <span class="spacer"></span>
+    <a href="https://github.com/fulviodenza/selfnote">Source on GitHub</a>
+    <a href="https://github.com/fulviodenza/selfnote/blob/main/LICENSE">License</a>
+  </div>
+</footer>
+
+</body>
+</html>

@@ -1,0 +1,222 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Selfnote support | Selfnote</title>
+  <meta name="description" content="Help with the Selfnote app: connecting to your own server, signing in, offline editing and sync, AI Assist, sharing, your data, and how to get in touch." />
+  <meta property="og:title" content="Selfnote support" />
+  <meta property="og:description" content="Help with the Selfnote app: connecting to your own server, signing in, offline editing and sync, AI Assist, sharing, your data, and how to get in touch." />
+  <meta property="og:site_name" content="Selfnote" />
+  <meta property="og:type" content="website" />
+  <link rel="icon" type="image/png" href="/assets/favicon.png" />
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+  <link href="https://fonts.googleapis.com/css2?family=Source+Serif+4:opsz,wght@8..60,400..700&family=Inter+Tight:wght@400..700&display=swap" rel="stylesheet" />
+  <link rel="stylesheet" href="/assets/site.css" />
+</head>
+<body>
+
+<header class="site-head">
+  <div class="wrap">
+    <a class="brand" href="/"><img src="/assets/logo.png" alt="" />Selfnote</a>
+    <nav class="site-nav">
+      <a href="/docs/">Docs</a>
+      <a href="/use-cases.html" class="hide-sm">Use cases</a>
+      <a href="/resources.html" class="hide-sm">Resources</a>
+      <a href="/articles/" class="hide-sm">Articles</a>
+      <a href="/ereader/" class="hide-sm">eReader</a>
+      <a href="/download.html">Download</a>
+      <a href="https://github.com/fulviodenza/selfnote">GitHub</a>
+    </nav>
+  </div>
+</header>
+
+<div class="docs-shell">
+  <div class="wrap" style="display:block">
+    <article class="prose">
+      <h1>Selfnote support</h1>
+      <p class="subtitle">Help with the Selfnote app for iPhone, iPad, Android, web and desktop: connecting to your server, signing in, sync and offline, AI, sharing, and how to reach us.</p>
+      <h2>Get help</h2>
+      <p>Everything goes to the issue tracker and is answered in public, so the next person
+      with the same question finds the answer:</p>
+      <ul>
+        <li><b>Something is broken, or you want a feature:</b>
+        <a href="https://github.com/fulviodenza/selfnote/issues/new">open an issue</a>.
+        Say which client you are on (phone, web or desktop, and the OS version), which
+        version of the server you connect to, and what you did just before the problem.</li>
+        <li><b>You cannot connect or sign in:</b> read
+        <a href="#connecting">Connecting</a> below first. Nine times out of ten it is the
+        address.</li>
+        <li><b>A question about privacy:</b> the <a href="/privacy.html">privacy policy</a>
+        is short and specific.</li>
+      </ul>
+      <p>Selfnote is open source. If you would rather read the code than file a report, the
+      mobile app is at <a href="https://github.com/fulviodenza/selfnote/tree/main/apps/mobile"><code>apps/mobile</code></a>
+      and the server at <a href="https://github.com/fulviodenza/selfnote/tree/main/server"><code>server</code></a>.</p>
+
+      <h2 id="connecting">Connecting</h2>
+
+      <h3>Do I need a server?</h3>
+      <p>Yes. The app is a client for a Selfnote server, and it has no server of its own:
+      the notes live on an instance you run, or one a friend, family member or colleague
+      runs for you. The <a href="/docs/self-hosting.html">self-hosting guide</a> covers a
+      Helm chart for Kubernetes or three processes and a Postgres on any machine.</p>
+
+      <h3>What do I type on the first screen?</h3>
+      <p>The address of your instance. The host alone is fine, like
+      <code>notes.example.com</code>; https is assumed and the API and sync paths are
+      added for you. The app checks that a Selfnote server answers there before it saves
+      the address.</p>
+
+      <h3>It says "Couldn't reach that server"</h3>
+      <ul>
+        <li><b>The instance is on plain http.</b> The app assumes https when you leave the
+        scheme out, so type <code>http://</code> explicitly for a server without a
+        certificate, for example on a home network.</li>
+        <li><b>The address is a web page, not the server.</b> Use the address you open the
+        Selfnote web app at; the app derives the API and sync endpoints from it.</li>
+        <li><b>The server is not reachable from where you are.</b> A home server behind a
+        router needs a tunnel or a VPN to work from outside.</li>
+        <li><b>The server is down.</b> Open the same address in a browser and see.</li>
+      </ul>
+
+      <h3>How do I switch to another server?</h3>
+      <p>Settings has the server address. Change it and sign in again. Notes cached from the
+      previous server stay on the device until you use <b>Delete all data on this phone</b>.</p>
+
+      <h2>Your account</h2>
+
+      <h3>Sign in or create an account?</h3>
+      <p>Accounts live on the instance, not with Selfnote. If this is your server and you
+      have never used it, tap <b>Create account</b>. If someone else runs it, they either
+      created an account for you or you create one with <b>Create account</b> and they
+      add you to their workspace.</p>
+
+      <h3>I forgot my password</h3>
+      <p>There is no reset by email, because the server has no email service of its own.
+      The person who runs the server can set a new password hash in the database. If that
+      is you and you are stuck, <a href="https://github.com/fulviodenza/selfnote/issues/new">open
+      an issue</a> and we will walk you through it.</p>
+
+      <h3>Where is my password stored?</h3>
+      <p>Nowhere on the device. Signing in trades it for two tokens that the app keeps
+      instead. The server stores a hash. Details are on the
+      <a href="/privacy.html">privacy page</a>.</p>
+
+      <h2>Notes and sync</h2>
+
+      <h3>What do Live, Syncing and Offline mean?</h3>
+      <p>The word next to the dot in the editor's top bar is the state of the connection to
+      your server for the note you have open. <b>Live</b> means edits travel both ways
+      instantly. <b>Syncing</b> means the connection is being made. <b>Offline</b> means
+      there is none right now; keep typing, the note is saved on the device and merges when
+      the connection comes back.</p>
+
+      <h3>Will I lose edits made offline?</h3>
+      <p>No. Every note is a CRDT, which means two people, or two of your devices, can edit
+      the same page while disconnected and both sets of changes survive the merge. There is
+      no "which version do you want to keep" dialog and no conflict copy.</p>
+
+      <h3>Can I open several notes at once?</h3>
+      <p>Yes. Notes open as tabs, shown in the switcher at the bottom of the editor. Tabs
+      are remembered per device.</p>
+
+      <h3>How do I recover an earlier version of a note?</h3>
+      <p>Open the note, then its history. Versions are saved automatically and whenever you
+      tap <b>Save version</b>. Restoring one writes it as a new edit, so nothing is ever
+      destroyed and the people you share with see the restore like any other change.</p>
+
+      <h3>Can I link notes to each other?</h3>
+      <p>Yes. Type <code>[[</code> in the editor to link another note. The backlinks panel
+      shows which notes link to the one you are reading, and the graph view draws the
+      whole workspace.</p>
+
+      <h2>Tasks and calendar</h2>
+
+      <h3>How do I make a task?</h3>
+      <p>Any note can be promoted to a task with a due date, status and priority from its
+      menu, and any checklist item inside a note can be one too. The Tasks screen is the
+      agenda across the workspace.</p>
+
+      <h3>How do I see tasks in my calendar?</h3>
+      <p>Settings has a calendar feed per workspace. Turning it on gives you a URL that
+      Apple Calendar, Google Calendar or Outlook can subscribe to. Anyone with the URL can
+      read your task titles and dates, so treat it like a password and revoke it from the
+      same place if it leaks.</p>
+
+      <h2>Sharing</h2>
+
+      <h3>How do I share a note with someone who has no account?</h3>
+      <p>The Share action creates a public link. Anyone with it can read and edit that one
+      note, with no account, until you revoke the link. The same screen shows how many
+      times each link was opened and when, so you know when to kill it.</p>
+
+      <h3>How do I work with others in the same workspace?</h3>
+      <p>Ask the workspace owner to add your account. Roles are owner, admin, editor and
+      viewer, and the server enforces them on every request. Members see each other's
+      cursors while editing the same note.</p>
+
+      <h2>AI</h2>
+
+      <h3>I do not see any AI features</h3>
+      <p>That is expected on a plain server. AI is off until whoever runs the instance
+      gives it one provider: a Claude subscription token, an Anthropic API key, or an Ollama
+      host. The app then shows the Assist panel on every device. The
+      <a href="/docs/ai.html">AI guide</a> walks through it.</p>
+
+      <h3>Does AI change my notes without asking?</h3>
+      <p>No. The in-app actions, Summarize, Rewrite in my voice and Extract action items,
+      stream a result that you then insert or use to replace a selection yourself. Edits
+      that come from outside the editor, from the Assist chat's "insert into note" or from
+      Claude connected over MCP, arrive as proposals with a before and after diff, and
+      nothing touches the note until you accept them.</p>
+
+      <h3>What is MCP and why would I want it?</h3>
+      <p>It lets Claude, in any conversation, file a summary into your notes, search them,
+      and propose edits. See the <a href="/docs/mcp.html">MCP guide</a> and the
+      <a href="/articles/">articles</a> for what that looks like in practice.</p>
+
+      <h2>Your data</h2>
+
+      <h3>Where are my notes?</h3>
+      <p>On your server, in its Postgres database. The device keeps a cache of the notes you
+      have opened so they load instantly and work offline. Your notes are sent nowhere
+      else, and there is no analytics or tracking in any client. The full statement,
+      including the one content delivery network the mobile editor loads its libraries
+      from, is the <a href="/privacy.html">privacy policy</a>.</p>
+
+      <h3>How do I get my notes out?</h3>
+      <p>The database is yours, so a dump of it is a complete backup, and the import tool
+      on the web client reads a whole Markdown or Obsidian vault in. Claude connected over
+      MCP reads any note back as Markdown.</p>
+
+      <h3>How do I remove the app's data from my phone?</h3>
+      <p>Settings, then <b>Delete all data on this phone</b>. It signs you out and removes
+      the cached notes, the server address and your preferences. Notes on the server are
+      not affected. Deleting the app does the same.</p>
+
+      <h3>Is the web or desktop client different?</h3>
+      <p>Same features, same behaviour, same data. Anything you do on one client shows up
+      on the others within a second when they are online. The
+      <a href="/docs/clients.html">clients page</a> lists the few platform differences.</p>
+
+    </article>
+  </div>
+</div>
+
+<footer class="site-foot">
+  <div class="wrap">
+    <span>Selfnote</span>
+    <a href="/docs/">Documentation</a>
+    <a href="/articles/">Articles</a>
+    <a href="/support.html">Support</a>
+    <a href="/privacy.html">Privacy</a>
+    <span class="spacer"></span>
+    <a href="https://github.com/fulviodenza/selfnote">Source on GitHub</a>
+    <a href="https://github.com/fulviodenza/selfnote/blob/main/LICENSE">License</a>
+  </div>
+</footer>
+
+</body>
+</html>

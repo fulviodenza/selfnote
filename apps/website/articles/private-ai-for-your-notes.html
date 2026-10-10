@@ -1,0 +1,132 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Private AI for your notes: three ways to run it | Selfnote</title>
+  <meta name="description" content="How to run AI note taking privately on a self-hosted Selfnote server: a local Claude CLI on your subscription, the Anthropic API, or Ollama on your own GPU, compared." />
+  <meta property="og:title" content="Private AI for your notes: three ways to run it" />
+  <meta property="og:description" content="How to run AI note taking privately on a self-hosted Selfnote server: a local Claude CLI on your subscription, the Anthropic API, or Ollama on your own GPU, compared." />
+  <meta property="og:site_name" content="Selfnote" />
+  <meta property="og:type" content="article" />
+  <script type="application/ld+json">
+  {"@context":"https://schema.org","@type":"Article","headline":"Private AI for your notes: three ways to run it","description":"How to run AI note taking privately on a self-hosted Selfnote server: a local Claude CLI on your subscription, the Anthropic API, or Ollama on your own GPU, compared.","datePublished":"2026-10-10","dateModified":"2026-10-10","author":{"@type":"Organization","name":"Selfnote"},"publisher":{"@type":"Organization","name":"Selfnote"}}
+  </script>
+  <link rel="icon" type="image/png" href="/assets/favicon.png" />
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+  <link href="https://fonts.googleapis.com/css2?family=Source+Serif+4:opsz,wght@8..60,400..700&family=Inter+Tight:wght@400..700&display=swap" rel="stylesheet" />
+  <link rel="stylesheet" href="/assets/site.css" />
+</head>
+<body>
+
+<header class="site-head">
+  <div class="wrap">
+    <a class="brand" href="/"><img src="/assets/logo.png" alt="" />Selfnote</a>
+    <nav class="site-nav">
+      <a href="/docs/">Docs</a>
+      <a href="/use-cases.html" class="hide-sm">Use cases</a>
+      <a href="/resources.html" class="hide-sm">Resources</a>
+      <a href="/articles/" class="hide-sm" aria-current="page">Articles</a>
+      <a href="/ereader/" class="hide-sm">eReader</a>
+      <a href="/download.html">Download</a>
+      <a href="https://github.com/fulviodenza/selfnote">GitHub</a>
+    </nav>
+  </div>
+</header>
+
+<div class="docs-shell">
+  <div class="wrap" style="display:block">
+    <article class="prose">
+      <h1>Private AI for your notes: three ways to run it</h1>
+      <p class="subtitle">Your Claude subscription running on your server, the Anthropic API, or Ollama on your own hardware. Same features, one difference that matters.</p>
+      <p>"AI note taking" usually means your notes go to someone else's model. It does not
+      have to. Selfnote keeps AI off until the person running the server picks a provider,
+      and three of them are supported. They differ in exactly one dimension that matters:
+      where the text of your notes goes when you press the button.</p>
+
+      <h2>The three options at a glance</h2>
+      <table>
+        <tr><th>Provider</th><th>Where your note text goes</th><th>Cost</th><th>Good for</th></tr>
+        <tr><td>Claude subscription, local CLI</td><td>Stays on your server. The CLI runs in the API container.</td><td>Your existing Pro or Max plan. No per request bill.</td><td>Most people. Frontier quality with the text never leaving the box.</td></tr>
+        <tr><td>Anthropic API</td><td>To api.anthropic.com for each request.</td><td>Pay per token.</td><td>Light use, or a server with no room for the CLI.</td></tr>
+        <tr><td>Ollama</td><td>To a machine you own, over your network.</td><td>Electricity.</td><td>Air-gapped setups, sensitive material, people with a GPU.</td></tr>
+      </table>
+
+      <h2>Option 1: your Claude subscription, running on your server</h2>
+      <p>The Selfnote API image bundles the Claude Code command line tool. You give the
+      server a long lived token from <code>claude setup-token</code>, and from then on every
+      AI request is handled by a process on your own machine, billed to the subscription you
+      already have. The note text is piped to a local process and the answer comes back; no
+      request to a Selfnote service, because there is none, and the Anthropic side sees
+      only what the CLI sends, under the subscription's terms.</p>
+      <p>This is the recommended option because it combines the best model quality with
+      the simplest privacy story and no new bill. Setup is three commands in the
+      <a href="/docs/ai.html">AI guide</a>.</p>
+
+      <h2>Option 2: an Anthropic API key</h2>
+      <p>Set <code>ANTHROPIC_API_KEY</code> on the API deployment and the server calls the
+      Claude API directly. The trade is explicit: the text of each request goes to
+      Anthropic under <a href="https://www.anthropic.com/legal/privacy">their policy</a>, and
+      you pay per token. It is the lightest option to run and the right one when the server
+      is small or the usage is occasional.</p>
+
+      <h2>Option 3: Ollama on your own hardware</h2>
+      <p>Point <code>OLLAMA_HOST</code> at a machine running Ollama and Selfnote uses
+      whatever open weights model you have pulled. Nothing leaves your network. This is the
+      option for a research notebook with unpublished material, for a clinic or a law
+      practice, or simply for the person who has a GPU and would like it to earn its
+      keep. Quality tracks the model you choose; recent open weights models summarise and
+      rewrite well, and the "extract action items" action is well within reach of a small
+      one.</p>
+
+      <h2>What the AI can do, on any of the three</h2>
+      <p>The provider is plumbing. The features are the same across it, and the same on
+      web, desktop and mobile:</p>
+      <ul>
+        <li><b>Assist chat</b> that knows the note you are editing and, if you add them,
+        the notes it links to and the ones you just visited.</li>
+        <li><b>Note actions</b>: Summarize, Rewrite in my voice, Extract action items. One
+        tap, streamed, insert or replace.</li>
+        <li><b>Labels</b>: a bulk pass that suggests labels across a workspace, which is
+        how an imported vault gets organised in an afternoon.</li>
+        <li><b>Proposals</b>: the note actions stream a draft you insert yourself, and
+        any edit that arrives from outside the editor, such as a Claude edit over MCP, is
+        staged with a diff for you to accept or reject. No provider writes directly.</li>
+      </ul>
+
+      <h2>What stays the same regardless</h2>
+      <p>The clients show AI features only when the server reports a provider, so a plain
+      instance has no dead buttons and no half-enabled features. The whole provider
+      detection and dispatch is
+      <a href="https://github.com/fulviodenza/selfnote/blob/main/server/api/src/ai.rs">one
+      Rust file</a> you can read. And switching is a one line change: swap the secret,
+      restart the deployment, and the same features run on a different model.</p>
+      <p>That last point is the real argument for self-hosting AI features rather than
+      renting them. Models are improving monthly and the best one for your notes changes.
+      When the provider is a setting on your server, you follow that curve. When it is a
+      vendor's business decision, you wait.</p>
+
+      <div class="callout"><p>Setup: <a href="/docs/ai.html">Enabling AI Assist</a>.
+      Related: <a href="/articles/ai-summaries-you-can-trust.html">AI summaries you can
+      trust</a>.</p></div>
+
+    </article>
+  </div>
+</div>
+
+<footer class="site-foot">
+  <div class="wrap">
+    <span>Selfnote</span>
+    <a href="/docs/">Documentation</a>
+    <a href="/articles/">Articles</a>
+    <a href="/support.html">Support</a>
+    <a href="/privacy.html">Privacy</a>
+    <span class="spacer"></span>
+    <a href="https://github.com/fulviodenza/selfnote">Source on GitHub</a>
+    <a href="https://github.com/fulviodenza/selfnote/blob/main/LICENSE">License</a>
+  </div>
+</footer>
+
+</body>
+</html>

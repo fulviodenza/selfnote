@@ -1,0 +1,135 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>AI summaries you can trust | Selfnote</title>
+  <meta name="description" content="Making AI note summaries trustworthy: drafts you insert deliberately, staged proposals with diffs for remote edits, explicit context, a real writing voice sample, attribution and version history." />
+  <meta property="og:title" content="AI summaries you can trust" />
+  <meta property="og:description" content="Making AI note summaries trustworthy: drafts you insert deliberately, staged proposals with diffs for remote edits, explicit context, a real writing voice sample, attribution and version history." />
+  <meta property="og:site_name" content="Selfnote" />
+  <meta property="og:type" content="article" />
+  <script type="application/ld+json">
+  {"@context":"https://schema.org","@type":"Article","headline":"AI summaries you can trust","description":"Making AI note summaries trustworthy: drafts you insert deliberately, staged proposals with diffs for remote edits, explicit context, a real writing voice sample, attribution and version history.","datePublished":"2026-10-10","dateModified":"2026-10-10","author":{"@type":"Organization","name":"Selfnote"},"publisher":{"@type":"Organization","name":"Selfnote"}}
+  </script>
+  <link rel="icon" type="image/png" href="/assets/favicon.png" />
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+  <link href="https://fonts.googleapis.com/css2?family=Source+Serif+4:opsz,wght@8..60,400..700&family=Inter+Tight:wght@400..700&display=swap" rel="stylesheet" />
+  <link rel="stylesheet" href="/assets/site.css" />
+</head>
+<body>
+
+<header class="site-head">
+  <div class="wrap">
+    <a class="brand" href="/"><img src="/assets/logo.png" alt="" />Selfnote</a>
+    <nav class="site-nav">
+      <a href="/docs/">Docs</a>
+      <a href="/use-cases.html" class="hide-sm">Use cases</a>
+      <a href="/resources.html" class="hide-sm">Resources</a>
+      <a href="/articles/" class="hide-sm" aria-current="page">Articles</a>
+      <a href="/ereader/" class="hide-sm">eReader</a>
+      <a href="/download.html">Download</a>
+      <a href="https://github.com/fulviodenza/selfnote">GitHub</a>
+    </nav>
+  </div>
+</header>
+
+<div class="docs-shell">
+  <div class="wrap" style="display:block">
+    <article class="prose">
+      <h1>AI summaries you can trust</h1>
+      <p class="subtitle">The weak point of AI note taking is the moment output becomes record. How Selfnote separates drafting from applying, reviews remote edits, and records who wrote what.</p>
+      <p>The weak point of AI note taking is not the model. It is the moment the model's
+      output becomes part of your record without anyone checking. A summary that quietly
+      drops a caveat, a rewrite that changes a number, an "action items" list with one item
+      invented: each becomes a fact in your notes the next time you read them. Trust has to
+      be designed in, and this is how Selfnote does it.</p>
+
+      <h2>Separate producing from applying</h2>
+      <p>In the Assist panel and the note actions, the AI produces text that streams into a
+      result area. It does not touch the page. You read it, then choose: insert at the
+      cursor, replace the selection, copy, or retry. The output is a draft until you say
+      otherwise. This sounds obvious and most AI editors skip it in the name of
+      friction.</p>
+
+      <h2>Make remote edits visible</h2>
+      <p>When Claude edits a note over <a href="/docs/mcp.html">MCP</a> you are usually not
+      looking at the note; you are in a chat somewhere else. So those edits cannot apply
+      directly. The server stages each one as a proposal: the change itself, computed
+      against the note's exact current state, plus a Markdown rendering of the page before
+      and after. The editor shows a button to review the pending edits. You open the diff,
+      in the web, desktop or mobile app, and accept or reject. If someone edited the note
+      while the proposal waited, the server recomputes the change against the new state,
+      and marks the proposal superseded rather than forcing it if that is no longer
+      possible.</p>
+      <p>The rule underneath is simple: a change to the body of a note is reviewed, because
+      that is where an error hides. A change to its metadata, like a label or a parent,
+      applies at once, because it is one gesture to undo and the review would be theatre.</p>
+
+      <h2>Ground the model in the right text</h2>
+      <p>Hallucination is mostly a context problem. The Assist chat is grounded in the
+      note you are editing, and when that is not enough you add specific notes as extra
+      context: the ones the current page links to, or the ones you just visited, chosen
+      from a picker rather than guessed by a retrieval system. The model answers from what
+      you gave it, and you know exactly what you gave it. A server side cap on context
+      size keeps the request honest about what fit.</p>
+
+      <h2>Keep a voice sample instead of a style prompt</h2>
+      <p>"Rewrite in my voice" is only trustworthy if "my voice" means something concrete.
+      Selfnote keeps a sample of your own writing, up to a few thousand characters, saved
+      once in Settings and sent with each rewrite request. The result sounds like you
+      because it was shown you, not because it was told to be "casual but professional".
+      Clear the sample and the action falls back to a plain rewrite.</p>
+
+      <h2>Record who wrote what</h2>
+      <p>Every proposal keeps its origin, its before and after text, and who accepted or
+      rejected it and when, so you can always see which edits came from a model and what
+      they changed. Version history saves
+      restore points automatically and on demand, and a restore is a new forward edit
+      rather than a rollback, which means the record of the bad edit survives next to the
+      fix. You can always answer "when did this sentence change, and who changed it".</p>
+
+      <h2>Choose the model, and know where it runs</h2>
+      <p>Trust in output starts with trust in the pipeline. The person running the server
+      picks exactly one provider: a Claude command line tool on the server, the Anthropic
+      API, or a local Ollama model, and the client displays which one is answering. If the
+      answer should never leave the building, <a href="/articles/private-ai-for-your-notes.html">it
+      does not have to</a>.</p>
+
+      <h2>Say no by default</h2>
+      <p>AI is off on a fresh Selfnote server. There is no AI button until a provider is
+      configured, and no background indexing of your notes to make a future button faster.
+      When you turn it on you know what you turned on, because the switch is one
+      environment variable and the code it enables is a file you can read.</p>
+
+      <h2>The result</h2>
+      <p>None of this makes a model more accurate. It makes the system around the model
+      honest: the AI drafts, you decide; remote edits wait for review; context is explicit;
+      authorship is recorded; and the whole pipeline runs where you can see it. That is the
+      difference between AI that writes in your notes and AI that writes your notes.</p>
+
+      <div class="callout"><p>Related: <a href="/articles/living-documents-claude-writes-to.html">living
+      documents Claude writes to</a> and the
+      <a href="https://github.com/fulviodenza/selfnote/blob/main/docs/features/ai-edit-diff-preview.md">diff
+      preview design brief</a>.</p></div>
+
+    </article>
+  </div>
+</div>
+
+<footer class="site-foot">
+  <div class="wrap">
+    <span>Selfnote</span>
+    <a href="/docs/">Documentation</a>
+    <a href="/articles/">Articles</a>
+    <a href="/support.html">Support</a>
+    <a href="/privacy.html">Privacy</a>
+    <span class="spacer"></span>
+    <a href="https://github.com/fulviodenza/selfnote">Source on GitHub</a>
+    <a href="https://github.com/fulviodenza/selfnote/blob/main/LICENSE">License</a>
+  </div>
+</footer>
+
+</body>
+</html>

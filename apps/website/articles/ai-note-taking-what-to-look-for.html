@@ -1,0 +1,139 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>What to look for in an AI note taking app | Selfnote</title>
+  <meta name="description" content="Choosing an AI note taking app: where note text goes, whether AI can edit silently, background indexing, offline merges, open protocols like MCP, exit paths, cost and open source." />
+  <meta property="og:title" content="What to look for in an AI note taking app" />
+  <meta property="og:description" content="Choosing an AI note taking app: where note text goes, whether AI can edit silently, background indexing, offline merges, open protocols like MCP, exit paths, cost and open source." />
+  <meta property="og:site_name" content="Selfnote" />
+  <meta property="og:type" content="article" />
+  <script type="application/ld+json">
+  {"@context":"https://schema.org","@type":"Article","headline":"What to look for in an AI note taking app","description":"Choosing an AI note taking app: where note text goes, whether AI can edit silently, background indexing, offline merges, open protocols like MCP, exit paths, cost and open source.","datePublished":"2026-10-10","dateModified":"2026-10-10","author":{"@type":"Organization","name":"Selfnote"},"publisher":{"@type":"Organization","name":"Selfnote"}}
+  </script>
+  <link rel="icon" type="image/png" href="/assets/favicon.png" />
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+  <link href="https://fonts.googleapis.com/css2?family=Source+Serif+4:opsz,wght@8..60,400..700&family=Inter+Tight:wght@400..700&display=swap" rel="stylesheet" />
+  <link rel="stylesheet" href="/assets/site.css" />
+</head>
+<body>
+
+<header class="site-head">
+  <div class="wrap">
+    <a class="brand" href="/"><img src="/assets/logo.png" alt="" />Selfnote</a>
+    <nav class="site-nav">
+      <a href="/docs/">Docs</a>
+      <a href="/use-cases.html" class="hide-sm">Use cases</a>
+      <a href="/resources.html" class="hide-sm">Resources</a>
+      <a href="/articles/" class="hide-sm" aria-current="page">Articles</a>
+      <a href="/ereader/" class="hide-sm">eReader</a>
+      <a href="/download.html">Download</a>
+      <a href="https://github.com/fulviodenza/selfnote">GitHub</a>
+    </nav>
+  </div>
+</header>
+
+<div class="docs-shell">
+  <div class="wrap" style="display:block">
+    <article class="prose">
+      <h1>What to look for in an AI note taking app</h1>
+      <p class="subtitle">Every notes app has an AI tab now and the feature lists look identical. Eight questions that separate them, and a checklist of good answers.</p>
+      <p>Every notes app now has an AI tab. The feature lists look identical: summarise,
+      rewrite, ask questions about your notes. The differences that will matter to you in
+      two years are not on the feature list. Here is what to check before you move your
+      notes into anything with "AI" in the pitch.</p>
+
+      <h2>1. Where does the text go when you press the button?</h2>
+      <p>This is the only question that matters for privacy, and most products answer it
+      vaguely. Ask: which model, run by whom, in which region, and does the vendor keep a
+      copy? A good answer names the provider and lets you change it. The best answer lets
+      you run the model yourself. Selfnote supports <a href="/articles/private-ai-for-your-notes.html">three
+      providers</a>, two of which keep the text on hardware you control.</p>
+
+      <h2>2. Can the AI change your notes without you seeing the change?</h2>
+      <p>A summary you paste is harmless. An assistant that edits pages in place is useful
+      and dangerous in equal measure. Look for a review step: a diff, an accept button, an
+      undo that is more than a toast. Selfnote's note actions produce a draft you insert
+      yourself, edits arriving from outside the editor are staged as proposals you accept
+      or reject, and version history means even an accepted mistake is recoverable. <a href="/articles/ai-summaries-you-can-trust.html">More on that
+      here.</a></p>
+
+      <h2>3. Is the AI a feature or an indexing pipeline?</h2>
+      <p>"Ask your notes" features need the notes indexed, and indexing means the text has
+      been processed and often stored by the provider before you ask anything. Check
+      whether turning the feature off turns the pipeline off. In a self-hosted setup the
+      answer is visible: Selfnote sends note text only when you invoke an action, and only
+      the note or selection you invoked it on, plus any extra notes you explicitly add as
+      context.</p>
+
+      <h2>4. Does it work offline, and does it merge?</h2>
+      <p>AI features are built on connectivity; note taking is not. The app must be fully
+      usable on a plane, and edits made on two devices while disconnected must merge
+      without a conflict dialog. This is a hard engineering problem that most apps solve
+      with "last write wins", which is a polite name for losing your work. Selfnote's notes
+      are CRDTs, which is the actual solution.</p>
+
+      <h2>5. Can another AI get in?</h2>
+      <p>The assistant you want to use in two years is not the one your notes vendor ships
+      today. Ask whether the app exposes an open protocol, such as MCP, so the model you
+      choose can read and write your notes under your rules. Vendors with their own model
+      rarely do, because they would rather you talked to theirs. Selfnote's
+      <a href="/docs/mcp.html">MCP server</a> gives any Claude thirteen tools over your
+      workspace, behind a token you can revoke.</p>
+
+      <h2>6. What does the exit look like?</h2>
+      <p>Export is a feature everyone has and nobody tests. Ask whether the export includes
+      the structure, the links between notes, the attachments and the history, and whether
+      the format is readable without the app. For a self-hosted app the exit is a database
+      you already have a dump of. For a hosted one it is a zip file and a hope.</p>
+
+      <h2>7. Who pays for the model, and how?</h2>
+      <p>AI costs money per request, and a subscription notes app has to recover it. Watch
+      for usage caps, "AI credits" and tiers. A self-hosted app lets you bring the plan you
+      already pay for: Selfnote can run your Claude subscription on your server with no per
+      request bill, or a local model for free.</p>
+
+      <h2>8. Is it open source?</h2>
+      <p>Not as a matter of ideology. As a matter of being able to check the answers to
+      questions one to seven instead of taking them on faith. Selfnote's AI code is
+      <a href="https://github.com/fulviodenza/selfnote/blob/main/server/api/src/ai.rs">a
+      single file</a>, and the clients are in the same repository.</p>
+
+      <h2>A short checklist</h2>
+      <table>
+        <tr><th>Ask</th><th>Good answer</th></tr>
+        <tr><td>Where does note text go?</td><td>A named provider you can change, or your own hardware.</td></tr>
+        <tr><td>Can AI edit silently?</td><td>No. Diff, accept, history.</td></tr>
+        <tr><td>Is there a background index?</td><td>Only what you send, when you send it.</td></tr>
+        <tr><td>Offline?</td><td>Fully, with real merges.</td></tr>
+        <tr><td>Other models?</td><td>Open protocol, revocable token.</td></tr>
+        <tr><td>Exit?</td><td>Your database, documented schema.</td></tr>
+        <tr><td>Who pays for AI?</td><td>Bring your own plan or model.</td></tr>
+        <tr><td>Open source?</td><td>Yes, including the server.</td></tr>
+      </table>
+      <p>If a product answers all eight well, it is probably self-hosted, open source, and
+      treats the model as a provider rather than the product. That is not a coincidence,
+      and it is the shape Selfnote was built in. The
+      <a href="/docs/self-hosting.html">self-hosting guide</a> is where to start.</p>
+
+    </article>
+  </div>
+</div>
+
+<footer class="site-foot">
+  <div class="wrap">
+    <span>Selfnote</span>
+    <a href="/docs/">Documentation</a>
+    <a href="/articles/">Articles</a>
+    <a href="/support.html">Support</a>
+    <a href="/privacy.html">Privacy</a>
+    <span class="spacer"></span>
+    <a href="https://github.com/fulviodenza/selfnote">Source on GitHub</a>
+    <a href="https://github.com/fulviodenza/selfnote/blob/main/LICENSE">License</a>
+  </div>
+</footer>
+
+</body>
+</html>

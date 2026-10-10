@@ -1,0 +1,147 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>What Claude can do with your notes over MCP | Selfnote</title>
+  <meta name="description" content="The Selfnote MCP server gives Claude thirteen tools over your self-hosted notes: search, read, create, propose edits, organise, labels and tasks. What each does and how access is controlled." />
+  <meta property="og:title" content="What Claude can do with your notes over MCP" />
+  <meta property="og:description" content="The Selfnote MCP server gives Claude thirteen tools over your self-hosted notes: search, read, create, propose edits, organise, labels and tasks. What each does and how access is controlled." />
+  <meta property="og:site_name" content="Selfnote" />
+  <meta property="og:type" content="article" />
+  <script type="application/ld+json">
+  {"@context":"https://schema.org","@type":"Article","headline":"What Claude can do with your notes over MCP","description":"The Selfnote MCP server gives Claude thirteen tools over your self-hosted notes: search, read, create, propose edits, organise, labels and tasks. What each does and how access is controlled.","datePublished":"2026-10-10","dateModified":"2026-10-10","author":{"@type":"Organization","name":"Selfnote"},"publisher":{"@type":"Organization","name":"Selfnote"}}
+  </script>
+  <link rel="icon" type="image/png" href="/assets/favicon.png" />
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+  <link href="https://fonts.googleapis.com/css2?family=Source+Serif+4:opsz,wght@8..60,400..700&family=Inter+Tight:wght@400..700&display=swap" rel="stylesheet" />
+  <link rel="stylesheet" href="/assets/site.css" />
+</head>
+<body>
+
+<header class="site-head">
+  <div class="wrap">
+    <a class="brand" href="/"><img src="/assets/logo.png" alt="" />Selfnote</a>
+    <nav class="site-nav">
+      <a href="/docs/">Docs</a>
+      <a href="/use-cases.html" class="hide-sm">Use cases</a>
+      <a href="/resources.html" class="hide-sm">Resources</a>
+      <a href="/articles/" class="hide-sm" aria-current="page">Articles</a>
+      <a href="/ereader/" class="hide-sm">eReader</a>
+      <a href="/download.html">Download</a>
+      <a href="https://github.com/fulviodenza/selfnote">GitHub</a>
+    </nav>
+  </div>
+</header>
+
+<div class="docs-shell">
+  <div class="wrap" style="display:block">
+    <article class="prose">
+      <h1>What Claude can do with your notes over MCP</h1>
+      <p class="subtitle">A tour of the thirteen tools the Selfnote MCP server gives Claude: search, read, propose edits, organise, and run your agenda, behind one revocable token.</p>
+      <p>Selfnote ships an <a href="/docs/mcp.html">MCP server</a>, a small program that
+      gives Claude a set of tools for your notes. Connect it once and every Claude you use,
+      the command line, the desktop app or claude.ai, can act on your workspace from inside
+      any conversation. This is a tour of the thirteen tools and what they are for.</p>
+
+      <h2>Finding things</h2>
+      <h3>list_notes</h3>
+      <p>The cheap browse. With no query it returns your recent notes; with one it matches
+      titles. Each result carries the note's id and a link that opens it in the app, which
+      is how Claude hands you back a clickable answer.</p>
+      <h3>search_notes</h3>
+      <p>Full text across titles, bodies and labels. "Find the note where I compared
+      Postgres backup tools" is this tool. It uses the server's search index, so it is as
+      fast as searching in the app.</p>
+      <h3>get_note_links</h3>
+      <p>The notes a page links to and the notes that link back to it. Claude uses it to
+      follow your own structure before summarising or reorganising: if you ask for an
+      overview of a project, it can walk the links instead of guessing which pages belong
+      together.</p>
+      <h3>list_workspaces</h3>
+      <p>Only needed if your token can reach more than one workspace. Every other tool
+      defaults to the first.</p>
+
+      <h2>Reading and writing notes</h2>
+      <h3>read_note</h3>
+      <p>Returns a note as Markdown. Claude is instructed to read before it edits, so a
+      proposed change is based on what the page actually says. With a flag it returns the
+      blocks with their ids, which is how a single checklist item becomes a task.</p>
+      <h3>create_note</h3>
+      <p>A new page, optionally nested under an existing one, optionally with a Markdown
+      body. Markdown comes in as real blocks: headings, lists, checkboxes, code, tables,
+      math.</p>
+      <h3>save_conversation</h3>
+      <p>The tool the whole project started from. Claude writes a summary of the current
+      chat as Markdown, and this files it as a sub-page under a "Conversations" note, or
+      under any note you name, and returns the link. The
+      <a href="https://github.com/fulviodenza/selfnote/tree/main/skills/save-to-selfnote">save-to-selfnote
+      skill</a> teaches Claude to summarise well and pick the right parent.</p>
+      <h3>append_to_note and update_note</h3>
+      <p>These two <em>propose</em>. Appending adds Markdown to the end of a page;
+      updating replaces the whole body. Neither is applied: the server stages the change as
+      a proposal, you see a before and after diff in the app, and you accept or reject. This
+      is what makes it safe to say "add this to my feature ideas" from a chat on another
+      device. <a href="/articles/living-documents-claude-writes-to.html">Living documents</a>
+      goes into how the proposal pipeline works.</p>
+
+      <h2>Organising</h2>
+      <h3>organize_note</h3>
+      <p>Move a note under a different parent, rename it, change its icon, archive or
+      trash it. These apply immediately, unlike body edits, because each one is undone with
+      a single gesture in the app. There is deliberately no permanent delete: trash is as
+      far as Claude can go.</p>
+      <h3>manage_labels</h3>
+      <p>List the workspace's labels, create one, read a note's labels, or add and remove
+      them on a note. Add and remove are the safe operations and Claude prefers them;
+      wholesale replacement exists for the case where you asked for exactly one set.</p>
+
+      <h2>Tasks</h2>
+      <h3>manage_task and list_tasks</h3>
+      <p>A note can be a task with a due date, status and priority, and so can a single
+      block inside a note. These two tools create, update and list them, with filters for
+      status, due window, parent note and labels. "What is overdue?", "what is due this
+      week on the kitchen project?" and "mark the ferry booking done" are all one call.
+      <a href="/articles/your-agenda-from-a-chat.html">Your agenda from a chat</a> has
+      examples.</p>
+
+      <h2>How access works</h2>
+      <p>The server authenticates with a personal access token you mint in the app's
+      Connections screen. It can do what your account can do, in the workspaces you belong
+      to, and nothing else; the server enforces membership on every request exactly as it
+      does for the clients. Revoke the token and every tool stops at once. For claude.ai
+      the server runs as an HTTPS endpoint with its own bearer secret, one instance per
+      user, so nobody else's Claude can reach your notes.</p>
+
+      <h2>Why it is one process and not a plugin</h2>
+      <p>MCP is an open protocol, so the same server works with every client that speaks
+      it, now and later. It is also the reason this integration is deeper than any hosted
+      notes app offers: the vendor of a hosted app has no incentive to let a third-party
+      model read and write with this much freedom. On your own server there is no
+      conflict, only the question of which door to open and how far. The MCP server is the
+      door, the token is the key, and the proposals are the chain on it.</p>
+
+      <div class="callout"><p>Setup takes five minutes:
+      <a href="/docs/mcp.html">Claude and MCP</a>. The server is published as
+      <code>@selfnote/mcp</code> on npm.</p></div>
+
+    </article>
+  </div>
+</div>
+
+<footer class="site-foot">
+  <div class="wrap">
+    <span>Selfnote</span>
+    <a href="/docs/">Documentation</a>
+    <a href="/articles/">Articles</a>
+    <a href="/support.html">Support</a>
+    <a href="/privacy.html">Privacy</a>
+    <span class="spacer"></span>
+    <a href="https://github.com/fulviodenza/selfnote">Source on GitHub</a>
+    <a href="https://github.com/fulviodenza/selfnote/blob/main/LICENSE">License</a>
+  </div>
+</footer>
+
+</body>
+</html>
