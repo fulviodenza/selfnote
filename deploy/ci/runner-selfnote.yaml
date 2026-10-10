@@ -11,6 +11,71 @@
 #   - 40Gi of state instead of 5Gi, because GRADLE_USER_HOME lives on it
 #     (local-path cannot expand a claim, hence a new one rather than a resize)
 #   - no dind sidecar: nothing here builds images, so nothing needs privileged
+#   - its own ServiceAccount, because .github/workflows/release-images.yml
+#     runs kubectl from inside the pod: it applies build-push-job.yaml in this
+#     namespace and rolls the website deployment in `default`. The Roles below
+#     are exactly that and nothing more; in particular nothing in `selfnote`,
+#     so a workflow cannot restart the API.
+---
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: github-runner-selfnote
+  namespace: ci
+---
+# Create, watch and clean up the in-cluster build jobs, and read their logs.
+apiVersion: rbac.authorization.k8s.io/v1
+kind: Role
+metadata:
+  name: github-runner-selfnote-builds
+  namespace: ci
+rules:
+  - apiGroups: ["batch"]
+    resources: ["jobs"]
+    verbs: ["get", "list", "watch", "create", "delete"]
+  - apiGroups: [""]
+    resources: ["pods", "pods/log"]
+    verbs: ["get", "list", "watch"]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+  name: github-runner-selfnote-builds
+  namespace: ci
+subjects:
+  - kind: ServiceAccount
+    name: github-runner-selfnote
+    namespace: ci
+roleRef:
+  kind: Role
+  name: github-runner-selfnote-builds
+  apiGroup: rbac.authorization.k8s.io
+---
+# Roll the website: set image and watch the rollout. Scoped to `default`, where
+# the website lives, and to deployments only.
+apiVersion: rbac.authorization.k8s.io/v1
+kind: Role
+metadata:
+  name: github-runner-selfnote-website
+  namespace: default
+rules:
+  - apiGroups: ["apps"]
+    resources: ["deployments"]
+    verbs: ["get", "list", "watch", "patch"]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+  name: github-runner-selfnote-website
+  namespace: default
+subjects:
+  - kind: ServiceAccount
+    name: github-runner-selfnote
+    namespace: ci
+roleRef:
+  kind: Role
+  name: github-runner-selfnote-website
+  apiGroup: rbac.authorization.k8s.io
 ---
 apiVersion: v1
 kind: PersistentVolumeClaim
@@ -54,6 +119,7 @@ spec:
       # the README creates it in `ci` too. Without it the image is an
       # ImagePullBackOff, since Harbor will not serve it anonymously.
       imagePullSecrets: [{ name: harbor }]
+      serviceAccountName: github-runner-selfnote
       # local-path binds the volume to whichever node the pod first lands on,
       # so that node is worth choosing rather than inheriting from the
       # scheduler. homelab-2 has 20Gi against the 8Gi of homelab-3..6, which is

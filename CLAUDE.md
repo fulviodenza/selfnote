@@ -21,9 +21,12 @@
 
 - Monorepo: pnpm + Turborepo (TS: apps/web, apps/mobile, apps/desktop, apps/website,
   packages/*, tools/mcp-server) and a Cargo workspace (server/api, server/sync, operator).
-- Deploys go to the homelab k3s cluster (namespace selfnote) as linux/amd64 images pushed
-  to registry.fulvio.dev/selfnote/*. The cluster is the source of truth for image tags
-  (deploy/homelab/*.yaml are scrubbed examples); roll with kubectl set image.
+- Deploys go to the homelab k3s cluster (namespace selfnote) as linux/amd64 images in
+  registry.fulvio.dev/selfnote/*. A merge to main builds the images it changed inside the
+  cluster and pushes them as sha-<short> and latest (.github/workflows/release-images.yml,
+  deploy/ci/README.md). The website rolls itself from that run; api, sync and web are
+  rolled by hand with kubectl set image to the sha tag. The cluster is the source of
+  truth for image tags (deploy/homelab/*.yaml are scrubbed examples).
 - Do not roll selfnote-api while an AI bulk-label job is running (the job is in-memory);
   check for a claude process in the api pod first.
 - The API runs sqlx migrations from server/migrations on boot.

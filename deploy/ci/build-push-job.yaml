@@ -16,7 +16,8 @@
 # Placeholders, substituted by the wrapper in README.md:
 #   __IMAGE__    selfnote-api | selfnote-sync | selfnote-web | selfnote-website
 #                | selfnote-operator | selfnote-mcp
-#   __TAG__      the new version, e.g. 0.1.15
+#   __TAG__      the new version, e.g. 0.1.15, or sha-<short> from CI
+#   __ALSO__     a second tag for the same image (CI passes latest), or empty
 #   __REF__      the commit to build; use a merged main SHA, never a branch
 #   __NAME__     a DNS-safe job name
 #   __HARBOR_IP__  Harbor's ClusterIP: kubectl get svc harbor -n harbor -o jsonpath='{.spec.clusterIP}'
@@ -77,6 +78,8 @@ spec:
               value: "__IMAGE__"
             - name: TAG
               value: "__TAG__"
+            - name: ALSO
+              value: "__ALSO__"
             - name: REF
               value: "__REF__"
             - name: BUILDKITD_FLAGS
@@ -135,12 +138,19 @@ spec:
                 *) echo "unknown image: $IMAGE" >&2; exit 1 ;;
               esac
 
-              echo "building $IMAGE:$TAG from $REF ($FILE)"
+              # One build, pushed under every requested name: the version (or
+              # sha) tag, plus a moving tag such as latest when ALSO is set.
+              NAMES="registry.fulvio.dev/selfnote/$IMAGE:$TAG"
+              if [ -n "$ALSO" ]; then
+                NAMES="$NAMES,registry.fulvio.dev/selfnote/$IMAGE:$ALSO"
+              fi
+
+              echo "building $IMAGE from $REF ($FILE) as $NAMES"
               exec buildctl-daemonless.sh build \
                 --frontend dockerfile.v0 \
                 --opt context="$CONTEXT" \
                 --opt filename="$FILE" \
-                --output "type=image,name=registry.fulvio.dev/selfnote/$IMAGE:$TAG,push=true" \
+                --output "type=image,\"name=$NAMES\",push=true" \
                 --progress plain
           volumeMounts:
             - name: harbor
