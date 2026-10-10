@@ -1,0 +1,177 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>A self-hosted, open source Notion alternative | Selfnote</title>
+  <meta name="description" content="Selfnote is a self-hosted, open source Notion alternative: a block editor, real-time collaboration that works offline, tasks, backlinks and AI with a provider you choose, on your own server." />
+  <link rel="canonical" href="https://selfnote.fulvio.dev/notion-alternative.html" />
+  <meta property="og:title" content="A self-hosted, open source Notion alternative" />
+  <meta property="og:description" content="Selfnote is a self-hosted, open source Notion alternative: a block editor, real-time collaboration that works offline, tasks, backlinks and AI with a provider you choose, on your own server." />
+  <meta property="og:site_name" content="Selfnote" />
+  <meta property="og:type" content="website" />
+  <meta property="og:url" content="https://selfnote.fulvio.dev/notion-alternative.html" />
+  <meta property="og:image" content="https://selfnote.fulvio.dev/assets/og.png" />
+  <meta name="twitter:card" content="summary_large_image" />
+  <script type="application/ld+json">
+  {"@context":"https://schema.org","@type":"FAQPage","mainEntity":[{"@type":"Question","name":"Is Selfnote free?","acceptedAnswer":{"@type":"Answer","text":"Yes. The server and every client are free and open source. You pay for the machine you run it on, and for an AI provider only if you pick a paid one."}},{"@type":"Question","name":"Is Selfnote open source?","acceptedAnswer":{"@type":"Answer","text":"Yes, under the AGPL-3.0. The whole monorepo, server and clients, is on GitHub."}},{"@type":"Question","name":"Does it work offline?","acceptedAnswer":{"@type":"Answer","text":"Yes, on every client. Notes are cached on the device, you keep writing without a connection, and edits merge when you are back, including edits other people made in the meantime."}},{"@type":"Question","name":"Can several people edit at once?","acceptedAnswer":{"@type":"Answer","text":"Yes. Pages are CRDTs, so collaboration is real time with visible cursors, and it survives one of the editors going offline."}},{"@type":"Question","name":"Does it have AI?","acceptedAnswer":{"@type":"Answer","text":"Optional. The server operator enables one provider: a Claude command line tool running on the server itself, the Anthropic API, or Ollama. With the local options your notes never leave your machine."}},{"@type":"Question","name":"Can I import from Notion or Obsidian?","acceptedAnswer":{"@type":"Answer","text":"Obsidian vaults import directly, folders, images and wiki-links included. Notion exports as Markdown and imports the same way; databases export as CSV and are not imported."}},{"@type":"Question","name":"What does it run on?","acceptedAnswer":{"@type":"Answer","text":"Anything that runs Postgres and two small Rust binaries: a Kubernetes cluster through the Helm chart, a VPS, a home server, or a laptop for trying it out."}}]}
+  </script>
+  <link rel="icon" type="image/png" href="/assets/favicon.png" />
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+  <link href="https://fonts.googleapis.com/css2?family=Source+Serif+4:opsz,wght@8..60,400..700&family=Inter+Tight:wght@400..700&display=swap" rel="stylesheet" />
+  <link rel="stylesheet" href="/assets/site.css" />
+</head>
+<body>
+
+<header class="site-head">
+  <div class="wrap">
+    <a class="brand" href="/"><img src="/assets/logo.png" alt="" />Selfnote</a>
+    <nav class="site-nav">
+      <a href="/docs/">Docs</a>
+      <a href="/use-cases.html" class="hide-sm">Use cases</a>
+      <a href="/resources.html" class="hide-sm">Resources</a>
+      <a href="/articles/" class="hide-sm">Articles</a>
+      <a href="/ereader/" class="hide-sm">eReader</a>
+      <a href="/download.html">Download</a>
+      <a href="https://github.com/fulviodenza/selfnote">GitHub</a>
+    </nav>
+  </div>
+</header>
+
+<div class="docs-shell">
+  <div class="wrap" style="display:block">
+    <article class="prose">
+      <h1>A self-hosted, open source Notion alternative</h1>
+      <p class="subtitle">Pages, a block editor, real-time collaboration that works offline, tasks, links and AI on your own terms, on a server you run. Free, AGPL, with web, desktop and mobile apps.</p>
+      <p>Selfnote is a workspace in the shape people know from Notion: nested pages, a
+      block editor with headings, todos, tables, code and callouts, real-time
+      collaboration, tasks, and an AI assistant. The difference is where it runs. The
+      server is yours, the apps are free, and the code is open source under the AGPL. There
+      is no Selfnote cloud and no account with anyone but your own server.</p>
+
+      <h2>What you get</h2>
+      <ul>
+        <li><b>The editor you expect.</b> Pages inside pages, slash commands, tables, code
+        blocks, callouts, math, images and files, with the same editor on web, desktop and
+        mobile.</li>
+        <li><b>Real-time collaboration that works offline.</b> Every page is a CRDT. Two
+        people can type in the same sentence, one of them on a plane, and both sets of
+        edits survive the merge with no conflict dialog. Notion is built around being
+        online.</li>
+        <li><b>Links, backlinks and a graph.</b> Type <code>[[</code> to link a page, see
+        what links back, and explore the workspace as a graph.</li>
+        <li><b>Tasks and a calendar feed.</b> Any page or checklist item can carry a due
+        date, status and priority, and the agenda publishes to Apple, Google or Outlook
+        calendars.</li>
+        <li><b>Version history.</b> Named restore points per page; restoring is a new
+        edit, so nothing is ever destroyed.</li>
+        <li><b>AI you choose.</b> Off by default. Turn it on with your Claude subscription
+        running on your own server, the Anthropic API, or an Ollama model on your own
+        hardware. Every AI edit is a proposal you accept or reject.</li>
+        <li><b>Claude can use it.</b> An <a href="/docs/mcp.html">MCP server</a> lets
+        Claude search, read, file summaries into, and propose edits to your notes from
+        any conversation.</li>
+        <li><b>Sharing with a kill switch.</b> Public links per page, with view counts, and
+        workspace roles for owner, admin, editor and viewer.</li>
+      </ul>
+
+      <h2>Notion vs Selfnote</h2>
+      <table>
+        <tr><th></th><th>Notion</th><th>Selfnote</th></tr>
+        <tr><td>Where your notes live</td><td>Notion's cloud</td><td>A server you run, or one a friend runs for you</td></tr>
+        <tr><td>Price</td><td>Free tier, then per seat per month</td><td>Free. The only cost is the machine it runs on</td></tr>
+        <tr><td>Source</td><td>Closed</td><td>Open, AGPL-3.0, <a href="https://github.com/fulviodenza/selfnote">on GitHub</a></td></tr>
+        <tr><td>Offline</td><td>Built around being online</td><td>Offline-first on every client, with real merges</td></tr>
+        <tr><td>Real-time collaboration</td><td>Yes</td><td>Yes, CRDT based, with cursors</td></tr>
+        <tr><td>AI</td><td>Notion's model, paid add-on</td><td>Your choice of provider, including fully local; off until you enable it</td></tr>
+        <tr><td>AI edits</td><td>Applied</td><td>Staged as proposals with a diff you accept</td></tr>
+        <tr><td>Databases and views</td><td>Yes, extensive</td><td>No. Tables inside pages, tasks with an agenda</td></tr>
+        <tr><td>Templates and integrations</td><td>Large ecosystem</td><td>Obsidian vault import, MCP for Claude, iCal feed</td></tr>
+        <tr><td>Clients</td><td>Web, desktop, mobile</td><td>Web, desktop, Android; iPhone and iPad from source today</td></tr>
+        <tr><td>Export</td><td>Markdown, CSV, HTML</td><td>Your Postgres database is the export; Markdown through the MCP</td></tr>
+      </table>
+
+      <h2>What Selfnote does not have</h2>
+      <p>Honesty is cheaper than a disappointed install. Compared with Notion, Selfnote has
+      no databases with board, calendar and gallery views, no template gallery, no
+      marketplace of integrations, and no hosted free tier: someone has to run the
+      server. The iPhone app is built from source until it reaches the App Store. If your
+      workflow is a Notion database with twelve properties and three views, Selfnote is
+      not that tool. If it is pages, writing, collaboration, tasks and AI that respects
+      your data, it is.</p>
+
+      <h2>Moving from Notion</h2>
+      <p>Export your workspace from Notion as Markdown, unzip it, and import the folder as
+      a vault from the Selfnote web client. Pages and their nesting come across, images
+      come along, and callouts stay callouts. Two things to know: Notion appends an id to
+      every exported file name, so titles arrive with that suffix until you rename them,
+      and Notion databases export as CSV files, which are not imported. Links between
+      pages arrive as text. The full steps are in
+      <a href="/articles/moving-from-notion-to-self-hosted.html">moving from Notion to a
+      self-hosted workspace</a>.</p>
+
+      <h2>Running it</h2>
+      <p>A Selfnote server is three small processes and a Postgres: the API, the sync
+      server and the web client. The <a href="/docs/self-hosting.html">self-hosting
+      guide</a> covers a Helm chart for Kubernetes, with backups and point in time
+      recovery through CloudNativePG, and a plain install on any machine. A home server
+      or a small VPS is plenty.</p>
+
+      <h2>Frequently asked questions</h2>
+      <h3>Is Selfnote free?</h3>
+      <p>Yes. The server and every client are free and open source. You pay for the
+      machine you run it on, and for an AI provider only if you pick a paid one.</p>
+      <h3>Is Selfnote open source?</h3>
+      <p>Yes, under the AGPL-3.0. The whole monorepo, server and clients, is
+      <a href="https://github.com/fulviodenza/selfnote">on GitHub</a>.</p>
+      <h3>Does it work offline?</h3>
+      <p>Yes, on every client. Notes are cached on the device, you keep writing without a
+      connection, and edits merge when you are back, including edits other people made in
+      the meantime.</p>
+      <h3>Can several people edit at once?</h3>
+      <p>Yes. Pages are CRDTs, so collaboration is real time with visible cursors, and it
+      survives one of the editors going offline.</p>
+      <h3>Does it have AI?</h3>
+      <p>Optional. The server operator enables one provider: a Claude command line tool
+      running on the server itself, the Anthropic API, or Ollama. The clients then show an
+      Assist panel, note actions and AI edit proposals. With the local options your notes
+      never leave your machine.</p>
+      <h3>Can I import from Notion or Obsidian?</h3>
+      <p>Obsidian vaults import directly, folders, images and wiki-links included. Notion
+      exports as Markdown and imports the same way, with the caveats above.</p>
+      <h3>How does it compare with AppFlowy, AFFiNE, Docmost or Outline?</h3>
+      <p>They are all good self-hosted options with different shapes. The short version:
+      AppFlowy and AFFiNE are closest to Notion's databases and whiteboards, Docmost and
+      Outline are team wikis, and Selfnote is pages plus real-time offline collaboration,
+      tasks and a provider-agnostic AI with a review step. The long version is
+      <a href="/articles/self-hosted-notion-alternatives.html">the best self-hosted Notion
+      alternatives in 2026</a>.</p>
+      <h3>What does it run on?</h3>
+      <p>Anything that runs Postgres and two small Rust binaries: a Kubernetes cluster
+      through the Helm chart, a VPS, a home server, or a laptop for trying it out.</p>
+
+      <div class="callout"><p>Start here: <a href="/docs/self-hosting.html">set up a
+      server</a>, then <a href="/download.html">install the apps</a>. Questions go to the
+      <a href="https://github.com/fulviodenza/selfnote/issues">issue tracker</a>.</p></div>
+
+    </article>
+  </div>
+</div>
+
+<footer class="site-foot">
+  <div class="wrap">
+    <span>Selfnote</span>
+    <a href="/docs/">Documentation</a>
+    <a href="/articles/">Articles</a>
+    <a href="/notion-alternative.html">Notion alternative</a>
+    <a href="/support.html">Support</a>
+    <a href="/privacy.html">Privacy</a>
+    <span class="spacer"></span>
+    <a href="https://github.com/fulviodenza/selfnote">Source on GitHub</a>
+    <a href="https://github.com/fulviodenza/selfnote/blob/main/LICENSE">License</a>
+  </div>
+</footer>
+
+</body>
+</html>
