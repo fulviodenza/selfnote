@@ -182,7 +182,9 @@ async function renderPage(): Promise<void> {
     const fit = fitWidth() / base.width;
     const viewport = page.getViewport({ scale: fit * zoom });
     // WebKit refuses canvases past about 16.7M pixels and paints them blank,
-    // which a zoomed page at device resolution overshoots.
+    // which a zoomed page at device resolution overshoots. Past this cap zoom
+    // upscales rather than adds detail: on a 2x screen, sharpness stops
+    // improving at roughly 2x zoom.
     const ratio = Math.min(
       window.devicePixelRatio || 1,
       Math.sqrt(16e6 / (viewport.width * viewport.height)),
@@ -220,12 +222,18 @@ async function renderPage(): Promise<void> {
     });
     await layer.render();
 
-    document.getElementById("canvas")!.replaceWith(canvas);
+    const old = document.getElementById("canvas") as HTMLCanvasElement;
+    old.replaceWith(canvas);
+    // A detached canvas holds its backing store, up to 64MB at the cap, until
+    // GC. Zeroing it frees that now, so fast turns at high zoom cannot pile up
+    // past WebKit's canvas memory budget and stop rendering.
+    old.width = old.height = 0;
     document.getElementById("text")!.replaceWith(textHost);
     holder.style.height = `${viewport.height}px`;
     holder.style.width = zoom > 1 ? `${viewport.width}px` : "";
     const scroller = document.getElementById("scroll")!;
-    scroller.style.overflowX = zoom > 1 ? "auto" : "";
+    // At 1 the page fits the width, so there is nothing to the side to reach.
+    scroller.style.overflowX = zoom > 1 ? "auto" : "hidden";
     if (target !== shownPage) scroller.scrollTo(0, 0);
     shownPage = target;
     // The fitted box, whatever the zoom: inserts are sized from it.
@@ -316,6 +324,12 @@ function span(a: Touch, b: Touch) {
   };
 }
 
+function hasStylus(e: TouchEvent): boolean {
+  return Array.from(e.touches).some(
+    (t) => (t as Touch & { touchType?: string }).touchType === "stylus",
+  );
+}
+
 function bindPinch(): void {
   const scroll = document.getElementById("scroll");
   const holder = document.getElementById("page");
@@ -323,8 +337,20 @@ function bindPinch(): void {
   scroll.addEventListener(
     "touchstart",
     (e: TouchEvent) => {
-      if (e.touches.length < 2) return;
+      if (e.touches.length === 1) {
+        // A live pinch always has two fingers down, so one finger arriving
+        // with a pinch still set means its end was lost: the touch target was
+        // detached mid-gesture (a text layer swap) and the end never bubbled
+        // here. Without this the live transform would stay on the page.
+        if (pinch) {
+          pinch = null;
+          holder.style.transform = "";
+        }
+        return;
+      }
       multiTouch = true;
+      // A finger resting while the Pencil selects is not a pinch.
+      if (hasStylus(e)) return;
       // A finger added mid-pinch keeps the pinch it joined: restarting would
       // measure a box that already carries the live transform.
       if (pinch) return e.preventDefault();
@@ -346,7 +372,7 @@ function bindPinch(): void {
   scroll.addEventListener(
     "touchmove",
     (e: TouchEvent) => {
-      if (!pinch || e.touches.length < 2) return;
+      if (!pinch || e.touches.length < 2 || hasStylus(e)) return;
       e.preventDefault();
       const { d, mid } = span(e.touches[0], e.touches[1]);
       const target = Math.min(MAX_ZOOM, Math.max(1, (zoom * d) / pinch.d0));
@@ -922,7 +948,11 @@ let lastTap = { at: 0, x: 0, y: 0 };
 document.addEventListener(
   "touchstart",
   (e: TouchEvent) => {
+    // Set here as well as on #scroll: a second finger landing outside it (on
+    // the pill, say) must still keep the first finger's lift from reading as
+    // a tap or a swipe measured between two different fingers.
     if (e.touches.length === 1) multiTouch = false;
+    else if (e.touches.length >= 2) multiTouch = true;
     const t = e.changedTouches[0];
     sx = t.clientX; sy = t.clientY; st = Date.now();
     const sel = window.getSelection();

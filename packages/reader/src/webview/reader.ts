@@ -113,6 +113,8 @@ async function open(
   hideNote();
   lastLoc = { cfi: null, progress: 0, section: null };
   fontPct = fontSize ? clampFont(fontSize) : 100;
+  fontOverride = "";
+  fontAnchor = null;
 
   book = ePub(bytesFromBase64(base64));
   rendition = book.renderTo("viewer", {
@@ -146,6 +148,14 @@ async function open(
   rendition.hooks.content.register((contents: any) => {
     const doc: Document = contents.document;
 
+    // The text size is a multiple of this section's own body size, measured
+    // before any override of ours. The theme's overrides hook ran first and
+    // may already have put a size inline, so that is lifted for the reading.
+    if (fontOverride) doc.body.style.removeProperty("font-size");
+    const view = doc.defaultView ?? window;
+    naturalSize.set(doc, parseFloat(view.getComputedStyle(doc.body).fontSize) || 16);
+    sizeSection(contents);
+
     // selectionchange is the one signal iOS fires reliably (the system gesture
     // swallows touchend), so it drives the pill. Debounced just enough not to
     // thrash while the handles are moving.
@@ -177,6 +187,8 @@ async function open(
       (e: TouchEvent) => {
         if (e.touches.length >= 2) {
           multiTouch = true;
+          // A finger resting while the Pencil selects is not a pinch.
+          if (hasStylus(e)) return;
           if (!pinch && !currentNote()) {
             const d = Math.max(spread(e), 1);
             pinch = { d0: d, d };
@@ -194,7 +206,7 @@ async function open(
     doc.addEventListener(
       "touchmove",
       (e: TouchEvent) => {
-        if (!pinch || e.touches.length < 2) return;
+        if (!pinch || e.touches.length < 2 || hasStylus(e)) return;
         // Not passive only for this: two fingers must not reach the web view's
         // own zoom or scroll. One finger is left alone.
         e.preventDefault();
@@ -210,7 +222,15 @@ async function open(
       if (ratio > 1.15) stepFontSize(1);
       else if (ratio < 0.87) stepFontSize(-1);
     };
-    doc.addEventListener("touchcancel", pinchEnd, { passive: true });
+    // A cancelled gesture was claimed by the system, not finished by the
+    // reader: it drops the pinch without stepping the size.
+    doc.addEventListener(
+      "touchcancel",
+      (e: TouchEvent) => {
+        if (e.touches.length < 2) pinch = null;
+      },
+      { passive: true },
+    );
     doc.addEventListener(
       "touchend",
       (e: TouchEvent) => {
@@ -266,13 +286,16 @@ async function open(
       progress: location?.start?.percentage ?? 0,
       section: typeof location?.start?.index === "number" ? location.start.index : null,
     };
+    // Any move the reader made, rather than a size change, is a new place to
+    // hold on to.
+    if (!fontMoving) fontAnchor = null;
     sendLocation();
   });
 
   applyTypography(rendition);
-  // The stored size goes in before the first layout, so the book never
-  // paints at the default and then reflows.
-  if (fontPct !== 100) rendition.themes.fontSize(`${BASE_REM * fontPct}%`);
+  // A stored size needs nothing here: the content hook sizes each section as
+  // it loads, from that section's own measured size, before the first layout
+  // settles, so the book never paints at the default and then reflows.
   await rendition.display();
 
   const meta = await book.loaded.metadata;
@@ -569,6 +592,32 @@ const FONT_MIN = 70;
 const FONT_MAX = 200;
 const FONT_STEP = 10;
 let fontPct = 100;
+/** Each loaded section's body size before any override, so a size is a true
+ * multiple of what the book asked for, own CSS included. */
+const naturalSize = new WeakMap<Document, number>();
+/** The value last handed to themes.fontSize; empty when the book's own size
+ * rules. */
+let fontOverride = "";
+/** The passage held across consecutive size steps. Each step's redisplay lands
+ * on a page that starts at or before it, so re-reading the position every step
+ * would walk backwards; any move that is not a size change clears it. */
+let fontAnchor: string | null = null;
+/** A size change is moving the view, so its relocations keep the anchor. */
+let fontMoving = false;
+
+function hasStylus(e: TouchEvent): boolean {
+  return Array.from(e.touches).some(
+    (t) => (t as Touch & { touchType?: string }).touchType === "stylus",
+  );
+}
+
+/** Put one section at the current size. At 100 the override is cleared, so the
+ * book's own rules decide; otherwise it is the section's natural size scaled. */
+function sizeSection(contents: any): void {
+  const natural = naturalSize.get(contents.document);
+  if (natural === undefined) return;
+  contents.css("font-size", fontPct === 100 ? "" : `${(natural * fontPct) / 100}px`);
+}
 
 /** Wait for the "relocated" that follows whatever `act` does to the view. */
 async function landing(r: Rendition, act: () => Promise<unknown> | void): Promise<void> {
@@ -606,21 +655,33 @@ const frames = (n: number) =>
 async function applyFontSize(pct: number): Promise<void> {
   const r = rendition;
   if (!r) return;
-  const keep = lastLoc.cfi;
+  const keep = fontAnchor ?? lastLoc.cfi;
+  fontAnchor = keep;
   fontPct = pct;
-  // epub.js puts this inline on the book's body, where a percentage is of the
-  // 16px root and replaces the default above. Scaled by the default, 100 is
-  // the size the reader opens at.
-  r.themes.fontSize(`${BASE_REM * pct}%`);
-  if (!keep) return;
-  // The frame grows its columns from a resize observer, a frame or two after
-  // the style lands. A slow reflow can still beat that, so the landing is
-  // checked and redone once the layout has had longer.
-  await frames(2);
-  await landing(r, () => r.display(keep));
-  if (!showing(r, keep)) {
-    await new Promise((resolve) => window.setTimeout(resolve, 300));
+  fontMoving = true;
+  try {
+    // epub.js puts this inline on the book's body, in px from the section's
+    // measured size, so a book with its own body size scales from that size
+    // instead of being replaced by ours. Empty at 100 removes it outright.
+    // The theme keeps it for sections loaded later; the content hook re-sizes
+    // each of those from its own measurement.
+    const contents = r.getContents() as unknown as any[];
+    const natural = contents.length ? naturalSize.get(contents[0].document) : undefined;
+    fontOverride = pct === 100 || natural === undefined ? "" : `${(natural * pct) / 100}px`;
+    r.themes.fontSize(fontOverride);
+    for (const c of contents) sizeSection(c);
+    if (!keep) return;
+    // The frame grows its columns from a resize observer, a frame or two after
+    // the style lands. A slow reflow can still beat that, so the landing is
+    // checked and redone once the layout has had longer.
+    await frames(2);
     await landing(r, () => r.display(keep));
+    if (!showing(r, keep)) {
+      await new Promise((resolve) => window.setTimeout(resolve, 300));
+      await landing(r, () => r.display(keep));
+    }
+  } finally {
+    fontMoving = false;
   }
 }
 
