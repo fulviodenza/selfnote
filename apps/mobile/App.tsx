@@ -81,6 +81,7 @@ import { AssetsScreen } from "./src/screens/AssetsScreen";
 import { ShelfScreen, type Shelf } from "./src/screens/ShelfScreen";
 import { CalendarFeedSection } from "./src/screens/CalendarFeedSection";
 import { VoiceSection } from "./src/screens/VoiceSection";
+import { readTour, startTour, type Tour } from "./src/tour";
 
 const COLLAPSED_KEY = "selfnote.collapsed";
 const TABS_KEY = "selfnote.tabs";
@@ -288,8 +289,29 @@ function AppInner() {
     setPhase(restored ? "app" : "auth");
   }, []);
 
+  /**
+   * App Store screenshot runs only (src/tour.ts): sign in to the demo server
+   * and open the screen the tour names. False sends boot down the normal path.
+   */
+  const applyTour = useCallback(
+    async (tour: Tour): Promise<boolean> => {
+      const started = await startTour(tour);
+      if (!started) return false;
+      setWorkspaceId(started.workspaceId);
+      if (tour.open === "graph") setShowGraph(true);
+      else if (tour.open === "tasks") setShowTasks(true);
+      else if (started.doc) openPage(started.doc);
+      setPhase("app");
+      return true;
+    },
+    [openPage],
+  );
+
   useEffect(() => {
     (async () => {
+      // No tour file (every real launch) means no change to the boot below.
+      const tour = await readTour();
+      if (tour && (await applyTour(tour))) return;
       await loadSettings();
       // No server configured yet → first-launch onboarding to pick the instance.
       if (!isConfigured()) {
@@ -298,7 +320,7 @@ function AppInner() {
       }
       await goPostConfig();
     })();
-  }, [goPostConfig]);
+  }, [goPostConfig, applyTour]);
 
   // Android back: close the topmost thing, one level at a time. The editor
   // registers its own handler for its overlays (RN runs handlers LIFO, so the

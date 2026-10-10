@@ -36,6 +36,14 @@ export function getSettings(): ServerSettings {
   return cached;
 }
 
+/**
+ * Use these settings for this session without persisting them, so a server
+ * can be tried before it is saved. loadSettings puts the stored ones back.
+ */
+export function applySettings(next: ServerSettings): void {
+  cached = { syncUrl: next.syncUrl.trim(), apiUrl: next.apiUrl.trim() };
+}
+
 export async function saveSettings(next: ServerSettings): Promise<ServerSettings> {
   cached = {
     syncUrl: next.syncUrl.trim() || DEFAULT_SYNC_URL,

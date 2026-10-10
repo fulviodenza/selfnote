@@ -1,0 +1,4 @@
+# App Store screenshots: artifacts of scripts/appstore-shots.mjs
+/screenshots
+# The demo account password it generates on first run
+/scripts/fixtures/demo-credentials.json
