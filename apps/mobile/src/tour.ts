@@ -12,7 +12,8 @@
  * Native's networking layer serves from disk.
  */
 import { defaultDatabaseDirectory } from "expo-sqlite";
-import type { ServerSettings } from "./settings";
+import { api, ensureWorkspace, restoreSession, sessionSnapshot, type Document } from "./api";
+import { applySettings, loadSettings, saveSettings, type ServerSettings } from "./settings";
 
 export type TourOpen = "home" | "graph" | "tasks" | { note: string };
 
@@ -58,6 +59,37 @@ export async function readTour(): Promise<Tour | null> {
       open,
     };
   } catch {
+    return null;
+  }
+}
+
+/**
+ * Sign in as the tour says and find what it wants opened. Nothing is saved
+ * until every step has worked: on any failure the stored server and session
+ * are put back as they were and null is returned, so the app boots as it
+ * would have without the tour (and the screenshot runner, seeing the wrong
+ * screen, fails the shot).
+ */
+export async function startTour(
+  tour: Tour,
+): Promise<{ workspaceId: string; doc: Document | null } | null> {
+  const before = await sessionSnapshot();
+  try {
+    applySettings(tour.server);
+    await api.login(tour.login.email, tour.login.password);
+    const workspaceId = await ensureWorkspace();
+    let doc: Document | null = null;
+    if (typeof tour.open === "object") {
+      const title = tour.open.note;
+      doc = (await api.listDocuments(workspaceId)).find((d) => d.title === title) ?? null;
+      if (!doc) throw new Error(`no note titled "${title}"`);
+    }
+    await saveSettings(tour.server);
+    return { workspaceId, doc };
+  } catch (e) {
+    console.warn("screenshot tour failed:", e);
+    await restoreSession(before).catch(() => undefined);
+    await loadSettings().catch(() => undefined);
     return null;
   }
 }

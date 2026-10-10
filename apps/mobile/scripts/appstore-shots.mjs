@@ -27,6 +27,7 @@
 // run. Output goes to screenshots/<preset>/, gitignored.
 import { execFileSync, spawn, spawnSync } from "node:child_process";
 import { randomBytes } from "node:crypto";
+import { connect } from "node:net";
 import {
   closeSync,
   existsSync,
@@ -133,24 +134,54 @@ async function waitFor(what, check, seconds) {
   fail(`${what} did not come up within ${seconds}s`);
 }
 
-/** Start the Postgres container if needed; true when this run started it. */
-async function ensurePostgres() {
+/** True when anything at all accepts a TCP connection on the port. */
+function portTaken(port) {
+  return new Promise((resolve) => {
+    const sock = connect({ host: "127.0.0.1", port });
+    const done = (taken) => {
+      sock.destroy();
+      resolve(taken);
+    };
+    sock.setTimeout(1500, () => done(false));
+    sock.once("connect", () => done(true));
+    sock.once("error", () => done(false));
+  });
+}
+
+/** docker run or start, with a port clash turned into a plain refusal. */
+function docker(args) {
+  try {
+    return run("docker", args);
+  } catch (e) {
+    const msg = String(e.stderr ?? e.message);
+    if (/port is already allocated|address already in use/i.test(msg)) {
+      fail(
+        `port ${PG.port} is taken, so ${PG.name} cannot start; another container ` +
+          `(selfnote-tmp-pg, for one, maps it) is probably running: stop it and rerun`,
+      );
+    }
+    throw e;
+  }
+}
+
+/** Start the Postgres container if needed, recording on `stack` that this run
+ * started it before waiting on it, so a failed wait still stops it. */
+async function ensurePostgres(stack) {
   const state = spawnSync("docker", ["inspect", "-f", "{{.State.Running}}", PG.name], { encoding: "utf8" });
   if (state.error) fail("docker is not available");
-  let started = false;
   if (state.status !== 0) {
     log(`creating ${PG.name} on port ${PG.port}`);
-    run("docker", [
+    docker([
       "run", "-d", "--name", PG.name,
       "-e", "POSTGRES_USER=selfnote", "-e", "POSTGRES_PASSWORD=selfnote", "-e", "POSTGRES_DB=selfnote",
       "-p", `127.0.0.1:${PG.port}:5432`,
       "postgres:16",
     ]);
-    started = true;
+    stack.pgStarted = true;
   } else if (state.stdout.trim() !== "true") {
     log(`starting ${PG.name}`);
-    run("docker", ["start", PG.name]);
-    started = true;
+    docker(["start", PG.name]);
+    stack.pgStarted = true;
   }
   await waitFor(
     "Postgres",
@@ -159,7 +190,6 @@ async function ensurePostgres() {
         .status === 0,
     60,
   );
-  return started;
 }
 
 function readStack() {
@@ -179,7 +209,42 @@ const alive = (pid) => {
   }
 };
 
-function launchServer(bin, env, logName) {
+/** The command line of a process, or "" when it is gone. */
+const commandOf = (pid) => spawnSync("ps", ["-o", "command=", "-p", String(pid)], { encoding: "utf8" }).stdout.trim();
+
+/**
+ * Whether the servers a --keep run left behind are really ours and really on
+ * the shots database: the recorded pids must still be this checkout's
+ * selfnote-api and selfnote-sync, and the API must sign the demo account in
+ * as the very user id the shots Postgres holds for it.
+ */
+async function ownStack(kept) {
+  const [api, sync] = kept?.pids ?? [];
+  if (!api || !sync || !alive(api) || !alive(sync)) return false;
+  if (!commandOf(api).endsWith("target/debug/selfnote-api")) return false;
+  if (!commandOf(sync).endsWith("target/debug/selfnote-sync")) return false;
+  if (!existsSync(credsFile)) return false;
+  const creds = JSON.parse(readFileSync(credsFile, "utf8"));
+  const inDb = spawnSync(
+    "docker",
+    ["exec", PG.name, "psql", "-U", "selfnote", "-d", "selfnote", "-tAc", `select id from users where email = '${creds.email.replace(/'/g, "''")}'`],
+    { encoding: "utf8" },
+  ).stdout?.trim();
+  if (!inDb) return false;
+  try {
+    const res = await fetch(`${SERVER.apiUrl}/auth/login`, {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify(creds),
+      signal: AbortSignal.timeout(3000),
+    });
+    return res.ok && (await res.json()).user_id === inDb;
+  } catch {
+    return false;
+  }
+}
+
+function launchServer(stack, bin, env, logName) {
   const fd = openSync(join(outRoot, logName), "w");
   const child = spawn(join(repoRoot, "target/debug", bin), [], {
     cwd: repoRoot,
@@ -189,30 +254,32 @@ function launchServer(bin, env, logName) {
   });
   closeSync(fd);
   child.unref();
-  return child.pid;
+  // Recorded at once, so cleanup reaches it even if its health wait fails.
+  stack.pids.push(child.pid);
 }
 
 /**
- * Bring up the demo stack. A stack left by an earlier --keep run is reused;
- * anything else already on the ports is refused, so the demo data can never
- * land in a development database.
+ * Bring up the demo stack on `stack`, which the caller tears down whatever
+ * happens. A stack left by an earlier --keep run is reused only when it proves
+ * to be ours; anything else on the ports is refused, so the demo data can
+ * never land in a development database.
  */
-async function startStack() {
+async function startStack(stack) {
   mkdirSync(outRoot, { recursive: true });
-  const stack = { pgStarted: false, pids: [] };
-  stack.pgStarted = await ensurePostgres();
+  await ensurePostgres(stack);
 
   const kept = readStack();
-  if (kept?.pids?.length && kept.pids.every(alive) && (await healthy(`${SERVER.apiUrl}/healthz`))) {
+  if (kept && (await ownStack(kept))) {
     log(`reusing the demo servers from a --keep run (pids ${kept.pids.join(", ")})`);
-    stack.pids = kept.pids;
+    stack.pids.push(...kept.pids);
     // Whoever started the container first owns stopping it.
     stack.pgStarted ||= kept.pgStarted === true;
-    return stack;
+    return;
   }
+  rmSync(stackFile, { force: true });
   for (const [what, port] of [["API", API_PORT], ["sync", SYNC_PORT]]) {
-    if (await healthy(`http://127.0.0.1:${port}/healthz`)) {
-      fail(`something is already serving on ${port} (${what}); stop it so the demo stack can use the port`);
+    if (await portTaken(port)) {
+      fail(`something is already listening on ${port} (${what}); stop it so the demo stack can use the port`);
     }
   }
 
@@ -225,18 +292,14 @@ async function startStack() {
 
   const common = { DATABASE_URL, ROOM_SECRET: "shotroom", RUST_LOG: "info" };
   // The API applies the migrations on boot, so it goes first.
-  stack.pids.push(
-    launchServer("selfnote-api", { ...common, JWT_SECRET: "shotsecret", API_ADDR: `127.0.0.1:${API_PORT}` }, "api.log"),
-  );
+  launchServer(stack, "selfnote-api", { ...common, JWT_SECRET: "shotsecret", API_ADDR: `127.0.0.1:${API_PORT}` }, "api.log");
   await waitFor("selfnote-api", () => healthy(`${SERVER.apiUrl}/healthz`), 90);
-  stack.pids.push(launchServer("selfnote-sync", { ...common, SYNC_ADDR: `127.0.0.1:${SYNC_PORT}` }, "sync.log"));
+  launchServer(stack, "selfnote-sync", { ...common, SYNC_ADDR: `127.0.0.1:${SYNC_PORT}` }, "sync.log");
   await waitFor("selfnote-sync", () => healthy(`http://127.0.0.1:${SYNC_PORT}/healthz`), 60);
   log(`stack up: api ${SERVER.apiUrl}, sync ${SERVER.syncUrl} (logs in screenshots/)`);
-  return stack;
 }
 
 function stopStack(stack, keep) {
-  if (!stack) return;
   if (keep) {
     writeFileSync(stackFile, JSON.stringify({ pids: stack.pids, pgStarted: stack.pgStarted }));
     log(`--keep: leaving the demo stack running (pids ${stack.pids.join(", ")}, ${PG.name})`);
@@ -276,6 +339,13 @@ function seed(creds) {
     [join(mcpRoot, "scripts/seed-demo.mjs"), SERVER.apiUrl, creds.email, creds.password],
     { cwd: mcpRoot, stdio: "inherit" },
   );
+  if (res.status === 3) {
+    fail(
+      `${creds.email} exists in ${PG.name} with a different password than ` +
+        `${credsFile.replace(appRoot + "/", "")} holds: restore that file, or remove the ` +
+        `container (docker rm -f ${PG.name}) to start over with a fresh account`,
+    );
+  }
   if (res.status !== 0) fail("seeding the demo workspace failed");
 }
 
@@ -359,7 +429,55 @@ function build() {
 
 function pngSize(file) {
   const out = run("sips", ["-g", "pixelWidth", "-g", "pixelHeight", file]);
-  return [Number(/pixelWidth: (\d+)/.exec(out)[1]), Number(/pixelHeight: (\d+)/.exec(out)[1])];
+  const w = /pixelWidth: (\d+)/.exec(out);
+  const h = /pixelHeight: (\d+)/.exec(out);
+  if (!w || !h) fail(`sips could not read the size of ${file}`);
+  return [Number(w[1]), Number(h[1])];
+}
+
+/** A shot's pixels, read from a BMP copy because node has no PNG decoder. */
+function pixels(file) {
+  const bmp = file.replace(/\.png$/, ".check.bmp");
+  try {
+    run("sips", ["-s", "format", "bmp", file, "--out", bmp]);
+    const b = readFileSync(bmp);
+    return {
+      b,
+      offset: b.readUInt32LE(10),
+      width: b.readInt32LE(18),
+      height: Math.abs(b.readInt32LE(22)),
+      bytes: b.readUInt16LE(28) / 8,
+    };
+  } finally {
+    rmSync(bmp, { force: true });
+  }
+}
+
+/**
+ * The share of sampled pixels that differ between two shots. Every screen
+ * the tour opens looks nothing like the others, so two shots that barely
+ * differ mean the tour did not reach its screen (a note title that matched
+ * nothing, a load that had not finished) and the app sat on the list.
+ */
+function difference(a, b) {
+  if (a.width !== b.width || a.height !== b.height) return 1;
+  const row = Math.ceil((a.width * a.bytes) / 4) * 4;
+  let n = 0;
+  let differ = 0;
+  for (let y = 0; y < a.height; y += 4) {
+    for (let x = 0; x < a.width; x += 4) {
+      const i = y * row + x * a.bytes;
+      const pa = a.offset + i;
+      const pb = b.offset + i;
+      n++;
+      if (
+        Math.abs(a.b[pa] - b.b[pb]) > 24 ||
+        Math.abs(a.b[pa + 1] - b.b[pb + 1]) > 24 ||
+        Math.abs(a.b[pa + 2] - b.b[pb + 2]) > 24
+      ) differ++;
+    }
+  }
+  return differ / n;
 }
 
 async function launchFresh(udid) {
@@ -392,6 +510,7 @@ async function runPreset(name, creds) {
   rmSync(outDir, { recursive: true, force: true });
   mkdirSync(outDir, { recursive: true });
   const results = [];
+  const taken = [];
   try {
     for (const shot of SHOTS.filter((s) => !preset.shots || preset.shots.includes(s.name))) {
       writeFileSync(
@@ -399,18 +518,34 @@ async function runPreset(name, creds) {
         JSON.stringify({ server: SERVER, login: { email: creds.email, password: creds.password }, open: shot.open }),
       );
       const file = join(outDir, `${shot.name}.png`);
-      await launchFresh(dev.udid);
-      await sleep(shot.wait);
-      simctl("io", dev.udid, "screenshot", "--type=png", file);
+      for (let attempt = 1; ; attempt++) {
+        await launchFresh(dev.udid);
+        await sleep(shot.wait + (attempt - 1) * 5);
+        simctl("io", dev.udid, "screenshot", "--type=png", file);
+        pngSize(file);
+        const px = pixels(file);
+        const twin = taken.find((t) => difference(t.px, px) < 0.02);
+        if (!twin) {
+          taken.push({ name: shot.name, px });
+          break;
+        }
+        if (attempt === 3) {
+          fail(`${shot.name} looks the same as ${twin.name}: the tour did not reach its screen (${file})`);
+        }
+        log(`${shot.name}: looks like ${twin.name}, retaking (${attempt})`);
+      }
       const [w, h] = pngSize(file);
       const ok = preset.sizes.some(([aw, ah]) => aw === w && ah === h);
       results.push({ preset: name, file, w, h, ok });
       log(`${shot.name}: ${w}x${h} ${ok ? "accepted" : "NOT ACCEPTED"}`);
     }
   } finally {
-    // Leave the device usable by hand: no tour steering the next launch.
+    // Leave the device usable by hand: no tour steering the next launch and
+    // the real status bar back. The app stays signed in to the demo account
+    // on purpose, so the next run starts warm; Settings or reinstalling resets it.
     rmSync(tourFile, { force: true });
     simctlQuiet("terminate", dev.udid, BUNDLE);
+    simctlQuiet("status_bar", dev.udid, "clear");
   }
   const bad = results.filter((r) => !r.ok);
   if (bad.length) {
@@ -431,7 +566,8 @@ function printTable(rows) {
 
 const args = process.argv.slice(2);
 const keep = args.includes("--keep");
-let stack = null;
+const stack = { pgStarted: false, pids: [] };
+let ok = false;
 try {
   const target = args.find((a) => !a.startsWith("--")) ?? "all";
   const names = target === "all" ? Object.keys(PRESETS) : [target];
@@ -439,16 +575,18 @@ try {
     if (!PRESETS[n]) fail(`unknown preset ${n}; one of: all, ${Object.keys(PRESETS).join(", ")}`);
   }
   if (args.includes("--build") || !existsSync(APP)) build();
-  stack = await startStack();
+  await startStack(stack);
   const creds = credentials();
   seed(creds);
   const all = [];
   for (const n of names) all.push(...(await runPreset(n, creds)));
   printTable(all);
+  ok = true;
 } catch (err) {
   if (!(err instanceof ShotsError)) throw err;
   console.error("[shots] FAILED:", err.message);
   process.exitCode = 1;
 } finally {
-  stopStack(stack, keep);
+  // A failed run never leaves servers behind, --keep or not.
+  stopStack(stack, keep && ok);
 }

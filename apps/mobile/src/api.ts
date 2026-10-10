@@ -341,6 +341,21 @@ export async function clearSession(): Promise<void> {
 
 export const isAuthed = () => !!accessToken;
 
+/** The stored session as it is now, for putting back with restoreSession. */
+export async function sessionSnapshot(): Promise<[string | null, string | null]> {
+  return Promise.all([AsyncStorage.getItem(ACCESS_KEY), AsyncStorage.getItem(REFRESH_KEY)]);
+}
+
+/** Put a sessionSnapshot back, in storage and in memory. */
+export async function restoreSession([access, refresh]: [string | null, string | null]): Promise<void> {
+  accessToken = access;
+  refreshToken = refresh;
+  await Promise.all([
+    access ? AsyncStorage.setItem(ACCESS_KEY, access) : AsyncStorage.removeItem(ACCESS_KEY),
+    refresh ? AsyncStorage.setItem(REFRESH_KEY, refresh) : AsyncStorage.removeItem(REFRESH_KEY),
+  ]);
+}
+
 async function raw<T>(path: string, options: RequestInit = {}, auth = true): Promise<T> {
   const res = await fetch(`${getSettings().apiUrl}${path}`, {
     ...options,

@@ -11,8 +11,9 @@
 // POST /documents/:id/content. Everything else goes through the public REST API
 // too: register or log in, workspace, pages, icons, labels, links and tasks.
 //
-// Reruns are safe: a page that already exists by title keeps its content and
-// tasks, and labels and links are set as full replaces.
+// Reruns are safe: a page that already exists by title with content keeps its
+// content and tasks, a page left empty by a run that died is filled in, and
+// labels and links are set as full replaces.
 import { docToBlockOutline, markdownToBlocks, replaceBlocksDiff } from "../dist/edit.js";
 
 const [apiUrl, email, password] = process.argv.slice(2);
@@ -249,7 +250,15 @@ async function signIn() {
     console.log(`registered ${email}`);
   } catch (e) {
     if (e.status !== 409) throw e;
-    token = (await call("POST", "/auth/login", { email, password })).access_token;
+    try {
+      token = (await call("POST", "/auth/login", { email, password })).access_token;
+    } catch (le) {
+      if (le.status !== 401) throw le;
+      // The account outlived the password that made it (exit code 3 tells the
+      // shots runner to explain how to recover).
+      console.error(`${email} already exists with a different password`);
+      process.exit(3);
+    }
     console.log(`signed in as ${email}`);
   }
 }
@@ -288,6 +297,13 @@ function toNoteRefs(blocks) {
 
 const linkTargets = (md) => [...md.matchAll(/\]\(@([^)]+)\)/g)].map((m) => m[1]);
 
+/** Whether a page has no text in it yet. */
+async function isEmpty(id) {
+  const { updates } = await call("GET", `/documents/${id}/content`);
+  if (!updates.length) return true;
+  return (await docToBlockOutline(updates)).every((b) => !b.text);
+}
+
 async function main() {
   await signIn();
   const ws = await workspace();
@@ -298,6 +314,9 @@ async function main() {
     let doc = existing.find((d) => d.title === page.title && !d.parent_id);
     if (!doc) {
       doc = await call("POST", "/documents", { workspace_id: ws, parent_id: null, title: page.title });
+      fresh.add(page.title);
+    } else if (await isEmpty(doc.id)) {
+      console.log(`filling "${page.title}", left empty by an earlier run`);
       fresh.add(page.title);
     }
     if (page.icon && doc.icon !== page.icon) await call("PATCH", `/documents/${doc.id}`, { icon: page.icon });
@@ -311,8 +330,8 @@ async function main() {
 
   for (const page of PAGES) {
     const id = idByTitle.get(page.title);
-    const md = resolveLinks(page.md, idByTitle);
     if (fresh.has(page.title)) {
+      const md = resolveLinks(page.md, idByTitle);
       const { updates } = await call("GET", `/documents/${id}/content`);
       const update = replaceBlocksDiff(updates, toNoteRefs(await markdownToBlocks(md)));
       await call("POST", `/documents/${id}/content`, { update });
