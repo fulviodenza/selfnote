@@ -445,6 +445,7 @@ function AppRoot() {
       {showImport && workspaceId && (
         <ImportVaultModal
           workspaceId={workspaceId}
+          labelsShown={labelsShown}
           onPickVault={() => {
             setShowImport(false);
             fileInputRef.current?.click();
@@ -952,10 +953,13 @@ function ShelfView({
  */
 function ImportVaultModal({
   workspaceId,
+  labelsShown,
   onPickVault,
   onClose,
 }: {
   workspaceId: string;
+  /** The bulk-label step only makes sense while labels are in view. */
+  labelsShown: boolean;
   onPickVault: () => void;
   onClose: () => void;
 }) {
@@ -975,14 +979,16 @@ function ImportVaultModal({
         <button className="auth-submit" onClick={onPickVault}>
           Choose vault folder…
         </button>
-        <div className="import-modal-section">
-          <div className="import-modal-label">After importing</div>
-          <p className="conn-intro">
-            Let the AI read your notes and tag every unlabeled page, so the label
-            filters are useful from day one.
-          </p>
-          <BulkLabelButton workspaceId={workspaceId} />
-        </div>
+        {labelsShown && (
+          <div className="import-modal-section">
+            <div className="import-modal-label">After importing</div>
+            <p className="conn-intro">
+              Let the AI read your notes and tag every unlabeled page, so the label
+              filters are useful from day one.
+            </p>
+            <BulkLabelButton workspaceId={workspaceId} />
+          </div>
+        )}
       </div>
     </div>
   );

@@ -1006,6 +1006,7 @@ function DocListScreen({
         <IconButton
           icon="tag"
           label={labelsShown ? "Hide labels" : "Show labels"}
+          active={labelsShown}
           onPress={onToggleLabels}
         />
         <IconButton icon="check-square" label="Tasks" onPress={onTasks} />

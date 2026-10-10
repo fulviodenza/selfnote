@@ -118,6 +118,8 @@ export function LabelBar({
   const [suggesting, setSuggesting] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const inputRef = useRef<HTMLInputElement>(null);
+  // Manage mode: the label being edited in the picker (rename/delete).
+  const [editing, setEditing] = useState<Label | null>(null);
 
   const reload = useCallback(async () => {
     try {
@@ -136,6 +138,8 @@ export function LabelBar({
     setSuggestions(null);
     setPickerOpen(false);
     setQuery("");
+    setEditing(null);
+    setError(null);
     // Nothing to fetch while hidden; the switch flipping on loads them.
     if (shown) void reload();
   }, [reload, shown]);
@@ -150,8 +154,6 @@ export function LabelBar({
     }
   };
 
-  // Manage mode: the label being edited in the picker (rename/delete).
-  const [editing, setEditing] = useState<Label | null>(null);
 
   const saveEdit = async () => {
     if (!editing) return;
