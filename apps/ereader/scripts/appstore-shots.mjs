@@ -79,9 +79,11 @@ const SHOTS = [
 
 const sleep = (s) => new Promise((r) => setTimeout(r, s * 1000));
 const log = (...a) => console.log("[shots]", ...a);
+/** Thrown, not exited on the spot, so a preset's cleanup still runs: a tour
+ * file left behind would steer every later launch of the app by hand. */
+class ShotsError extends Error {}
 const fail = (msg) => {
-  console.error("[shots] FAILED:", msg);
-  process.exit(1);
+  throw new ShotsError(msg);
 };
 
 function run(cmd, args, opts = {}) {
@@ -289,7 +291,10 @@ function seed(udid, preset) {
   const year = new Date(new Date().getFullYear(), 0, 1).getTime();
   const midnight = new Date(new Date().setHours(0, 0, 0, 0)).getTime();
   // Finished this year whatever the date the run happens on.
-  const thisYear = (daysAgo) => Math.max(year + DAY, now - daysAgo * DAY);
+  // Finished this year and before the books read today, whatever the date the
+  // run happens on; staggered so the shelf order holds even in early January.
+  const thisYear = (daysAgo) =>
+    Math.max(year + daysAgo * 1000, Math.min(now - daysAgo * DAY, now - 3 * 3600000 - daysAgo * 60000));
   const books = [
     { id: "demo-quiet-shore", file: "demo.epub", ext: "epub", title: "The Quiet Shore", author: "Maren Ashdown", added: now - 19 * DAY, opened: now - 2 * 3600000 },
     { id: "demo-rain-gardens", file: "demo.pdf", ext: "pdf", title: "Rain Gardens: A Practical Primer for Small Yards", author: "Tomas Whitcombe", added: now - 6 * DAY, opened: now - 26 * 3600000 },
@@ -500,13 +505,21 @@ function printTable(rows) {
 }
 
 const args = process.argv.slice(2);
-const target = args.find((a) => !a.startsWith("--")) ?? "all";
-const names = target === "all" ? Object.keys(PRESETS) : [target];
-for (const n of names) if (!PRESETS[n]) fail(`unknown preset ${n}; one of: all, ${Object.keys(PRESETS).join(", ")}`);
-let buildFirst = args.includes("--build");
-const all = [];
-for (const n of names) {
-  all.push(...(await runPreset(n, buildFirst)));
-  buildFirst = false;
+try {
+  const target = args.find((a) => !a.startsWith("--")) ?? "all";
+  const names = target === "all" ? Object.keys(PRESETS) : [target];
+  for (const n of names) {
+    if (!PRESETS[n]) fail(`unknown preset ${n}; one of: all, ${Object.keys(PRESETS).join(", ")}`);
+  }
+  let buildFirst = args.includes("--build");
+  const all = [];
+  for (const n of names) {
+    all.push(...(await runPreset(n, buildFirst)));
+    buildFirst = false;
+  }
+  printTable(all);
+} catch (err) {
+  if (!(err instanceof ShotsError)) throw err;
+  console.error("[shots] FAILED:", err.message);
+  process.exitCode = 1;
 }
-printTable(all);
