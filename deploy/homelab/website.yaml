@@ -1,5 +1,9 @@
-# Selfnote marketing/docs website — runs in the default namespace next to cloudflared.
+# Selfnote marketing/docs website, in the default namespace next to cloudflared.
 # Expose it by adding a Cloudflare tunnel route -> http://selfnote-website.default.svc:80
+#
+# The image tag below is an example. A merge to main that touches apps/website
+# builds the image and rolls this deployment to its sha-<short> tag
+# (.github/workflows/release-images.yml), so the live tag is always a commit.
 apiVersion: apps/v1
 kind: Deployment
 metadata:
@@ -17,7 +21,7 @@ spec:
       imagePullSecrets: [{ name: harbor }]
       containers:
         - name: web
-          image: registry.fulvio.dev/selfnote/selfnote-website:0.1.1
+          image: registry.fulvio.dev/selfnote/selfnote-website:sha-0000000
           ports: [{ containerPort: 80 }]
           resources:
             requests: { cpu: 10m, memory: 16Mi }

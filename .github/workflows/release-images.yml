@@ -1,0 +1,192 @@
+name: Release images
+
+# Builds the images that a merge to main changed, inside the homelab cluster,
+# pushes them to Harbor under the names the cluster pulls, and rolls the
+# website. Everything else (api, sync, web) is still rolled by hand with
+# kubectl set image, because restarting the API kills an in-flight AI
+# bulk-label job and only a person can check for one.
+#
+# Why this runs on the self-hosted runner and not on GitHub's machines:
+#   - registry.fulvio.dev sits behind Cloudflare, which caps upload size, so a
+#     push from outside the cluster dies with 413 on anything bigger than the
+#     website image. The runner pod is in the cluster and the build job pushes
+#     to Harbor's ClusterIP, never touching Cloudflare.
+#   - the cluster API is on a LAN address, so only something inside the
+#     cluster can apply the build job and roll the deployment. The runner pod
+#     runs as a ServiceAccount with exactly those rights (deploy/ci/
+#     runner-selfnote.yaml).
+#
+# The build itself is deploy/ci/build-push-job.yaml, the same Job the README
+# documents for manual builds; this workflow only fills in its placeholders,
+# waits for it, and relays its log. So a CI build and a hand build produce the
+# same image from the same recipe.
+#
+# Trigger is push-to-main only, never pull_request: a fork PR on a self-hosted
+# runner would run attacker-controlled code inside the homelab with cluster
+# credentials. The merge is the review gate.
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - "server/**"
+      - "Cargo.toml"
+      - "Cargo.lock"
+      - "apps/web/**"
+      - "apps/website/**"
+      - "packages/**"
+      - "operator/**"
+      - "tools/mcp-server/**"
+      - "pnpm-lock.yaml"
+      - "pnpm-workspace.yaml"
+      - "package.json"
+      - "deploy/ci/build-push-job.yaml"
+      - ".github/workflows/release-images.yml"
+  workflow_dispatch:
+    inputs:
+      images:
+        description: "Space-separated images to build (api sync web website operator mcp), or all"
+        required: true
+        default: all
+
+permissions:
+  contents: read
+
+# One release at a time: the builds share the build node with the APK runner,
+# and two API builds at once would exhaust it.
+concurrency:
+  group: release-images
+  cancel-in-progress: false
+
+jobs:
+  plan:
+    runs-on: [self-hosted, home]
+    timeout-minutes: 5
+    outputs:
+      images: ${{ steps.plan.outputs.images }}
+      tag: ${{ steps.plan.outputs.tag }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          # Enough history to diff against the previous push.
+          fetch-depth: 0
+
+      - name: Decide what to build
+        id: plan
+        env:
+          BEFORE: ${{ github.event.before }}
+          REQUESTED: ${{ github.event.inputs.images }}
+        run: |
+          set -euo pipefail
+          tag="sha-$(git rev-parse --short=7 HEAD)"
+          echo "tag=${tag}" >> "$GITHUB_OUTPUT"
+
+          all="api sync web website operator mcp"
+          want=""
+          if [ "${GITHUB_EVENT_NAME}" = "workflow_dispatch" ]; then
+            want="${REQUESTED}"
+            [ "${want}" = "all" ] && want="${all}"
+          elif [ -z "${BEFORE}" ] || [ "${BEFORE}" = "0000000000000000000000000000000000000000" ] \
+               || ! git cat-file -e "${BEFORE}^{commit}" 2>/dev/null; then
+            # First push, force push, or history we do not have: build everything.
+            want="${all}"
+          else
+            changed=$(git diff --name-only "${BEFORE}" "${GITHUB_SHA}")
+            # A here-string, not a pipe: under pipefail, grep -q closing the
+            # pipe early would turn a match into a failure and drop the image.
+            touches() { grep -qE "$1" <<< "${changed}"; }
+            # What each image is built from, matching the COPY lines of its
+            # Dockerfile. The api bundles the MCP diff helper, so it rebuilds
+            # when tools/mcp-server changes too.
+            rust='^(Cargo\.(toml|lock)|server/common/|server/migrations/)'
+            touches "${rust}|^server/api/|^tools/mcp-server/(src/|package|tsconfig)" && want="${want} api"
+            touches "${rust}|^server/sync/" && want="${want} sync"
+            touches '^(apps/web/|packages/|pnpm-lock\.yaml|pnpm-workspace\.yaml|package\.json)' && want="${want} web"
+            touches '^apps/website/' && want="${want} website"
+            touches '^operator/' && want="${want} operator"
+            touches '^tools/mcp-server/' && want="${want} mcp"
+            # A change to the recipe or this workflow rebuilds everything, so
+            # the fix is proven on every image rather than on the next one that
+            # happens to change.
+            touches '^(deploy/ci/build-push-job\.yaml|\.github/workflows/release-images\.yml)$' && want="${all}"
+          fi
+
+          # Dedupe, validate, and emit a JSON list for the matrix.
+          list=$(for i in ${want}; do
+            case "$i" in api|sync|web|website|operator|mcp) echo "$i" ;;
+              *) echo "unknown image: $i" >&2; exit 1 ;;
+            esac
+          done | sort -u | tr '\n' ' ')
+          json=""
+          for i in ${list}; do json="${json}${json:+,}\"${i}\""; done
+          echo "building: ${list:-nothing} as ${tag}"
+          echo "images=[${json}]" >> "$GITHUB_OUTPUT"
+
+  build:
+    needs: plan
+    if: needs.plan.outputs.images != '[]'
+    runs-on: [self-hosted, home]
+    timeout-minutes: 50
+    strategy:
+      fail-fast: false
+      # The build node has 20Gi and the Rust build wants most of it.
+      max-parallel: 1
+      matrix:
+        image: ${{ fromJSON(needs.plan.outputs.images) }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          sparse-checkout: deploy/ci
+          sparse-checkout-cone-mode: false
+
+      - uses: azure/setup-kubectl@v4
+        with:
+          version: v1.31.0
+
+      - name: Build and push selfnote-${{ matrix.image }}
+        env:
+          IMAGE: selfnote-${{ matrix.image }}
+          TAG: ${{ needs.plan.outputs.tag }}
+        run: |
+          set -euo pipefail
+          # kubectl finds the pod's ServiceAccount token on its own; no
+          # kubeconfig is needed inside the cluster.
+          harbor_ip=$(getent hosts harbor.harbor.svc.cluster.local | awk '{print $1}')
+          name="release-${IMAGE#selfnote-}-${TAG#sha-}"
+          # A re-run of the same commit lands on the same job name.
+          kubectl delete job -n ci "${name}" --ignore-not-found
+          sed -e "s/__NAME__/${name}/" -e "s/__IMAGE__/${IMAGE}/" -e "s/__TAG__/${TAG}/" \
+              -e "s/__ALSO__/latest/" -e "s/__REF__/${GITHUB_SHA}/" \
+              -e "s/__HARBOR_IP__/${harbor_ip}/" \
+              deploy/ci/build-push-job.yaml | kubectl apply -f -
+          # Follow the log while it runs, then ask the Job how it ended.
+          until kubectl get pod -n ci -l "job-name=${name}" \
+                  -o jsonpath='{.items[0].status.phase}' 2>/dev/null | grep -qE 'Running|Succeeded|Failed'; do
+            sleep 5
+          done
+          kubectl logs -n ci -l "job-name=${name}" -f --tail=-1 || true
+          kubectl wait -n ci "job/${name}" --for=condition=complete --timeout=60s && exit 0
+          echo "build job ${name} did not complete" >&2
+          kubectl describe job -n ci "${name}" | tail -20
+          exit 1
+
+  deploy-website:
+    needs: [plan, build]
+    if: contains(fromJSON(needs.plan.outputs.images), 'website')
+    runs-on: [self-hosted, home]
+    timeout-minutes: 10
+    steps:
+      - uses: azure/setup-kubectl@v4
+        with:
+          version: v1.31.0
+
+      - name: Roll the website to ${{ needs.plan.outputs.tag }}
+        env:
+          TAG: ${{ needs.plan.outputs.tag }}
+        run: |
+          set -euo pipefail
+          # The sha tag, not latest: the deployment then says which commit is
+          # live, and `kubectl rollout undo` goes back to a real image.
+          kubectl set image deployment/selfnote-website -n default \
+            web="registry.fulvio.dev/selfnote/selfnote-website:${TAG}"
+          kubectl rollout status deployment/selfnote-website -n default --timeout=5m

@@ -1,8 +1,10 @@
 # CI runner (homelab)
 
-The self-hosted GitHub Actions runner that builds the mobile APK, alongside the
-runners for the other repos in the cluster's `ci` namespace. Driven by
-[`.github/workflows/mobile-apk.yml`](../../.github/workflows/mobile-apk.yml).
+The self-hosted GitHub Actions runner that builds the mobile APK and releases
+the server, web and website images, alongside the runners for the other repos
+in the cluster's `ci` namespace. Driven by
+[`.github/workflows/mobile-apk.yml`](../../.github/workflows/mobile-apk.yml)
+and [`.github/workflows/release-images.yml`](../../.github/workflows/release-images.yml).
 
 As with `deploy/homelab/*.yaml`, the manifest here is a scrubbed example. The
 cluster is the source of truth.
@@ -10,8 +12,41 @@ cluster is the source of truth.
 | File | What it is |
 | --- | --- |
 | `android-runner.Dockerfile` | Runner image: stock GitHub runner plus JDK 17, Node 20, `gh`, and the Android SDK |
-| `runner-selfnote.yaml` | PVC and Deployment for `github-runner-selfnote` (the Secrets are created out of band, see below) |
+| `runner-selfnote.yaml` | ServiceAccount, Roles, PVC and Deployment for `github-runner-selfnote` (the Secrets are created out of band, see below) |
 | `build-push-job.yaml` | Builds a Selfnote image inside the cluster and pushes it to Harbor (see "Building an image", below) |
+
+## Releasing on merge
+
+Every merge to `main` that touches an image's inputs runs
+`release-images.yml` on this runner. It works out which images the push
+changed, applies `build-push-job.yaml` for each one in turn, waits, and relays
+the build log into the Actions run. Each image is pushed to Harbor twice under
+one build: as `sha-<short commit>` and as `latest`.
+
+Then it rolls **only the website**, with `kubectl set image` to the sha tag,
+so `kubectl get deploy selfnote-website -n default` always says which commit
+is live and `kubectl rollout undo` goes back to a real image.
+
+The api, sync and web images are built and pushed the same way but are not
+rolled: restarting the API kills an in-flight AI bulk-label job, and only a
+person can check for one (the `/proc` check below). To deploy one of them,
+take the tag from the run's "building: ... as sha-xxxxxxx" line:
+
+```sh
+kubectl set image deployment/selfnote-api -n selfnote \
+  api=registry.fulvio.dev/selfnote/selfnote-api:sha-xxxxxxx
+```
+
+`workflow_dispatch` rebuilds on demand: pick the images, or `all`.
+
+What the runner needs for this, all in `runner-selfnote.yaml`: it runs as the
+`github-runner-selfnote` ServiceAccount, which may create and read Jobs in
+`ci` and patch Deployments in `default`, and nothing else. There is
+deliberately no Role in `selfnote`. The workflow needs no kubeconfig and no
+new Secret: kubectl inside a pod uses the ServiceAccount token, and the build
+job pushes with the `harbor` Secret this namespace already has.
+
+Pull requests never trigger it. See the note at the end of this file.
 
 ## Building an image
 
@@ -52,7 +87,7 @@ NAME=build-${IMAGE#selfnote-}-$(echo "$TAG" | tr -d .)
 HARBOR_IP=$(kubectl get svc harbor -n harbor -o jsonpath='{.spec.clusterIP}')
 
 sed -e "s/__NAME__/$NAME/" -e "s/__IMAGE__/$IMAGE/" -e "s/__TAG__/$TAG/" \
-    -e "s/__REF__/$REF/"   -e "s/__HARBOR_IP__/$HARBOR_IP/" \
+    -e "s/__ALSO__//"      -e "s/__REF__/$REF/"   -e "s/__HARBOR_IP__/$HARBOR_IP/" \
     deploy/ci/build-push-job.yaml | kubectl apply -f -
 
 kubectl logs -n ci -l job-name=$NAME -f
@@ -192,8 +227,10 @@ generate a real release keystore, keep it in a Secret, and point a
 
 ## Notes
 
-- The trigger is push-to-main only, never `pull_request`. A fork PR on a
-  self-hosted runner runs attacker-controlled code inside the homelab.
+- The trigger is push-to-main only, never `pull_request`, for both workflows.
+  A fork PR on a self-hosted runner runs attacker-controlled code inside the
+  homelab, and since the release workflow this runner also holds a
+  ServiceAccount that can roll a deployment.
 - There is no dind sidecar here, unlike the other runners in the namespace.
   Nothing in this job builds container images, so nothing needs `privileged`.
 - Gradle and npm caches live on the state PVC (`GRADLE_USER_HOME`,
