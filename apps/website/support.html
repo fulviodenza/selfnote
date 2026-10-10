@@ -148,9 +148,9 @@
       <h2>Sharing</h2>
 
       <h3>How do I share a note with someone who has no account?</h3>
-      <p>The Share action creates a public link. Anyone with it can read that note, read
-      only, until you revoke the link. The same screen shows how many times each link was
-      opened and when, so you know when to kill it.</p>
+      <p>The Share action creates a public link. Anyone with it can read and edit that one
+      note, with no account, until you revoke the link. The same screen shows how many
+      times each link was opened and when, so you know when to kill it.</p>
 
       <h3>How do I work with others in the same workspace?</h3>
       <p>Ask the workspace owner to add your account. Roles are owner, admin, editor and
@@ -166,9 +166,11 @@
       <a href="/docs/ai.html">AI guide</a> walks through it.</p>
 
       <h3>Does AI change my notes without asking?</h3>
-      <p>No. Every AI edit, in the app or from Claude connected over MCP, arrives as a
-      proposal with a before and after diff. Nothing touches the note until you accept
-      it.</p>
+      <p>No. The in-app actions, Summarize, Rewrite in my voice and Extract action items,
+      stream a result that you then insert or use to replace a selection yourself. Edits
+      that come from outside the editor, from the Assist chat's "insert into note" or from
+      Claude connected over MCP, arrive as proposals with a before and after diff, and
+      nothing touches the note until you accept them.</p>
 
       <h3>What is MCP and why would I want it?</h3>
       <p>It lets Claude, in any conversation, file a summary into your notes, search them,
@@ -179,15 +181,15 @@
 
       <h3>Where are my notes?</h3>
       <p>On your server, in its Postgres database. The device keeps a cache of the notes you
-      have opened so they load instantly and work offline. Nothing is sent anywhere else,
-      and there is no analytics or tracking in any client. The full statement is the
-      <a href="/privacy.html">privacy policy</a>.</p>
+      have opened so they load instantly and work offline. Your notes are sent nowhere
+      else, and there is no analytics or tracking in any client. The full statement,
+      including the one content delivery network the mobile editor loads its libraries
+      from, is the <a href="/privacy.html">privacy policy</a>.</p>
 
       <h3>How do I get my notes out?</h3>
       <p>The database is yours, so a dump of it is a complete backup, and the import tool
       on the web client reads a whole Markdown or Obsidian vault in. Claude connected over
-      MCP reads any note back as Markdown. A one-click Markdown export of a workspace is
-      on the <a href="/docs/roadmap.html">roadmap</a>.</p>
+      MCP reads any note back as Markdown.</p>
 
       <h3>How do I remove the app's data from my phone?</h3>
       <p>Settings, then <b>Delete all data on this phone</b>. It signs you out and removes

@@ -78,10 +78,10 @@
 
       <h2>How a merge works underneath</h2>
       <p>Every Selfnote note is a Yjs document, a CRDT, which is what lets two people type
-      in the same sentence while one of them is offline. The MCP server does not send
-      Markdown to be pasted; it reconstructs the Yjs document, applies the change to it, and
-      produces an incremental update that the sync server merges like any client's
-      keystrokes. That is why an accepted proposal appears instantly in every open editor,
+      in the same sentence while one of them is offline. The MCP server sends Markdown, but
+      nothing pastes it: when you accept, the API server reconstructs the Yjs document,
+      applies the change to it, and produces an incremental update that the sync server
+      merges like any client's keystrokes. That is why an accepted proposal appears instantly in every open editor,
       and why Claude's append and your simultaneous edit never collide.</p>
 
       <h2>Save the conversation, then keep it alive</h2>

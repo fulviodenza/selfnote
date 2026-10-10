@@ -4,9 +4,9 @@
   <meta charset="utf-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1" />
   <title>Selfnote privacy policy | Selfnote</title>
-  <meta name="description" content="Selfnote collects nothing. The app talks only to the Selfnote server you configure, stores credentials and a note cache on your device, and has no analytics, tracking or third-party SDKs." />
+  <meta name="description" content="Selfnote collects nothing. Your notes go only to the Selfnote server you configure, credentials and a note cache stay on your device, and there is no analytics, tracking or advertising SDK." />
   <meta property="og:title" content="Selfnote privacy policy" />
-  <meta property="og:description" content="Selfnote collects nothing. The app talks only to the Selfnote server you configure, stores credentials and a note cache on your device, and has no analytics, tracking or third-party SDKs." />
+  <meta property="og:description" content="Selfnote collects nothing. Your notes go only to the Selfnote server you configure, credentials and a note cache stay on your device, and there is no analytics, tracking or advertising SDK." />
   <meta property="og:site_name" content="Selfnote" />
   <meta property="og:type" content="website" />
   <link rel="icon" type="image/png" href="/assets/favicon.png" />
@@ -43,8 +43,10 @@
       and Windows. They are three builds of the same program and behave the same way. The
       separate Selfnote eReader has <a href="/ereader/privacy.html">its own policy</a>.</p>
       <p>Selfnote is self-hosted software. There is no Selfnote cloud, no account with the
-      developer, and no server in the middle. The app connects to one Selfnote server, the
-      one you type in on first launch, and to nothing else.</p>
+      developer, and no server in the middle. Your notes go to one Selfnote server, the one
+      you type in on first launch, and nowhere else. The one other address the app
+      contacts is a code delivery network for the editor's libraries, described
+      below.</p>
 
       <h2>What the app stores on your device</h2>
       <ul>
@@ -62,9 +64,9 @@
       app's own storage, and nothing is shared with other apps on the device.</p>
 
       <h2>What the app sends, and where</h2>
-      <p><b>Before a server is configured, the app makes exactly one kind of request:</b>
-      when you type an address and tap connect, it asks that address whether a Selfnote
-      server is running there. Nothing else is contacted, ever, by the app itself.</p>
+      <p><b>Before a server is configured, the app makes exactly one kind of request to a
+      server:</b> when you type an address and tap connect, it asks that address whether a
+      Selfnote server is running there.</p>
       <p>Once connected, everything the app sends goes to that server and only there:</p>
       <ul>
         <li>your email address and password, to sign in or create an account on it,</li>
@@ -74,14 +76,22 @@
         <li>tasks, labels, links between notes, share links you create, and the calendar
         feed you turn on,</li>
         <li>if that server has AI enabled, the text of the note or selection you ask about,
-        your prompt, and the writing sample you optionally save for "Rewrite in my
-        voice".</li>
+        any other notes you explicitly add to a chat as extra context, your prompt, and
+        the writing sample you optionally save for "Rewrite in my voice".</li>
       </ul>
+      <p><b>The one third party:</b> the note editor on mobile runs inside a web view, and
+      it loads its editor libraries (the block editor, the math renderer and the sync
+      library) from the esm.sh content delivery network when a note is opened and the
+      cache is cold. That request carries what any web request carries, your device's IP
+      address and user agent, and nothing about you or your notes. The web and desktop
+      clients bundle the same libraries and make no such request. Shipping the libraries
+      inside the mobile app, so this request goes away, is tracked in
+      <a href="https://github.com/fulviodenza/selfnote/issues/101">issue #101</a>.</p>
       <p>Who can see what you send is decided by the server, not by the app. In a shared
       workspace, other members can read the notes in it and see your name next to your
-      cursor while you both edit a page. A share link makes that one note readable by
-      anyone who has the link, until you revoke it. A calendar feed URL does the same for
-      your tasks.</p>
+      cursor while you both edit a page. A share link lets anyone who has the link read
+      and edit that one note, with no account, until you revoke it. A calendar feed URL
+      lets anyone who has it read your task titles and dates.</p>
 
       <h2>AI</h2>
       <p>AI features are off until whoever runs the server turns them on, and the app
@@ -92,9 +102,11 @@
       third option, your notes never leave that machine. With the Anthropic API, the text
       of the request goes to Anthropic under <a href="https://www.anthropic.com/legal/privacy">their
       terms</a>. The <a href="/docs/ai.html">AI guide</a> explains how each is configured.</p>
-      <p>AI never writes into a note on its own. Every AI edit, whether it comes from the
-      in-app assistant or from Claude connected over MCP, is staged as a proposal that you
-      review as a before and after diff and accept or reject.</p>
+      <p>AI never writes into a note on its own. The in-app actions produce a draft that
+      you choose to insert or to replace a selection with. Edits that arrive from outside
+      the editor, from the Assist chat's "insert into note" or from Claude connected over
+      MCP, are staged as proposals that you review as a before and after diff and accept
+      or reject.</p>
 
       <h2>If the server is not yours</h2>
       <p>Many people run Selfnote for a household or a small team, so you may be using a
@@ -106,16 +118,16 @@
 
       <h2>What the app never does</h2>
       <p>No advertising, no analytics, no tracking, no crash reporting, no device
-      identifiers, no push notification service, and no third-party SDKs that contact
-      anyone. The app makes no request to the developer's servers because the developer
-      runs none. Nothing is sold, because nothing is collected.</p>
+      identifiers, no push notification service, and no third-party SDKs that report
+      anything about you. The app makes no request to the developer's servers because
+      the developer runs none. Nothing is sold, because nothing is collected.</p>
 
       <h2>Children</h2>
       <p>The developer collects no data from anyone, including children. Whether children
       may have an account on a given server is up to the person running it.</p>
 
       <h2>Removing your data</h2>
-      <p>On the phone, <b>Log out</b> in Settings removes the tokens and closes your tabs.
+      <p>On the phone, <b>Log out</b> in the app menu removes the tokens and closes your tabs.
       <b>Delete all data on this phone</b>, also in Settings, removes everything the
       device holds: tokens, server address, the cached notes, and your preferences. Deleting
       the app does the same. On the web, clearing the site's data in your browser removes
