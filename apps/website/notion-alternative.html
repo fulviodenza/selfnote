@@ -14,7 +14,7 @@
   <meta property="og:image" content="https://selfnote.fulvio.dev/assets/og.png" />
   <meta name="twitter:card" content="summary_large_image" />
   <script type="application/ld+json">
-  {"@context":"https://schema.org","@type":"FAQPage","mainEntity":[{"@type":"Question","name":"Is Selfnote free?","acceptedAnswer":{"@type":"Answer","text":"Yes. The server and every client are free and open source. You pay for the machine you run it on, and for an AI provider only if you pick a paid one."}},{"@type":"Question","name":"Is Selfnote open source?","acceptedAnswer":{"@type":"Answer","text":"Yes, under the AGPL-3.0. The whole monorepo, server and clients, is on GitHub."}},{"@type":"Question","name":"Does it work offline?","acceptedAnswer":{"@type":"Answer","text":"Yes, on every client. Notes are cached on the device, you keep writing without a connection, and edits merge when you are back, including edits other people made in the meantime."}},{"@type":"Question","name":"Can several people edit at once?","acceptedAnswer":{"@type":"Answer","text":"Yes. Pages are CRDTs, so collaboration is real time with visible cursors, and it survives one of the editors going offline."}},{"@type":"Question","name":"Does it have AI?","acceptedAnswer":{"@type":"Answer","text":"Optional. The server operator enables one provider: a Claude command line tool running on the server itself, the Anthropic API, or Ollama. With the local options your notes never leave your machine."}},{"@type":"Question","name":"Can I import from Notion or Obsidian?","acceptedAnswer":{"@type":"Answer","text":"Obsidian vaults import directly, folders, images and wiki-links included. Notion exports as Markdown and imports the same way; databases export as CSV and are not imported."}},{"@type":"Question","name":"What does it run on?","acceptedAnswer":{"@type":"Answer","text":"Anything that runs Postgres and two small Rust binaries: a Kubernetes cluster through the Helm chart, a VPS, a home server, or a laptop for trying it out."}}]}
+  {"@context":"https://schema.org","@type":"FAQPage","mainEntity":[{"@type":"Question","name":"Is Selfnote free?","acceptedAnswer":{"@type":"Answer","text":"Yes. The server and every client are free and open source. You pay for the machine you run it on, and for an AI provider only if you pick a paid one."}},{"@type":"Question","name":"Is Selfnote open source?","acceptedAnswer":{"@type":"Answer","text":"Yes, under the AGPL-3.0. The whole monorepo, server and clients, is on GitHub."}},{"@type":"Question","name":"Does it work offline?","acceptedAnswer":{"@type":"Answer","text":"Yes, on every client. Notes are cached on the device, you keep writing without a connection, and edits merge when you are back, including edits other people made in the meantime."}},{"@type":"Question","name":"Can several people edit at once?","acceptedAnswer":{"@type":"Answer","text":"Yes. Pages are CRDTs, so collaboration is real time with visible cursors, and it survives one of the editors going offline."}},{"@type":"Question","name":"Does it have AI?","acceptedAnswer":{"@type":"Answer","text":"Optional. The server operator enables one provider: a Claude command line tool running on the server itself, the Anthropic API, or Ollama. With the local options your notes never leave your machine."}},{"@type":"Question","name":"Can I import from Notion or Obsidian?","acceptedAnswer":{"@type":"Answer","text":"Obsidian vaults import directly, folders, images and wiki-links included. Notion exports as Markdown and imports the same way, with the caveats described on this page: id suffixes in titles, pages with children arriving twice, links and callouts arriving as text, and databases left out."}},{"@type":"Question","name":"How does it compare with AppFlowy, AFFiNE, Docmost or Outline?","acceptedAnswer":{"@type":"Answer","text":"They are all good self-hosted options with different shapes. The short version: AppFlowy and AFFiNE are closest to Notion's databases and whiteboards, Docmost and Outline are team wikis, and Selfnote is pages plus real-time offline collaboration, tasks and a provider-agnostic AI with a review step. The long version is the best self-hosted Notion alternatives in 2026."}},{"@type":"Question","name":"What does it run on?","acceptedAnswer":{"@type":"Answer","text":"Anything that runs Postgres and two small Rust binaries: a Kubernetes cluster through the Helm chart, a VPS, a home server, or a laptop for trying it out."}}]}
   </script>
   <link rel="icon" type="image/png" href="/assets/favicon.png" />
   <link rel="preconnect" href="https://fonts.googleapis.com" />
@@ -68,7 +68,9 @@
         edit, so nothing is ever destroyed.</li>
         <li><b>AI you choose.</b> Off by default. Turn it on with your Claude subscription
         running on your own server, the Anthropic API, or an Ollama model on your own
-        hardware. Every AI edit is a proposal you accept or reject.</li>
+        hardware. Edits proposed from outside the editor, by Claude over MCP or from the
+        chat, arrive as a diff you accept or reject; in-app actions give you a draft you
+        insert yourself.</li>
         <li><b>Claude can use it.</b> An <a href="/docs/mcp.html">MCP server</a> lets
         Claude search, read, file summaries into, and propose edits to your notes from
         any conversation.</li>
@@ -84,8 +86,8 @@
         <tr><td>Source</td><td>Closed</td><td>Open, AGPL-3.0, <a href="https://github.com/fulviodenza/selfnote">on GitHub</a></td></tr>
         <tr><td>Offline</td><td>Built around being online</td><td>Offline-first on every client, with real merges</td></tr>
         <tr><td>Real-time collaboration</td><td>Yes</td><td>Yes, CRDT based, with cursors</td></tr>
-        <tr><td>AI</td><td>Notion's model, paid add-on</td><td>Your choice of provider, including fully local; off until you enable it</td></tr>
-        <tr><td>AI edits</td><td>Applied</td><td>Staged as proposals with a diff you accept</td></tr>
+        <tr><td>AI</td><td>Notion's model, included only on Business and Enterprise plans</td><td>Your choice of provider, including fully local; off until you enable it</td></tr>
+        <tr><td>AI edits</td><td>Applied</td><td>Edits from outside the editor are staged as a diff you accept; in-app actions give you a draft to insert</td></tr>
         <tr><td>Databases and views</td><td>Yes, extensive</td><td>No. Tables inside pages, tasks with an agenda</td></tr>
         <tr><td>Templates and integrations</td><td>Large ecosystem</td><td>Obsidian vault import, MCP for Claude, iCal feed</td></tr>
         <tr><td>Clients</td><td>Web, desktop, mobile</td><td>Web, desktop, Android; iPhone and iPad from source today</td></tr>
@@ -102,12 +104,16 @@
       your data, it is.</p>
 
       <h2>Moving from Notion</h2>
-      <p>Export your workspace from Notion as Markdown, unzip it, and import the folder as
-      a vault from the Selfnote web client. Pages and their nesting come across, images
-      come along, and callouts stay callouts. Two things to know: Notion appends an id to
-      every exported file name, so titles arrive with that suffix until you rename them,
-      and Notion databases export as CSV files, which are not imported. Links between
-      pages arrive as text. The full steps are in
+      <p>Export your workspace from Notion as Markdown, unzip it, and import the folder
+      with <b>Import Obsidian vault</b> from the Selfnote web client. Page text, headings,
+      todos, tables, code and images come across. What does not, today: Notion appends an
+      id to every exported file name, so titles carry that suffix until you rename them;
+      a page with children arrives as an empty page holding the children plus a content
+      page beside it, until you merge them; links between pages arrive as links that
+      point nowhere; callouts arrive as text; and databases export as CSV files, which are
+      not imported. The importer gaps are tracked in
+      <a href="https://github.com/fulviodenza/selfnote/issues/115">issue #115</a>. The
+      full steps are in
       <a href="/articles/moving-from-notion-to-self-hosted.html">moving from Notion to a
       self-hosted workspace</a>.</p>
 
@@ -134,12 +140,13 @@
       survives one of the editors going offline.</p>
       <h3>Does it have AI?</h3>
       <p>Optional. The server operator enables one provider: a Claude command line tool
-      running on the server itself, the Anthropic API, or Ollama. The clients then show an
-      Assist panel, note actions and AI edit proposals. With the local options your notes
-      never leave your machine.</p>
+      running on the server itself, the Anthropic API, or Ollama. With the local options
+      your notes never leave your machine.</p>
       <h3>Can I import from Notion or Obsidian?</h3>
       <p>Obsidian vaults import directly, folders, images and wiki-links included. Notion
-      exports as Markdown and imports the same way, with the caveats above.</p>
+      exports as Markdown and imports the same way, with the caveats described on this
+      page: id suffixes in titles, pages with children arriving twice, links and callouts
+      arriving as text, and databases left out.</p>
       <h3>How does it compare with AppFlowy, AFFiNE, Docmost or Outline?</h3>
       <p>They are all good self-hosted options with different shapes. The short version:
       AppFlowy and AFFiNE are closest to Notion's databases and whiteboards, Docmost and

@@ -9,12 +9,12 @@
   <meta property="og:title" content="Moving from Notion to a self-hosted workspace" />
   <meta property="og:description" content="How to move your notes out of Notion into a self-hosted workspace: the Markdown export, what it contains, stripping the id suffixes, importing into Selfnote, and what does not carry over." />
   <meta property="og:site_name" content="Selfnote" />
-  <meta property="og:type" content="website" />
+  <meta property="og:type" content="article" />
   <meta property="og:url" content="https://selfnote.fulvio.dev/articles/moving-from-notion-to-self-hosted.html" />
   <meta property="og:image" content="https://selfnote.fulvio.dev/assets/og.png" />
   <meta name="twitter:card" content="summary_large_image" />
   <script type="application/ld+json">
-  {"@context":"https://schema.org","@type":"HowTo","name":"Moving from Notion to a self-hosted workspace","step":[{"@type":"HowToStep","name":"Export from Notion","text":"Export the workspace as Markdown and CSV with subpages, then unzip the result."},{"@type":"HowToStep","name":"Look at the export","text":"Check the Markdown, decide what to do with CSV databases, and optionally strip the id suffixes from file names."},{"@type":"HowToStep","name":"Import into Selfnote","text":"Use Import vault in the web client and pick the export folder; folders become nested pages and images are uploaded."},{"@type":"HowToStep","name":"Label everything","text":"Run the AI bulk labeler if a provider is configured, or label the pages that matter."},{"@type":"HowToStep","name":"Rebuild links","text":"Link pages with [[ where Notion links arrived as text."},{"@type":"HowToStep","name":"Check you can leave again","text":"Back up the Postgres database before closing the Notion workspace."}]}
+  {"@context":"https://schema.org","@type":"HowTo","name":"Moving from Notion to a self-hosted workspace","step":[{"@type":"HowToStep","name":"Export from Notion","text":"In Notion, Settings, Workspace, General, Export all workspace content, as Markdown and CSV with subpages; download the zip from the emailed link and unzip it."},{"@type":"HowToStep","name":"Look at the export","text":"Check the Markdown, decide what to do with CSV databases, and optionally strip the id suffixes from file names."},{"@type":"HowToStep","name":"Import into Selfnote","text":"Open the gear menu at the bottom of the sidebar, choose Import Obsidian vault and pick the export folder; folders become nested pages and images are uploaded."},{"@type":"HowToStep","name":"Label everything","text":"Switch labels on in the sidebar; with an AI provider configured, run Label all notes (AI), or label the pages that matter by hand."},{"@type":"HowToStep","name":"Rebuild links","text":"Link pages with [[ where Notion links arrived as text."},{"@type":"HowToStep","name":"Check you can leave again","text":"Back up the Postgres database before closing the Notion workspace."}]}
   </script>
   <link rel="icon" type="image/png" href="/assets/favicon.png" />
   <link rel="preconnect" href="https://fonts.googleapis.com" />
@@ -50,58 +50,76 @@
       that imports Markdown.</p>
 
       <h2>1. Export from Notion</h2>
-      <p>In Notion, open Settings, then the workspace settings, and choose export. Pick
-      <b>Markdown &amp; CSV</b>, include subpages, and start it. Notion emails a zip when it
-      is ready; large workspaces take a while. Unzip it somewhere you can look at.</p>
+      <p>In Notion, open Settings, then Workspace, then General, and choose <b>Export all
+      workspace content</b>. Pick <b>Markdown &amp; CSV</b>, include subpages, and start it.
+      Notion emails a download link when the zip is ready, valid for a week; large
+      workspaces take a while. Unzip it somewhere you can look at.</p>
       <p>What you get is a folder tree. Every page is a Markdown file, every page with
       children is also a folder of the same name, and every file name ends with the
-      page's Notion id, like <code>Reading list 3f2a9c1b.md</code>. Databases become CSV
+      page's Notion id, like <code>Reading list 3f2a9c1b7d4e4a0c9b1e6f2d8c5a7b90.md</code>. Databases become CSV
       files, one per database, plus a folder of Markdown files for their rows. Images
       and attachments sit next to the pages that use them.</p>
 
       <h2>2. Look at the export before importing it</h2>
-      <p>Open a few files. Callouts, headings, todos, code blocks and tables are plain
-      Markdown and will import as those blocks. Links between pages are relative
-      Markdown links with encoded spaces; most importers, Selfnote's included, do not
-      resolve those, so they become text. Decide now whether you want the databases: a
-      CSV is a spreadsheet, not a page, and no page-based tool will turn it back into a
-      board view.</p>
+      <p>Open a few files. Headings, todos, code blocks and tables are plain Markdown and
+      will import as those blocks. Callouts are exported as HTML, which importers read as
+      text. Links between pages are relative Markdown links with encoded spaces; most
+      importers, Selfnote's included, do not resolve those. Decide now whether you want
+      the databases: a CSV is a spreadsheet, not a page, and no page-based tool will turn
+      it back into a board view.</p>
       <p>If you want tidy titles, this is the moment to strip the id suffixes. On a Mac or
       Linux, from inside the export folder:</p>
 <pre><code>find . -depth -name '* [0-9a-f]*' -exec sh -c '
-  for p; do mv "$p" "$(dirname "$p")/$(basename "$p" | sed -E "s/ [0-9a-f]{32}//")"; done
+  for p; do
+    n="$(dirname "$p")/$(basename "$p" | sed -E "s/ [0-9a-f]{32}//")"
+    [ "$n" = "$p" ] || mv -n "$p" "$n"
+  done
 ' sh {} +</code></pre>
-      <p>Spot check the result. If two pages shared a title they now collide, which Notion
-      allowed and most tools do not.</p>
+      <p>The <code>-n</code> matters: if two pages shared a title, which Notion allowed and
+      most tools do not, the second one keeps its id instead of overwriting the first.
+      Spot check the result and rename those by hand.</p>
 
       <h2>3. Import into Selfnote</h2>
-      <p>In the Selfnote web client, open the menu at the bottom of the sidebar and choose
-      <b>Import vault</b>, then pick the export folder. The importer treats it like an
-      Obsidian vault:</p>
+      <p>In the Selfnote web client, open the gear menu at the bottom of the sidebar and
+      choose <b>Import Obsidian vault</b>, then pick the export folder. The importer treats
+      it like an Obsidian vault:</p>
       <ul>
         <li>folders become pages, nested the way the folders were nested,</li>
         <li>each Markdown file becomes a page under its folder, with YAML frontmatter
         titles respected,</li>
         <li>images referenced by the pages are uploaded and shown in place,</li>
-        <li>callouts stay callouts, todos stay checkboxes, tables stay tables,</li>
-        <li>wiki-style <code>[[links]]</code> are resolved to page links. Notion's
-        Markdown links are not, and arrive as text.</li>
+        <li>todos stay checkboxes, tables stay tables, code stays code,</li>
+        <li>wiki-style <code>[[links]]</code> are resolved to page links.</li>
+      </ul>
+      <p>Three things a Notion export does that the importer does not yet handle, tracked
+      in <a href="https://github.com/fulviodenza/selfnote/issues/115">issue #115</a>:</p>
+      <ul>
+        <li>a Notion page with children is exported as both a file and a folder of the same
+        name, so it arrives twice: an empty page holding the children and a page with the
+        content beside it. Drag the children under the content page and delete the empty
+        one, or leave the pair until the importer merges them,</li>
+        <li>Notion's links between pages arrive as links that point nowhere. Replace the
+        ones you use with <code>[[</code> links, which is step 5,</li>
+        <li>callouts arrive as their text, since Notion exports them as HTML.</li>
       </ul>
       <p>CSV files are skipped. If a database matters, open its CSV in a spreadsheet and
       paste what you need into a table block, or keep the CSV as an attached file on a
       page.</p>
 
       <h2>4. Label everything</h2>
-      <p>A big import lands as a tree with no labels. If your server has an AI provider,
-      the same import dialog offers <b>Label all notes</b>, which reads every page and
-      tags it; you review the result page by page, since labels are easy to change. With
-      no provider, labels are a few minutes with the picker on the pages that matter.</p>
+      <p>A big import lands as a tree with no labels. Labels are hidden until you switch
+      them on with the <b>Labels</b> entry in the sidebar; once they are on, the import
+      dialog also offers <b>Label all notes (AI)</b> if your server has an AI provider,
+      which reads every page and tags it. Review the result page by page, since labels
+      are easy to change. With no provider, labels are a few minutes with the picker on
+      the pages that matter.</p>
 
       <h2>5. Rebuild the links that mattered</h2>
-      <p>Search for pages that mention other pages by name and link them with
-      <code>[[</code>. The backlinks panel then shows you the web you had in Notion, and
-      the graph view shows the shape of it. This is the one part that is manual, and it is
-      also the part that tells you which links you actually used.</p>
+      <p>Notion's links arrived pointing nowhere, so search for pages that mention other
+      pages by name and link them with <code>[[</code>. The backlinks panel then shows you
+      the web you had in Notion, and the graph view shows the shape of it. This is the one
+      part that is manual, and it is also the part that tells you which links you actually
+      used.</p>
 
       <h2>6. Check you can leave again</h2>
       <p>Before you delete the Notion workspace, make sure the new home passes the test
