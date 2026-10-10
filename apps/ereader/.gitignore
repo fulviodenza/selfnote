@@ -39,3 +39,6 @@ yarn-error.*
 # generated native folders
 /ios
 /android
+
+# App Store screenshots: artifacts of scripts/appstore-shots.mjs
+/screenshots
