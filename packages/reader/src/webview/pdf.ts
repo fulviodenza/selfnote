@@ -73,7 +73,7 @@ type Inbound =
   | { type: "highlights"; items: WireHighlight[] }
   | { type: "goto"; page?: number }
   | { type: "turn"; direction: "next" | "prev" }
-  | { type: "fontSize"; percent: number }
+  | { type: "fontSize"; pct: number }
   | { type: "theme"; mode: "light" | "dark" };
 
 let pdf: PDFDocumentProxy | null = null;
@@ -83,6 +83,11 @@ let wanted: number | null = null;
 let highlights: WireHighlight[] = [];
 let pending: { locator: PdfLocator; text: string } | null = null;
 let lastSelectionAt = 0;
+/** Magnification over the fitted width, 1 to 4. Session state only. */
+let zoom = 1;
+const MAX_ZOOM = 4;
+/** A zoom commit is re-rendering; gestures wait it out. */
+let zoomBusy = false;
 
 /* Inserted pages. `noteIndex` is null while the book page itself is showing,
  * otherwise an index into the inserts anchored after the current page. The
@@ -156,6 +161,10 @@ async function open(base64: string, position?: number | null): Promise<void> {
 
 /* ------------------------------------------------------------- rendering */
 
+/** The page the canvas last finished drawing, so a change of page can land at
+ * the top instead of wherever the previous page was scrolled to. */
+let shownPage = 0;
+
 async function renderPage(): Promise<void> {
   if (!pdf) return;
   if (rendering) {
@@ -165,29 +174,39 @@ async function renderPage(): Promise<void> {
     return;
   }
   rendering = true;
+  const target = pageNum;
   try {
-    const page: PDFPageProxy = await pdf.getPage(pageNum);
+    const page: PDFPageProxy = await pdf.getPage(target);
     const holder = document.getElementById("page")!;
     const base = page.getViewport({ scale: 1 });
-    const scale = holder.clientWidth / base.width;
-    const viewport = page.getViewport({ scale });
-    const ratio = window.devicePixelRatio || 1;
+    const fit = fitWidth() / base.width;
+    const viewport = page.getViewport({ scale: fit * zoom });
+    // WebKit refuses canvases past about 16.7M pixels and paints them blank,
+    // which a zoomed page at device resolution overshoots. Past this cap zoom
+    // upscales rather than adds detail: on a 2x screen, sharpness stops
+    // improving at roughly 2x zoom.
+    const ratio = Math.min(
+      window.devicePixelRatio || 1,
+      Math.sqrt(16e6 / (viewport.width * viewport.height)),
+    );
 
-    const canvas = document.getElementById("canvas") as HTMLCanvasElement;
+    // Drawn off screen and swapped in whole, so the old page stays up until
+    // the new one is ready: no blank flash on a turn, and a pinch's live
+    // transform can hold until the sharp render replaces it.
+    const canvas = document.createElement("canvas");
+    canvas.id = "canvas";
     canvas.width = Math.floor(viewport.width * ratio);
     canvas.height = Math.floor(viewport.height * ratio);
     canvas.style.width = `${viewport.width}px`;
     canvas.style.height = `${viewport.height}px`;
-    holder.style.height = `${viewport.height}px`;
-    pageBox = { w: viewport.width, h: viewport.height };
-
     const ctx = canvas.getContext("2d")!;
     ctx.setTransform(ratio, 0, 0, ratio, 0, 0);
     await page.render({ canvas, canvasContext: ctx, viewport }).promise;
 
     // Transparent real text over the canvas is what makes selection work.
-    const textHost = document.getElementById("text")!;
-    textHost.textContent = "";
+    const textHost = document.createElement("div");
+    textHost.id = "text";
+    textHost.className = "textLayer";
     // pdf.js sizes text layer spans against this CSS variable and misbehaves
     // without it; setting it is part of the TextLayer contract, not styling.
     textHost.style.setProperty("--scale-factor", String(viewport.scale));
@@ -198,10 +217,27 @@ async function renderPage(): Promise<void> {
     // "undefined is not a function" after the canvas has already painted.
     const layer = new TextLayer({
       textContentSource: page.streamTextContent(),
-      container: textHost as HTMLDivElement,
+      container: textHost,
       viewport,
     });
     await layer.render();
+
+    const old = document.getElementById("canvas") as HTMLCanvasElement;
+    old.replaceWith(canvas);
+    // A detached canvas holds its backing store, up to 64MB at the cap, until
+    // GC. Zeroing it frees that now, so fast turns at high zoom cannot pile up
+    // past WebKit's canvas memory budget and stop rendering.
+    old.width = old.height = 0;
+    document.getElementById("text")!.replaceWith(textHost);
+    holder.style.height = `${viewport.height}px`;
+    holder.style.width = zoom > 1 ? `${viewport.width}px` : "";
+    const scroller = document.getElementById("scroll")!;
+    // At 1 the page fits the width, so there is nothing to the side to reach.
+    scroller.style.overflowX = zoom > 1 ? "auto" : "hidden";
+    if (target !== shownPage) scroller.scrollTo(0, 0);
+    shownPage = target;
+    // The fitted box, whatever the zoom: inserts are sized from it.
+    pageBox = { w: viewport.width / zoom, h: viewport.height / zoom };
 
     drawHighlights();
     sendLocation();
@@ -209,7 +245,9 @@ async function renderPage(): Promise<void> {
     fail("renderPage", err);
   } finally {
     rendering = false;
-    if (wanted !== null && wanted !== pageNum) {
+    // Compared with the page this render drew: pageNum has usually moved on
+    // already by the time a turn queues behind a render.
+    if (wanted !== null && wanted !== target) {
       pageNum = wanted;
       wanted = null;
       void renderPage();
@@ -217,6 +255,152 @@ async function renderPage(): Promise<void> {
       wanted = null;
     }
   }
+}
+
+/** The width a page fills at zoom 1: the scroller's content box. */
+function fitWidth(): number {
+  const scroll = document.getElementById("scroll")!;
+  const cs = getComputedStyle(scroll);
+  return scroll.clientWidth - parseFloat(cs.paddingLeft || "0") - parseFloat(cs.paddingRight || "0");
+}
+
+/* ------------------------------------------------------------------ zoom */
+
+/** Re-render at `next` and scroll so the page point `local` (in the current
+ * zoom's page pixels) lands at the client point `screen`. The page is redrawn
+ * rather than left CSS-scaled, so the canvas stays sharp and the text layer and
+ * marks come out of the same scale handling as any other render. */
+async function commitZoom(
+  next: number,
+  local: { x: number; y: number },
+  screen: { x: number; y: number },
+): Promise<void> {
+  const holder = document.getElementById("page")!;
+  const scroll = document.getElementById("scroll")!;
+  next = Math.min(MAX_ZOOM, Math.max(1, next));
+  if (!pdf || noteIndex !== null || rendering || zoomBusy || Math.abs(next - zoom) < 0.02) {
+    holder.style.transform = "";
+    return;
+  }
+  zoomBusy = true;
+  const page = pageNum;
+  try {
+    const before = zoom;
+    zoom = next;
+    clearPending();
+    await renderPage();
+    // Same task as the swap, so the transform and the re-anchor land in one
+    // frame. A turn that came in meanwhile owns the scroll instead.
+    holder.style.transform = "";
+    if (pageNum !== page || shownPage !== page) return;
+    const box = holder.getBoundingClientRect();
+    scroll.scrollLeft += box.left + (local.x * next) / before - screen.x;
+    scroll.scrollTop += box.top + (local.y * next) / before - screen.y;
+  } finally {
+    holder.style.transform = "";
+    zoomBusy = false;
+  }
+}
+
+/** Two fingers on the page: tracked by hand and shown as a live transform,
+ * committed on lift. One finger is never touched here, so native panning and
+ * text selection keep working. */
+let pinch: {
+  d0: number;
+  /** The page point under the starting midpoint, in page pixels. */
+  local: { x: number; y: number };
+  left: number;
+  top: number;
+  factor: number;
+  mid: { x: number; y: number };
+} | null = null;
+/** Set by any touch with two fingers down, so its leftovers are not a tap. */
+let multiTouch = false;
+
+function span(a: Touch, b: Touch) {
+  return {
+    d: Math.hypot(a.clientX - b.clientX, a.clientY - b.clientY),
+    mid: { x: (a.clientX + b.clientX) / 2, y: (a.clientY + b.clientY) / 2 },
+  };
+}
+
+function hasStylus(e: TouchEvent): boolean {
+  return Array.from(e.touches).some(
+    (t) => (t as Touch & { touchType?: string }).touchType === "stylus",
+  );
+}
+
+function bindPinch(): void {
+  const scroll = document.getElementById("scroll");
+  const holder = document.getElementById("page");
+  if (!scroll || !holder) return;
+  scroll.addEventListener(
+    "touchstart",
+    (e: TouchEvent) => {
+      if (e.touches.length === 1) {
+        // A live pinch always has two fingers down, so one finger arriving
+        // with a pinch still set means its end was lost: the touch target was
+        // detached mid-gesture (a text layer swap) and the end never bubbled
+        // here. Without this the live transform would stay on the page.
+        if (pinch) {
+          pinch = null;
+          holder.style.transform = "";
+        }
+        return;
+      }
+      multiTouch = true;
+      // A finger resting while the Pencil selects is not a pinch.
+      if (hasStylus(e)) return;
+      // A finger added mid-pinch keeps the pinch it joined: restarting would
+      // measure a box that already carries the live transform.
+      if (pinch) return e.preventDefault();
+      if (!pdf || noteIndex !== null || rendering || zoomBusy) return;
+      e.preventDefault();
+      const { d, mid } = span(e.touches[0], e.touches[1]);
+      const box = holder.getBoundingClientRect();
+      pinch = {
+        d0: Math.max(d, 1),
+        local: { x: mid.x - box.left, y: mid.y - box.top },
+        left: box.left,
+        top: box.top,
+        factor: 1,
+        mid,
+      };
+    },
+    { passive: false },
+  );
+  scroll.addEventListener(
+    "touchmove",
+    (e: TouchEvent) => {
+      if (!pinch || e.touches.length < 2 || hasStylus(e)) return;
+      e.preventDefault();
+      const { d, mid } = span(e.touches[0], e.touches[1]);
+      const target = Math.min(MAX_ZOOM, Math.max(1, (zoom * d) / pinch.d0));
+      pinch.factor = target / zoom;
+      pinch.mid = mid;
+      // Origin 0 0: the page point under the first midpoint follows the
+      // fingers' current midpoint, scaled by the factor so far.
+      const tx = mid.x - pinch.left - pinch.factor * pinch.local.x;
+      const ty = mid.y - pinch.top - pinch.factor * pinch.local.y;
+      holder.style.transformOrigin = "0 0";
+      holder.style.transform = `translate(${tx}px, ${ty}px) scale(${pinch.factor})`;
+    },
+    { passive: false },
+  );
+  const end = (e: TouchEvent) => {
+    if (!pinch || e.touches.length >= 2) return;
+    const p = pinch;
+    pinch = null;
+    void commitZoom(zoom * p.factor, p.local, p.mid);
+  };
+  scroll.addEventListener("touchend", end);
+  scroll.addEventListener("touchcancel", end);
+}
+
+/** A double tap in the middle third toggles 1x and 2x around the tapped point. */
+function toggleZoomAt(x: number, y: number): void {
+  const box = document.getElementById("page")!.getBoundingClientRect();
+  void commitZoom(zoom > 1 ? 1 : 2, { x: x - box.left, y: y - box.top }, { x, y });
 }
 
 function drawHighlights(): void {
@@ -258,13 +442,7 @@ function sizeNoteCanvas(): void {
   if (!wrap || !canvas) return;
   // From the remembered page box, never from #page itself: by the time an
   // insert is showing, #page is display:none and measures zero.
-  const scroll = document.getElementById("scroll");
-  const avail = scroll
-    ? scroll.clientWidth -
-      parseFloat(getComputedStyle(scroll).paddingLeft || "0") -
-      parseFloat(getComputedStyle(scroll).paddingRight || "0")
-    : 0;
-  const w = Math.round(pageBox.w || avail);
+  const w = Math.round(pageBox.w || fitWidth());
   const h = Math.round(pageBox.h || w * 1.294);
   if (w <= 0 || h <= 0) return;
   wrap.style.width = `${w}px`;
@@ -720,6 +898,7 @@ async function handle(msg: Inbound): Promise<void> {
       return;
     case "fontSize":
       // A PDF page is drawn, not reflowed; type size is the document's own.
+      // Zoom is the pinch, and it never leaves the page.
       return;
     case "theme":
       document.documentElement.dataset.theme = msg.mode;
@@ -765,9 +944,15 @@ document.addEventListener("selectionchange", () => {
 });
 
 let sx = 0, sy = 0, st = 0, selAtStart = false;
+let lastTap = { at: 0, x: 0, y: 0 };
 document.addEventListener(
   "touchstart",
   (e: TouchEvent) => {
+    // Set here as well as on #scroll: a second finger landing outside it (on
+    // the pill, say) must still keep the first finger's lift from reading as
+    // a tap or a swipe measured between two different fingers.
+    if (e.touches.length === 1) multiTouch = false;
+    else if (e.touches.length >= 2) multiTouch = true;
     const t = e.changedTouches[0];
     sx = t.clientX; sy = t.clientY; st = Date.now();
     const sel = window.getSelection();
@@ -781,6 +966,7 @@ document.addEventListener(
     // On an insert the canvas owns the surface: a stroke must never be read as
     // a swipe. The pager buttons still turn pages.
     if (noteIndex !== null) return;
+    if (multiTouch) return;
     const sel = window.getSelection();
     if (sel && !sel.isCollapsed) return;
     if (selAtStart || Date.now() - lastSelectionAt < 600) return;
@@ -790,7 +976,8 @@ document.addEventListener(
     const dy = t.clientY - sy;
     const dt = Date.now() - st;
     const go = (dir: "next" | "prev") => void handle({ type: "turn", direction: dir });
-    if (dt < 600 && Math.abs(dx) >= 48 && Math.abs(dx) > Math.abs(dy) * 1.5) {
+    // Zoomed, a sideways drag is a pan across the page, not a swipe.
+    if (zoom === 1 && dt < 600 && Math.abs(dx) >= 48 && Math.abs(dx) > Math.abs(dy) * 1.5) {
       go(dx < 0 ? "next" : "prev");
       return;
     }
@@ -798,6 +985,15 @@ document.addEventListener(
       const third = window.innerWidth / 3;
       if (t.clientX < third) go("prev");
       else if (t.clientX > window.innerWidth - third) go("next");
+      else if ((t as Touch & { touchType?: string }).touchType !== "stylus") {
+        const now = Date.now();
+        if (now - lastTap.at < 320 && Math.hypot(t.clientX - lastTap.x, t.clientY - lastTap.y) < 30) {
+          lastTap = { at: 0, x: 0, y: 0 };
+          toggleZoomAt(t.clientX, t.clientY);
+        } else {
+          lastTap = { at: now, x: t.clientX, y: t.clientY };
+        }
+      }
     }
   },
   { passive: true },
@@ -827,5 +1023,6 @@ window.addEventListener("resize", () => {
 
 pill()?.addEventListener("click", commitPending);
 bindNoteDrawing();
+bindPinch();
 
 send({ type: "ready" });
