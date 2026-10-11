@@ -21,7 +21,7 @@ function pages(dir) {
     if (statSync(p).isDirectory()) {
       if (["assets", "scripts", "node_modules"].includes(name)) continue;
       out.push(...pages(p));
-    } else if (name.endsWith(".html") && !SKIP.has(name)) {
+    } else if (name.endsWith(".html") && !SKIP.has(name) && !/^google[0-9a-f]+\.html$/.test(name)) {
       out.push(p);
     }
   }
