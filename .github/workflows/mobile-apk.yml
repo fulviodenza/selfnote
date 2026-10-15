@@ -47,6 +47,15 @@ jobs:
         # package-lock.json, so npm ci is correct here rather than pnpm.
         run: npm ci
 
+      - name: Check the editor WebView document
+        working-directory: apps/mobile
+        # src/editor/editorHtml.ts is a template literal holding a whole JS
+        # program. tsc cannot see a syntax error inside it, and an unescaped
+        # backtick in a comment truncates the document silently, which ships an
+        # editor that loads blank. Cheap, and it fails the build before a 20
+        # minute Gradle run rather than after it.
+        run: node scripts/check-editor-html.mjs
+
       - name: Generate the native project
         working-directory: apps/mobile
         # apps/mobile/android is gitignored and regenerated every run.

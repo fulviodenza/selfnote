@@ -118,10 +118,11 @@ export function editorHtml(theme: "light" | "dark"): string {
         editor-slash-commands.md). Ink & Paper tokens, large tap targets.
       */
       #slash {
-        /* fixed, not absolute: this menu is positioned from referencePos (a
-           viewport-relative getBoundingClientRect) and clamped against
-           window.innerHeight, which is what fixed means. As absolute it was
-           placed scrollY too high on any scrolled note. */
+        /* fixed, not absolute: this menu is positioned from referencePos, a
+           viewport-relative getBoundingClientRect, and clamped to the visible
+           band, both of which are layout-viewport coordinates and so are what
+           fixed means. As absolute it was placed scrollY too high on any
+           scrolled note. */
         position: fixed; z-index: 20; min-width: 220px; max-width: 320px;
         max-height: 280px; overflow-y: auto; background: var(--surface); color: var(--ink);
         border: 1px solid var(--hairline); border-radius: 12px; padding: 6px;
@@ -1983,12 +1984,28 @@ export function editorHtml(theme: "light" | "dark"): string {
         };
 
         let frame = null;
+        let lastHeight = null;
         const apply = () => {
           if (frame) cancelAnimationFrame(frame);
           frame = requestAnimationFrame(() => {
             frame = null;
-            scroller.style.height = vv.height + "px";
-            reveal();
+            /*
+             * Put the scroller ON the band, not merely at its size. Sizing to
+             * vv.height alone spans [0, height] while the band is
+             * [offsetTop, offsetTop + height], so once iOS pans the viewport
+             * the scroller would leave a strip above the keyboard and its
+             * intersection with the band would shrink from both ends.
+             */
+            const band = viewportBand();
+            const height = band.bottom - band.top;
+            scroller.style.marginTop = band.top + "px";
+            scroller.style.height = height + "px";
+            // Reveal only when there is less room than before. A growing band
+            // is the keyboard going away, and re-revealing then would undo a
+            // scroll the user just made deliberately.
+            const shrank = lastHeight !== null && height < lastHeight - 1;
+            lastHeight = height;
+            if (shrank) reveal();
             // The slash menu is clamped to the band this just moved.
             try { if (repositionSlash) repositionSlash(); } catch {}
           });

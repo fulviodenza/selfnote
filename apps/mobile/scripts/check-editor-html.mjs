@@ -57,18 +57,28 @@ for (const theme of ["light", "dark"]) {
   check("script tags balanced", opens === closes, `${opens} open, ${closes} closed`);
   check("theme is baked into <html>", new RegExp(`<html data-theme="${theme}"`).test(html));
 
-  const match = html.match(/<script type="module">([\s\S]*?)<\/script>/);
-  check("inline module script present", !!match);
-  if (match) {
+  // Every script, not just the module one: the classic bootstrap script owns
+  // the offline Retry fallback, and a syntax error there would take the
+  // fallback down without touching the editor.
+  const scripts = [...html.matchAll(/<script(?<attrs>[^>]*)>(?<body>[\s\S]*?)<\/script>/g)]
+    .map((m) => ({ attrs: m.groups.attrs.trim(), body: m.groups.body }))
+    // An importmap is JSON, not a program.
+    .filter((s) => !/type\s*=\s*["']importmap["']/.test(s.attrs));
+
+  check("inline scripts present", scripts.length >= 2, `found ${scripts.length}`);
+  check("module script present", scripts.some((s) => /type\s*=\s*["']module["']/.test(s.attrs)));
+
+  for (const [i, script] of scripts.entries()) {
+    const label = script.attrs ? `<script ${script.attrs}>` : "<script>";
     const parsed = ts.createSourceFile(
-      "editor-webview.js",
-      match[1],
+      `editor-webview-${i}.js`,
+      script.body,
       ts.ScriptTarget.ES2020,
       true,
       ts.ScriptKind.JS,
     );
     const errors = parsed.parseDiagnostics ?? [];
-    check("inline script parses", errors.length === 0, `${errors.length} syntax errors`);
+    check(`${label} parses`, errors.length === 0, `${errors.length} syntax errors`);
     for (const e of errors.slice(0, 5)) {
       const { line } = parsed.getLineAndCharacterOfPosition(e.start);
       console.log(`       line ${line + 1}: ${ts.flattenDiagnosticMessageText(e.messageText, " ")}`);
