@@ -416,16 +416,30 @@ export interface BulkLabelStatus {
   failed: number;
 }
 
-/** Authed request with one automatic refresh-and-retry on 401. */
-async function req<T>(path: string, options: RequestInit = {}): Promise<T> {
+/**
+ * Run an authed send once, and on 401 refresh the access token and send again.
+ * Shared by `req` and the multipart upload, which cannot go through `req` (it
+ * must leave `content-type` unset so RN fills in the multipart boundary) but
+ * must not be the one authed call that dead-ends on an expired token.
+ *
+ * `send` is a thunk rather than a prepared request because the retry has to
+ * build its body again: an RN FormData already consumed by a request cannot be
+ * resent.
+ */
+async function withRefresh<T>(send: () => Promise<T>): Promise<T> {
   try {
-    return await raw<T>(path, options);
+    return await send();
   } catch (e) {
     if ((e as { status?: number }).status === 401 && (await tryRefresh())) {
-      return await raw<T>(path, options);
+      return await send();
     }
     throw e;
   }
+}
+
+/** Authed request with one automatic refresh-and-retry on 401. */
+async function req<T>(path: string, options: RequestInit = {}): Promise<T> {
+  return withRefresh(() => raw<T>(path, options));
 }
 
 async function tryRefresh(): Promise<boolean> {
@@ -558,23 +572,30 @@ export const api = {
     file: { uri: string; name: string; mimeType?: string | null },
     docId?: string,
   ): Promise<string> => {
-    const fd = new FormData();
-    // RN's FormData accepts a {uri, name, type} descriptor for file parts.
-    fd.append("file", {
-      uri: file.uri,
-      name: file.name || "file",
-      type: file.mimeType || "application/octet-stream",
-    } as unknown as Blob);
     const base = getSettings().apiUrl;
     const qs =
       `workspace_id=${encodeURIComponent(workspaceId)}` +
       (docId ? `&doc_id=${encodeURIComponent(docId)}` : "");
-    const res = await fetch(`${base}/files?${qs}`, {
-      method: "POST",
-      headers: accessToken ? { authorization: `Bearer ${accessToken}` } : {},
-      body: fd,
+    const res = await withRefresh(async () => {
+      const fd = new FormData();
+      // RN's FormData accepts a {uri, name, type} descriptor for file parts.
+      fd.append("file", {
+        uri: file.uri,
+        name: file.name || "file",
+        type: file.mimeType || "application/octet-stream",
+      } as unknown as Blob);
+      // No content-type header: RN sets multipart/form-data with its boundary.
+      const r = await fetch(`${base}/files?${qs}`, {
+        method: "POST",
+        headers: accessToken ? { authorization: `Bearer ${accessToken}` } : {},
+        body: fd,
+      });
+      // Carry the status so the caller can tell "too large" from "signed out".
+      if (!r.ok) {
+        throw Object.assign(new Error(`upload failed (${r.status})`), { status: r.status });
+      }
+      return r;
     });
-    if (!res.ok) throw new Error(`upload failed (${res.status})`);
     const { url } = (await res.json()) as { url: string };
     // The server returns "/api/files/<id>" relative to the web origin; the
     // WebView isn't served from that origin, so absolutize against the API

@@ -1507,8 +1507,13 @@ function ConnectedEditor({
       );
       editorRef.current?.insertFile({ url, name: asset.name ?? "file", mime: asset.mimeType });
       toast("Attached.");
-    } catch {
-      toast("Couldn't upload the file.");
+    } catch (e) {
+      // One generic toast here made a 32 MB cap, an expired session and an
+      // unreachable server look identical, so say which it was.
+      const status = (e as { status?: number }).status;
+      if (status === 413) toast("That file is too large (32 MB max).");
+      else if (status === 401 || status === 403) toast("Not allowed to upload here. Sign in again?");
+      else toast("Couldn't upload the file.");
     }
   };
   // Bumped after the editor re-scans + stores its outgoing links, so the
