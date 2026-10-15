@@ -1709,6 +1709,9 @@ export function editorHtml(theme: "light" | "dark"): string {
 
         const close = () => {
           el.style.display = "none";
+          // Cleared here too: a menu hidden because its trigger scrolled off
+          // screen must not stay invisible the next time it opens.
+          el.style.visibility = "";
           el.innerHTML = "";
           items = [];
         };
@@ -1759,54 +1762,70 @@ export function editorHtml(theme: "light" | "dark"): string {
         };
 
         /*
-         * Place the menu just below the caret, in viewport coordinates (#slash
-         * is fixed). referencePos is captured when the menu opens, so it goes
-         * stale the moment #root scrolls under it; the live selection rect is
-         * the same measurement taken now, and referencePos is only the fallback
-         * for when there is no usable range.
+         * Anchor to the trigger in viewport coordinates, which is what #slash
+         * being fixed requires. referencePos is the rect of the "/" decoration,
+         * so it stays put as the query is typed, and BlockNote refreshes it on
+         * its own capture-phase scroll listener on view.root, so it survives
+         * #root scrolling. Deliberately NOT the live caret rect: that walks
+         * right one character per keystroke.
          */
         const position = (state) => {
-          const r = caretRect() || (state && state.referencePos);
+          const r = state && state.referencePos;
           if (!r) return;
-          const top = Math.min(r.bottom + 4, window.innerHeight - el.offsetHeight - 8);
+          // The trigger scrolled out of sight. Hide rather than clamp, which
+          // would park the menu at the top edge, detached from its caret.
+          const vh = viewportHeight();
+          if (r.bottom < 0 || r.top > vh) {
+            el.style.visibility = "hidden";
+            return;
+          }
+          el.style.visibility = "";
+          // Clamp against the visible viewport, not innerHeight: the latter
+          // does not shrink for the iOS keyboard, which would put the menu
+          // behind it.
+          const top = Math.min(r.bottom + 4, vh - el.offsetHeight - 8);
           let left = r.left;
           left = Math.max(8, Math.min(left, window.innerWidth - el.offsetWidth - 8));
           el.style.top = Math.max(8, top) + "px";
           el.style.left = left + "px";
         };
 
-        let last = null;
-        ext.store.subscribe(({ currentVal }) => { last = currentVal; render(currentVal); });
+        ext.store.subscribe(({ currentVal }) => render(currentVal));
         render(ext.store.state);
-
-        /*
-         * Scrolling #root moves the caret without producing any editor state
-         * change, so nothing above re-runs and a fixed menu would sit frozen
-         * where the caret used to be. Re-measure rather than close: the query
-         * is still being typed.
-         */
-        const scroller = document.getElementById("root");
-        if (scroller) {
-          scroller.addEventListener("scroll", () => {
-            if (el.style.display === "block") position(last);
-          }, { passive: true });
-        }
       }
 
-      // The caret as a viewport rect, or null when there is no usable range.
-      // A collapsed range can report an all-zero rect, which is worse than no
-      // answer because it would position things in the top-left corner.
-      function caretRect() {
-        try {
-          const sel = window.getSelection();
-          if (!sel || sel.rangeCount === 0) return null;
-          const r = sel.getRangeAt(0).getBoundingClientRect();
-          if (!r) return null;
-          if (!r.width && !r.height && !r.top && !r.left) return null;
-          return r;
-        } catch {
-          return null;
+      // Height of the viewport the keyboard leaves behind. innerHeight does
+      // not shrink for the iOS keyboard, so anything positioning against the
+      // visible area has to ask visualViewport first.
+      function viewportHeight() {
+        const vv = window.visualViewport;
+        return (vv && vv.height) || window.innerHeight;
+      }
+
+      /*
+       * What needs to be visible right now, as a viewport rect, or null when
+       * nothing in #root has focus. Only #root can be scrolled to help, so a
+       * focused control in a fixed overlay (the link picker) deliberately
+       * returns null rather than scrolling the note behind it.
+       */
+      function revealRect(scroller) {
+        const active = document.activeElement;
+        if (!active || !scroller.contains(active)) return null;
+        // A math LaTeX field: its own box is the thing to reveal.
+        if (active.tagName === "TEXTAREA" || active.tagName === "INPUT") {
+          return active.getBoundingClientRect();
         }
+        // The editor. Ask ProseMirror rather than the DOM selection: a
+        // collapsed Range can report an all-zero rect in WebKit, and coordsAtPos
+        // is the measurement PM itself scrolls by.
+        try {
+          const view = bnEditor && bnEditor._tiptapEditor && bnEditor._tiptapEditor.view;
+          if (view && view.hasFocus()) {
+            const c = view.coordsAtPos(view.state.selection.head);
+            if (c) return { top: c.top, bottom: c.bottom };
+          }
+        } catch {}
+        return null;
       }
 
       /* --------------------------------------------- Link-note picker --- */
@@ -1918,11 +1937,11 @@ export function editorHtml(theme: "light" | "dark"): string {
         // guessing an inset.
         if (!vv || !scroller) return;
 
-        // Pull the caret back into view after the box shrinks. PM only reveals
-        // the caret on selection changes, and the keyboard appearing is not one,
-        // so the line being typed would otherwise stay hidden.
-        const revealCaret = () => {
-          const r = caretRect();
+        // Pull the focused thing back into view after the box shrinks. PM only
+        // reveals the caret on selection changes, and the keyboard appearing is
+        // not one, so the line being typed would otherwise stay hidden.
+        const reveal = () => {
+          const r = revealRect(scroller);
           if (!r) return;
           const box = scroller.getBoundingClientRect();
           const margin = 24;
@@ -1939,10 +1958,14 @@ export function editorHtml(theme: "light" | "dark"): string {
           frame = requestAnimationFrame(() => {
             frame = null;
             scroller.style.height = vv.height + "px";
-            revealCaret();
+            reveal();
           });
         };
+        // resize covers Android (the window shrinks) and the iOS keyboard
+        // appearing; scroll covers iOS panning the visual viewport afterwards,
+        // which moves the visible region without resizing it.
         vv.addEventListener("resize", apply);
+        vv.addEventListener("scroll", apply);
         apply();
       }
       setupKeyboardRoom();
