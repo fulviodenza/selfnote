@@ -12,6 +12,10 @@ metadata:
     # WebSocket upgrade for the sync path.
     nginx.ingress.kubernetes.io/proxy-read-timeout: "3600"
     nginx.ingress.kubernetes.io/proxy-send-timeout: "3600"
+    # /api goes straight to the api Service here, so this ingress is the upload
+    # path and must allow what the API allows (32 MB on POST /files). Without it
+    # ingress-nginx applies its 1 MB default and rejects phone photos with a 413.
+    nginx.ingress.kubernetes.io/proxy-body-size: "32m"
 spec:
   ingressClassName: {{ .Values.ingress.className }}
   {{- if .Values.ingress.tls.enabled }}
