@@ -69,7 +69,23 @@ export function editorHtml(theme: "light" | "dark"): string {
         --quote-wash: rgba(236, 236, 234, 0.05);
         color-scheme: dark;
       }
-      html, body, #root { margin: 0; height: 100%; }
+      /*
+        One scrolling box, and it is #root. The editor used to mount into a
+        height:100% #root with overflow:visible, which gives ProseMirror a
+        scroll-into-view target that passes its scrollHeight > clientHeight
+        test but silently ignores scrollTop, while the document did the real
+        scrolling. Placing the caret then resolved against a box that believed
+        it was at offset 0 and threw the view back to the top of the note.
+        Mirrors .editor-scroll in apps/web/src/styles.css, which is why web
+        never had this.
+      */
+      html, body { margin: 0; height: 100%; overflow: hidden; }
+      #root {
+        height: 100%; overflow-y: auto; -webkit-overflow-scrolling: touch;
+        /* Room to scroll the last line clear of the soft keyboard (web: 96px).
+           No top padding: the RN topbar already provides it. */
+        padding-bottom: 96px; box-sizing: border-box;
+      }
       body {
         font-family: -apple-system, system-ui, sans-serif;
         background: var(--surface); color: var(--ink);
@@ -102,7 +118,12 @@ export function editorHtml(theme: "light" | "dark"): string {
         editor-slash-commands.md). Ink & Paper tokens, large tap targets.
       */
       #slash {
-        position: absolute; z-index: 20; min-width: 220px; max-width: 320px;
+        /* fixed, not absolute: this menu is positioned from referencePos, a
+           viewport-relative getBoundingClientRect, and clamped to the visible
+           band, both of which are layout-viewport coordinates and so are what
+           fixed means. As absolute it was placed scrollY too high on any
+           scrolled note. */
+        position: fixed; z-index: 20; min-width: 220px; max-width: 320px;
         max-height: 280px; overflow-y: auto; background: var(--surface); color: var(--ink);
         border: 1px solid var(--hairline); border-radius: 12px; padding: 6px;
         box-shadow: 0 2px 12px rgba(20,22,28,0.14);
@@ -1190,6 +1211,8 @@ export function editorHtml(theme: "light" | "dark"): string {
       const awareness = new Awareness(doc);
       let ready = false;
       let bnEditor = null; // the BlockNote instance, for AI getText/insert
+      // Set by setupSlashMenu; called when the visible viewport changes.
+      let repositionSlash = null;
       // Read-only version-history preview: a throwaway doc + editor mounted over
       // the live one, torn down on clear. Never mutates the live fragment.
       let previewEditor = null;
@@ -1689,6 +1712,9 @@ export function editorHtml(theme: "light" | "dark"): string {
 
         const close = () => {
           el.style.display = "none";
+          // Cleared here too: a menu hidden because its trigger scrolled off
+          // screen must not stay invisible the next time it opens.
+          el.style.visibility = "";
           el.innerHTML = "";
           items = [];
         };
@@ -1734,18 +1760,104 @@ export function editorHtml(theme: "light" | "dark"): string {
               });
             });
           }
-          // Position just below the caret's reference rect.
-          const r = state.referencePos;
           el.style.display = "block";
-          const top = Math.min(r.bottom + 4, window.innerHeight - el.offsetHeight - 8);
+          position(state);
+        };
+
+        /*
+         * Anchor to the trigger in viewport coordinates, which is what #slash
+         * being fixed requires. referencePos is the rect of the "/" decoration,
+         * so it stays put as the query is typed, and BlockNote refreshes it on
+         * its own capture-phase scroll listener on view.root, so it survives
+         * #root scrolling. Deliberately NOT the live caret rect: that walks
+         * right one character per keystroke.
+         */
+        const position = (state) => {
+          const r = state && state.referencePos;
+          if (!r) return;
+          // The trigger scrolled out of sight. Hide rather than clamp, which
+          // would park the menu at the edge, detached from its caret.
+          const band = viewportBand();
+          if (r.bottom < band.top || r.top > band.bottom) {
+            el.style.visibility = "hidden";
+            return;
+          }
+          el.style.visibility = "";
+          /*
+           * Cap the height to the band FIRST, because the clamp below measures
+           * offsetHeight. Moving only the top edge cannot keep a menu that is
+           * taller than the band clear of the keyboard; it would just hang off
+           * the bottom. 280 is the max-height in this document's #slash rule,
+           * the ceiling when there is room for it. It scrolls past that.
+           */
+          const room = Math.max(96, band.bottom - band.top - 16);
+          el.style.maxHeight = Math.min(280, room) + "px";
+          // Clamp inside the band, so the keyboard cannot cover the menu.
+          const top = Math.min(r.bottom + 4, band.bottom - el.offsetHeight - 8);
           let left = r.left;
           left = Math.max(8, Math.min(left, window.innerWidth - el.offsetWidth - 8));
-          el.style.top = Math.max(8, top) + "px";
+          el.style.top = Math.max(band.top + 8, top) + "px";
           el.style.left = left + "px";
         };
 
-        ext.store.subscribe(({ currentVal }) => render(currentVal));
+        let last = null;
+        ext.store.subscribe(({ currentVal }) => { last = currentVal; render(currentVal); });
         render(ext.store.state);
+
+        /*
+         * The clamp above is relative to the visible band, and the keyboard
+         * opening or closing moves that band without touching editor state, so
+         * BlockNote does not re-emit and the menu would stay parked a keyboard
+         * height away from its trigger. Only needed for viewport changes:
+         * scrolling is already covered by BlockNote refreshing referencePos.
+         */
+        repositionSlash = () => {
+          if (el.style.display === "block") position(last);
+        };
+      }
+
+      /*
+       * The visible band, in LAYOUT viewport coordinates.
+       *
+       * This is the only safe way to compare against a getBoundingClientRect
+       * or to set a position:fixed offset, since both of those are layout
+       * coordinates while visualViewport.height is a visual-viewport *length*.
+       * The two agree only while offsetTop is 0, so mixing them silently works
+       * until iOS pans the visual viewport and then is wrong by offsetTop.
+       * innerHeight is the fallback because it does not shrink for the iOS
+       * keyboard.
+       */
+      function viewportBand() {
+        const vv = window.visualViewport;
+        if (!vv) return { top: 0, bottom: window.innerHeight };
+        const top = vv.offsetTop || 0;
+        return { top: top, bottom: top + vv.height };
+      }
+
+      /*
+       * What needs to be visible right now, as a viewport rect, or null when
+       * nothing in #root has focus. Only #root can be scrolled to help, so a
+       * focused control in a fixed overlay (the link picker) deliberately
+       * returns null rather than scrolling the note behind it.
+       */
+      function revealRect(scroller) {
+        const active = document.activeElement;
+        if (!active || !scroller.contains(active)) return null;
+        // A math LaTeX field: its own box is the thing to reveal.
+        if (active.tagName === "TEXTAREA" || active.tagName === "INPUT") {
+          return active.getBoundingClientRect();
+        }
+        // The editor. Ask ProseMirror rather than the DOM selection: a
+        // collapsed Range can report an all-zero rect in WebKit, and coordsAtPos
+        // is the measurement PM itself scrolls by.
+        try {
+          const view = bnEditor && bnEditor._tiptapEditor && bnEditor._tiptapEditor.view;
+          if (view && view.hasFocus()) {
+            const c = view.coordsAtPos(view.state.selection.head);
+            if (c) return { top: c.top, bottom: c.bottom };
+          }
+        } catch {}
+        return null;
       }
 
       /* --------------------------------------------- Link-note picker --- */
@@ -1835,6 +1947,86 @@ export function editorHtml(theme: "light" | "dark"): string {
           if (id) send({ type: "navigateToDoc", id });
         }
       }, true);
+
+      /*
+       * Keyboard room. #root is now the only scroller, which means the
+       * document-level scroll that WKWebView drives natively to reveal a
+       * focused element is gone, and on iOS the layout viewport does not
+       * shrink for the keyboard either: without this, #root stays full-height,
+       * its bottom edge sits behind the keyboard, and ProseMirror measures the
+       * caret as visible while the user cannot see it.
+       *
+       * visualViewport reports the part of the viewport the keyboard leaves
+       * behind, on both platforms. Sizing #root to it means the box PM measures
+       * against is the box the user can actually see, so its own scroll-into-view
+       * does the right thing. On Android, where the window is already resized,
+       * vv.height equals the inner height and this changes nothing.
+       */
+      function setupKeyboardRoom() {
+        const vv = window.visualViewport;
+        const scroller = document.getElementById("root");
+        // No visualViewport: leave the CSS height:100% in place rather than
+        // guessing an inset.
+        if (!vv || !scroller) return;
+
+        // Pull the focused thing back into view after the box shrinks. PM only
+        // reveals the caret on selection changes, and the keyboard appearing is
+        // not one, so the line being typed would otherwise stay hidden.
+        const reveal = () => {
+          const r = revealRect(scroller);
+          if (!r) return;
+          // What is both inside the scroller and not covered by the keyboard,
+          // in the same layout coordinates as r. Scrolling #root (rather than
+          // relying on the viewport pan) is what keeps the top of the band
+          // reachable when iOS has shifted it.
+          const box = scroller.getBoundingClientRect();
+          const band = viewportBand();
+          const top = Math.max(box.top, band.top);
+          const bottom = Math.min(box.bottom, band.bottom);
+          const margin = 24;
+          if (bottom - top < margin * 2) return; // nothing usable to reveal into
+          if (r.bottom > bottom - margin) {
+            scroller.scrollTop += r.bottom - (bottom - margin);
+          } else if (r.top < top + margin) {
+            scroller.scrollTop -= top + margin - r.top;
+          }
+        };
+
+        let frame = null;
+        let lastHeight = null;
+        const apply = () => {
+          if (frame) cancelAnimationFrame(frame);
+          frame = requestAnimationFrame(() => {
+            frame = null;
+            /*
+             * Put the scroller ON the band, not merely at its size. Sizing to
+             * vv.height alone spans [0, height] while the band is
+             * [offsetTop, offsetTop + height], so once iOS pans the viewport
+             * the scroller would leave a strip above the keyboard and its
+             * intersection with the band would shrink from both ends.
+             */
+            const band = viewportBand();
+            const height = band.bottom - band.top;
+            scroller.style.marginTop = band.top + "px";
+            scroller.style.height = height + "px";
+            // Reveal only when there is less room than before. A growing band
+            // is the keyboard going away, and re-revealing then would undo a
+            // scroll the user just made deliberately.
+            const shrank = lastHeight !== null && height < lastHeight - 1;
+            lastHeight = height;
+            if (shrank) reveal();
+            // The slash menu is clamped to the band this just moved.
+            try { if (repositionSlash) repositionSlash(); } catch {}
+          });
+        };
+        // resize covers Android (the window shrinks) and the iOS keyboard
+        // appearing; scroll covers iOS panning the visual viewport afterwards,
+        // which moves the visible region without resizing it.
+        vv.addEventListener("resize", apply);
+        vv.addEventListener("scroll", apply);
+        apply();
+      }
+      setupKeyboardRoom();
 
       send({ type: "ready" });
     </script>

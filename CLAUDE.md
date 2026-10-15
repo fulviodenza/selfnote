@@ -32,3 +32,7 @@
 - The API runs sqlx migrations from server/migrations on boot.
 - Typechecks: `pnpm typecheck` in apps/web and packages/editor, `npx tsc --noEmit` in
   apps/mobile and tools/mcp-server, `cargo build -p selfnote-api` for the server.
+- apps/mobile/src/editor/editorHtml.ts is one big template literal holding a whole JS
+  program, so tsc cannot see a syntax error inside it, and an unescaped backtick in a
+  comment truncates the document silently. After touching it, run
+  `node scripts/check-editor-html.mjs` in apps/mobile.
