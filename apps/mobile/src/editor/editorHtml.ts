@@ -1210,6 +1210,8 @@ export function editorHtml(theme: "light" | "dark"): string {
       const awareness = new Awareness(doc);
       let ready = false;
       let bnEditor = null; // the BlockNote instance, for AI getText/insert
+      // Set by setupSlashMenu; called when the visible viewport changes.
+      let repositionSlash = null;
       // Read-only version-history preview: a throwaway doc + editor mounted over
       // the live one, torn down on clear. Never mutates the live fragment.
       let previewEditor = null;
@@ -1773,33 +1775,53 @@ export function editorHtml(theme: "light" | "dark"): string {
           const r = state && state.referencePos;
           if (!r) return;
           // The trigger scrolled out of sight. Hide rather than clamp, which
-          // would park the menu at the top edge, detached from its caret.
-          const vh = viewportHeight();
-          if (r.bottom < 0 || r.top > vh) {
+          // would park the menu at the edge, detached from its caret.
+          const band = viewportBand();
+          if (r.bottom < band.top || r.top > band.bottom) {
             el.style.visibility = "hidden";
             return;
           }
           el.style.visibility = "";
-          // Clamp against the visible viewport, not innerHeight: the latter
-          // does not shrink for the iOS keyboard, which would put the menu
-          // behind it.
-          const top = Math.min(r.bottom + 4, vh - el.offsetHeight - 8);
+          // Clamp inside the band, so the keyboard cannot cover the menu.
+          const top = Math.min(r.bottom + 4, band.bottom - el.offsetHeight - 8);
           let left = r.left;
           left = Math.max(8, Math.min(left, window.innerWidth - el.offsetWidth - 8));
-          el.style.top = Math.max(8, top) + "px";
+          el.style.top = Math.max(band.top + 8, top) + "px";
           el.style.left = left + "px";
         };
 
-        ext.store.subscribe(({ currentVal }) => render(currentVal));
+        let last = null;
+        ext.store.subscribe(({ currentVal }) => { last = currentVal; render(currentVal); });
         render(ext.store.state);
+
+        /*
+         * The clamp above is relative to the visible band, and the keyboard
+         * opening or closing moves that band without touching editor state, so
+         * BlockNote does not re-emit and the menu would stay parked a keyboard
+         * height away from its trigger. Only needed for viewport changes:
+         * scrolling is already covered by BlockNote refreshing referencePos.
+         */
+        repositionSlash = () => {
+          if (el.style.display === "block") position(last);
+        };
       }
 
-      // Height of the viewport the keyboard leaves behind. innerHeight does
-      // not shrink for the iOS keyboard, so anything positioning against the
-      // visible area has to ask visualViewport first.
-      function viewportHeight() {
+      /*
+       * The visible band, in LAYOUT viewport coordinates.
+       *
+       * This is the only safe way to compare against a getBoundingClientRect
+       * or to set a position:fixed offset, since both of those are layout
+       * coordinates while visualViewport.height is a visual-viewport *length*.
+       * The two agree only while offsetTop is 0, so mixing them silently works
+       * until iOS pans the visual viewport and then is wrong by offsetTop.
+       * innerHeight is the fallback because it does not shrink for the iOS
+       * keyboard.
+       */
+      function viewportBand() {
         const vv = window.visualViewport;
-        return (vv && vv.height) || window.innerHeight;
+        if (!vv) return { top: 0, bottom: window.innerHeight };
+        const top = vv.offsetTop || 0;
+        return { top: top, bottom: top + vv.height };
       }
 
       /*
@@ -1943,12 +1965,20 @@ export function editorHtml(theme: "light" | "dark"): string {
         const reveal = () => {
           const r = revealRect(scroller);
           if (!r) return;
+          // What is both inside the scroller and not covered by the keyboard,
+          // in the same layout coordinates as r. Scrolling #root (rather than
+          // relying on the viewport pan) is what keeps the top of the band
+          // reachable when iOS has shifted it.
           const box = scroller.getBoundingClientRect();
+          const band = viewportBand();
+          const top = Math.max(box.top, band.top);
+          const bottom = Math.min(box.bottom, band.bottom);
           const margin = 24;
-          if (r.bottom > box.bottom - margin) {
-            scroller.scrollTop += r.bottom - (box.bottom - margin);
-          } else if (r.top < box.top + margin) {
-            scroller.scrollTop -= box.top + margin - r.top;
+          if (bottom - top < margin * 2) return; // nothing usable to reveal into
+          if (r.bottom > bottom - margin) {
+            scroller.scrollTop += r.bottom - (bottom - margin);
+          } else if (r.top < top + margin) {
+            scroller.scrollTop -= top + margin - r.top;
           }
         };
 
@@ -1959,6 +1989,8 @@ export function editorHtml(theme: "light" | "dark"): string {
             frame = null;
             scroller.style.height = vv.height + "px";
             reveal();
+            // The slash menu is clamped to the band this just moved.
+            try { if (repositionSlash) repositionSlash(); } catch {}
           });
         };
         // resize covers Android (the window shrinks) and the iOS keyboard
