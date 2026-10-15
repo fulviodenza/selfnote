@@ -69,7 +69,23 @@ export function editorHtml(theme: "light" | "dark"): string {
         --quote-wash: rgba(236, 236, 234, 0.05);
         color-scheme: dark;
       }
-      html, body, #root { margin: 0; height: 100%; }
+      /*
+        One scrolling box, and it is #root. The editor used to mount into a
+        height:100% #root with overflow:visible, which gives ProseMirror a
+        scroll-into-view target that passes its scrollHeight > clientHeight
+        test but silently ignores scrollTop, while the document did the real
+        scrolling. Placing the caret then resolved against a box that believed
+        it was at offset 0 and threw the view back to the top of the note.
+        Mirrors .editor-scroll in apps/web/src/styles.css, which is why web
+        never had this.
+      */
+      html, body { margin: 0; height: 100%; overflow: hidden; }
+      #root {
+        height: 100%; overflow-y: auto; -webkit-overflow-scrolling: touch;
+        /* Room to scroll the last line clear of the soft keyboard (web: 96px).
+           No top padding: the RN topbar already provides it. */
+        padding-bottom: 96px; box-sizing: border-box;
+      }
       body {
         font-family: -apple-system, system-ui, sans-serif;
         background: var(--surface); color: var(--ink);
@@ -102,7 +118,11 @@ export function editorHtml(theme: "light" | "dark"): string {
         editor-slash-commands.md). Ink & Paper tokens, large tap targets.
       */
       #slash {
-        position: absolute; z-index: 20; min-width: 220px; max-width: 320px;
+        /* fixed, not absolute: this menu is positioned from referencePos (a
+           viewport-relative getBoundingClientRect) and clamped against
+           window.innerHeight, which is what fixed means. As absolute it was
+           placed scrollY too high on any scrolled note. */
+        position: fixed; z-index: 20; min-width: 220px; max-width: 320px;
         max-height: 280px; overflow-y: auto; background: var(--surface); color: var(--ink);
         border: 1px solid var(--hairline); border-radius: 12px; padding: 6px;
         box-shadow: 0 2px 12px rgba(20,22,28,0.14);
