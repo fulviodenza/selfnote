@@ -1783,6 +1783,15 @@ export function editorHtml(theme: "light" | "dark"): string {
             return;
           }
           el.style.visibility = "";
+          /*
+           * Cap the height to the band FIRST, because the clamp below measures
+           * offsetHeight. Moving only the top edge cannot keep a menu that is
+           * taller than the band clear of the keyboard; it would just hang off
+           * the bottom. 280 is the max-height in this document's #slash rule,
+           * the ceiling when there is room for it. It scrolls past that.
+           */
+          const room = Math.max(96, band.bottom - band.top - 16);
+          el.style.maxHeight = Math.min(280, room) + "px";
           // Clamp inside the band, so the keyboard cannot cover the menu.
           const top = Math.min(r.bottom + 4, band.bottom - el.offsetHeight - 8);
           let left = r.left;
