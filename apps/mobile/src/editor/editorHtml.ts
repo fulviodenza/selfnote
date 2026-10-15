@@ -1754,9 +1754,20 @@ export function editorHtml(theme: "light" | "dark"): string {
               });
             });
           }
-          // Position just below the caret's reference rect.
-          const r = state.referencePos;
           el.style.display = "block";
+          position(state);
+        };
+
+        /*
+         * Place the menu just below the caret, in viewport coordinates (#slash
+         * is fixed). referencePos is captured when the menu opens, so it goes
+         * stale the moment #root scrolls under it; the live selection rect is
+         * the same measurement taken now, and referencePos is only the fallback
+         * for when there is no usable range.
+         */
+        const position = (state) => {
+          const r = caretRect() || (state && state.referencePos);
+          if (!r) return;
           const top = Math.min(r.bottom + 4, window.innerHeight - el.offsetHeight - 8);
           let left = r.left;
           left = Math.max(8, Math.min(left, window.innerWidth - el.offsetWidth - 8));
@@ -1764,8 +1775,38 @@ export function editorHtml(theme: "light" | "dark"): string {
           el.style.left = left + "px";
         };
 
-        ext.store.subscribe(({ currentVal }) => render(currentVal));
+        let last = null;
+        ext.store.subscribe(({ currentVal }) => { last = currentVal; render(currentVal); });
         render(ext.store.state);
+
+        /*
+         * Scrolling #root moves the caret without producing any editor state
+         * change, so nothing above re-runs and a fixed menu would sit frozen
+         * where the caret used to be. Re-measure rather than close: the query
+         * is still being typed.
+         */
+        const scroller = document.getElementById("root");
+        if (scroller) {
+          scroller.addEventListener("scroll", () => {
+            if (el.style.display === "block") position(last);
+          }, { passive: true });
+        }
+      }
+
+      // The caret as a viewport rect, or null when there is no usable range.
+      // A collapsed range can report an all-zero rect, which is worse than no
+      // answer because it would position things in the top-left corner.
+      function caretRect() {
+        try {
+          const sel = window.getSelection();
+          if (!sel || sel.rangeCount === 0) return null;
+          const r = sel.getRangeAt(0).getBoundingClientRect();
+          if (!r) return null;
+          if (!r.width && !r.height && !r.top && !r.left) return null;
+          return r;
+        } catch {
+          return null;
+        }
       }
 
       /* --------------------------------------------- Link-note picker --- */
@@ -1855,6 +1896,56 @@ export function editorHtml(theme: "light" | "dark"): string {
           if (id) send({ type: "navigateToDoc", id });
         }
       }, true);
+
+      /*
+       * Keyboard room. #root is now the only scroller, which means the
+       * document-level scroll that WKWebView drives natively to reveal a
+       * focused element is gone, and on iOS the layout viewport does not
+       * shrink for the keyboard either: without this, #root stays full-height,
+       * its bottom edge sits behind the keyboard, and ProseMirror measures the
+       * caret as visible while the user cannot see it.
+       *
+       * visualViewport reports the part of the viewport the keyboard leaves
+       * behind, on both platforms. Sizing #root to it means the box PM measures
+       * against is the box the user can actually see, so its own scroll-into-view
+       * does the right thing. On Android, where the window is already resized,
+       * vv.height equals the inner height and this changes nothing.
+       */
+      function setupKeyboardRoom() {
+        const vv = window.visualViewport;
+        const scroller = document.getElementById("root");
+        // No visualViewport: leave the CSS height:100% in place rather than
+        // guessing an inset.
+        if (!vv || !scroller) return;
+
+        // Pull the caret back into view after the box shrinks. PM only reveals
+        // the caret on selection changes, and the keyboard appearing is not one,
+        // so the line being typed would otherwise stay hidden.
+        const revealCaret = () => {
+          const r = caretRect();
+          if (!r) return;
+          const box = scroller.getBoundingClientRect();
+          const margin = 24;
+          if (r.bottom > box.bottom - margin) {
+            scroller.scrollTop += r.bottom - (box.bottom - margin);
+          } else if (r.top < box.top + margin) {
+            scroller.scrollTop -= box.top + margin - r.top;
+          }
+        };
+
+        let frame = null;
+        const apply = () => {
+          if (frame) cancelAnimationFrame(frame);
+          frame = requestAnimationFrame(() => {
+            frame = null;
+            scroller.style.height = vv.height + "px";
+            revealCaret();
+          });
+        };
+        vv.addEventListener("resize", apply);
+        apply();
+      }
+      setupKeyboardRoom();
 
       send({ type: "ready" });
     </script>
