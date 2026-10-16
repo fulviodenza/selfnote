@@ -435,7 +435,9 @@ const makeStyles = (colors: ReturnType<typeof useTheme>["colors"]) =>
       color: colors.ink,
       fontSize: 16,
     },
-    list: { marginTop: spacing.sm },
+    // Bounded so a long label list scrolls inside the sheet instead of
+    // pushing past it (the sheet does not scroll this content itself).
+    list: { marginTop: spacing.sm, maxHeight: 360 },
     item: {
       flexDirection: "row",
       alignItems: "center",

@@ -33,22 +33,33 @@ async function bundle(entry) {
   return result.outputFiles[0].text.replace(/<\/script>/gi, "<\\/script>");
 }
 
+/* Ink and Paper, read from packages/core/tokens.json at build time so the
+   reader pages cannot drift from the apps. */
+const TOKENS = JSON.parse(
+  readFileSync(new URL("../core/tokens.json", import.meta.url), "utf8"),
+);
+const L = TOKENS.light;
+const D = TOKENS.dark;
+/** The accent at the given alpha, for highlight and selection fills. */
+const accentAlpha = (hex, a) => {
+  const n = parseInt(hex.slice(1), 16);
+  return `rgba(${n >> 16}, ${(n >> 8) & 255}, ${n & 255}, ${a})`;
+};
+
 const SHARED_CSS = `
-  /* Ink and Paper, copied from packages/core/tokens.json and checked against it
-     by scripts/check-tokens.mjs. */
-  :root { --paper: #F3F3F0; --surface: #FFFFFF; --ink: #1B1D22; --ink-soft: #606670;
-    --accent: #2B44C7; --accent-wash: #EAEDFB; --on-accent: #FFFFFF; --hairline: #E2E1DC;
-    --highlight: rgba(43, 68, 199, 0.22); --selection: rgba(43, 68, 199, 0.28);
-    --shadow-floating: 0 2px 12px rgba(20, 22, 28, 0.10);
+  :root { --paper: ${L.paper}; --surface: ${L.surface}; --ink: ${L.ink}; --ink-soft: ${L.inkSoft};
+    --accent: ${L.accent}; --accent-wash: ${L.accentWash}; --on-accent: ${L.onAccent}; --hairline: ${L.hairline};
+    --highlight: ${accentAlpha(L.accent, 0.22)}; --selection: ${accentAlpha(L.accent, 0.28)};
+    --shadow-floating: ${TOKENS.shadowFloating};
     --note-paper: var(--surface); --note-rule: var(--hairline);
     --margin-x: 7vw; --margin-y: 4.5vh; }
-  html[data-theme="dark"] { --paper: #17181C; --surface: #202228; --ink: #ECECEA;
-    --ink-soft: #A2A7B0; --accent: #7C8CF8; --accent-wash: #23263A; --on-accent: #12131A;
-    --hairline: #2E3037; --highlight: rgba(124, 140, 248, 0.28);
-    --selection: rgba(124, 140, 248, 0.32);
+  html[data-theme="dark"] { --paper: ${D.paper}; --surface: ${D.surface}; --ink: ${D.ink};
+    --ink-soft: ${D.inkSoft}; --accent: ${D.accent}; --accent-wash: ${D.accentWash}; --on-accent: ${D.onAccent};
+    --hairline: ${D.hairline}; --highlight: ${accentAlpha(D.accent, 0.28)};
+    --selection: ${accentAlpha(D.accent, 0.32)};
     /* Inserts keep the light sheet: web canvas ink is stored as a fixed dark
        colour and would vanish on a dark one. */
-    --note-paper: #FFFFFF; --note-rule: #E2E1DC; }
+    --note-paper: ${L.surface}; --note-rule: ${L.hairline}; }
   html, body { margin: 0; padding: 0; height: 100%; overflow: hidden;
     background: var(--paper); color: var(--ink); -webkit-text-size-adjust: 100%; }
   body { -webkit-user-select: none; user-select: none; }

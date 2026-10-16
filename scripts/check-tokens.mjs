@@ -63,8 +63,9 @@ const CSS_EDITOR = {
   "--accent-wash": "accentWash",
   "--warn": "warn",
   "--danger": "danger",
+  "--danger-wash": "dangerWash",
+  "--surface-sunken": "surfaceSunken",
 };
-const CSS_READER = { "--paper": "paper", "--ink": "ink", "--ink-soft": "inkSoft", "--accent": "accent", "--accent-wash": "accentWash", "--hairline": "hairline" };
 const TS_KEYS = Object.fromEntries(Object.keys(tokens.light).map((k) => [k, k]));
 
 const COPIES = [
@@ -101,14 +102,20 @@ const COPIES = [
       { start: "export const darkColors: Palette = {", theme: "dark", map: TS_KEYS },
     ],
   },
-  {
-    file: "packages/reader/build.mjs",
-    style: "css",
-    blocks: [
-      { start: ":root {", theme: "light", map: CSS_READER },
-      { start: 'html[data-theme="dark"] {', theme: "dark", map: CSS_READER },
-    ],
-  },
+];
+
+// Single values that live outside a token block. packages/reader/build.mjs
+// reads tokens.json itself, so it needs no entry here.
+const L = tokens.light;
+const D = tokens.dark;
+const LITERALS = [
+  { file: "apps/mobile/src/theme.ts", re: /export const scrim = "([^"]+)"/, want: tokens.scrim },
+  { file: "apps/ereader/src/theme.ts", re: /export const scrim = "([^"]+)"/, want: tokens.scrim },
+  { file: "apps/mobile/src/editor/editorHtml.ts", re: /name: "Guest", color: "([^"]+)"/, want: tokens.presence[0] },
+  { file: "packages/reader/src/webview/reader.ts", re: /themes\.override\("color", dark \? "([^"]+)"/, want: D.ink },
+  { file: "packages/reader/src/webview/reader.ts", re: /themes\.override\("color", dark \? "[^"]+" : "([^"]+)"/, want: L.ink },
+  { file: "packages/reader/src/webview/reader.ts", re: /themes\.override\("background", dark \? "([^"]+)"/, want: D.paper },
+  { file: "packages/reader/src/webview/reader.ts", re: /themes\.override\("background", dark \? "[^"]+" : "([^"]+)"/, want: L.paper },
 ];
 
 let failures = 0;
@@ -143,7 +150,12 @@ for (const copy of COPIES) {
     }
   }
   for (const x of copy.extra ?? []) {
-    const got = read(block(src, x.start, copy.file), x.name, copy.style);
+    let got;
+    try {
+      got = read(block(src, x.start, copy.file), x.name, copy.style);
+    } catch (e) {
+      got = undefined;
+    }
     if (got === undefined || norm(got) !== norm(x.value)) {
       console.error(`FAIL ${copy.file}: ${x.name} is ${got}, want ${x.value}`);
       failures++;
@@ -151,8 +163,21 @@ for (const copy of COPIES) {
   }
 }
 
+for (const lit of LITERALS) {
+  let got;
+  try {
+    got = lit.re.exec(readFileSync(join(root, lit.file), "utf8"))?.[1];
+  } catch {
+    got = undefined;
+  }
+  if (got === undefined || norm(got) !== norm(lit.want)) {
+    console.error(`FAIL ${lit.file}: ${lit.re} found ${got}, want ${lit.want}`);
+    failures++;
+  }
+}
+
 if (failures) {
   console.error(`\n${failures} token mismatch(es). packages/core/tokens.json is the source of truth.`);
   process.exit(1);
 }
-console.log(`tokens OK (${COPIES.length} copies)`);
+console.log(`tokens OK (${COPIES.length} copies, ${LITERALS.length} single values)`);

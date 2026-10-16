@@ -37,6 +37,7 @@ import { PencilPageView, type PencilChange } from "../modules/pencil-page";
 import { sendHighlights, type Connection } from "./selfnote";
 import {
   capture,
+  colors as lightColors,
   fonts,
   highlightFill,
   radius,
@@ -1022,12 +1023,13 @@ const makeStyles = (colors: Palette, type: TypeRoles) =>
     },
     toolDanger: { color: colors.danger },
     // The native writing surface, styled as the same paper the web insert draws
-    // so the page does not change character when the surface goes native.
-    // PencilKit adapts its ink to the scheme, so this sheet can follow it.
+    // so the page does not change character when the surface goes native. The
+    // insert stays a light sheet in dark mode (stored ink is a fixed dark
+    // colour), so this one does too.
     notePaper: {
       position: "absolute",
       top: PAPER_INSET.y, bottom: PAPER_INSET.y, left: PAPER_INSET.x, right: PAPER_INSET.x,
-      backgroundColor: colors.surface, borderRadius: 2, overflow: "hidden",
+      backgroundColor: lightColors.surface, borderRadius: 2, overflow: "hidden",
       ...shadow.floating,
     },
     noteRule: {

@@ -72,7 +72,7 @@ export function TaskView({
           {STATUS_FILTERS.map((s) => (
             <button
               key={s}
-              className={filter.has(s) ? "task-chip on" : "task-chip"}
+              className={filter.has(s) ? "chip on" : "chip"}
               onClick={() => toggleFilter(s)}
             >
               {STATUS_LABEL[s]}

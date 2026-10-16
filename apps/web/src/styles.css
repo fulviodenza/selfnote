@@ -1832,7 +1832,8 @@ button.toggle.on {
   font-size: 18px;
 }
 
-.assist-send.stop {
+.assist-send.stop,
+.assist-send.stop:hover:not(:disabled) {
   background: var(--fg);
   font-size: 13px;
 }
@@ -2454,7 +2455,7 @@ button.toggle.on {
 }
 .callout-warning {
   --callout-accent: var(--warn);
-  --callout-wash: color-mix(in srgb, var(--warn) 14%, transparent);
+  --callout-wash: var(--hover);
 }
 .callout-important {
   --callout-accent: var(--fg);
@@ -2462,7 +2463,7 @@ button.toggle.on {
 }
 .callout-caution {
   --callout-accent: var(--danger);
-  --callout-wash: color-mix(in srgb, var(--danger) 12%, transparent);
+  --callout-wash: var(--danger-wash);
 }
 
 /* ---------------- AI edit proposals: banner + diff drawer ---------------- */
@@ -3150,30 +3151,6 @@ button.toggle.danger:hover {
   display: flex;
   gap: 8px;
   margin-left: auto;
-}
-
-.task-chip {
-  min-height: 30px;
-  padding: 0 12px;
-  border: 1px solid var(--border);
-  border-radius: var(--radius-full);
-  background: var(--bg);
-  color: var(--muted);
-  font-size: 13px;
-  cursor: pointer;
-}
-
-.task-chip:hover {
-  border-color: var(--accent);
-  color: var(--accent);
-}
-
-/* Selected filter: the accent wash, the same as the label filter and active
- * nav. A solid fill is for the one primary action on a screen. */
-.task-chip.on {
-  background: var(--accent-wash);
-  border-color: var(--accent);
-  color: var(--accent);
 }
 
 .taskview-body {

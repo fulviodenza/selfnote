@@ -47,6 +47,9 @@ class PencilPageView: ExpoView, PKCanvasViewDelegate {
     canvas.delegate = self
     canvas.backgroundColor = .clear
     canvas.isOpaque = false
+    // The sheet under it is always the light paper (Reader.tsx notePaper), so
+    // keep PencilKit from inverting ink for dark mode.
+    canvas.overrideUserInterfaceStyle = .light
     // The paper behind this view is the page; the canvas is only the ink.
     // PKCanvasView is a scroll view, but the page never pans or zooms.
     canvas.isScrollEnabled = false
