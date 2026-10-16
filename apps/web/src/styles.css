@@ -14,13 +14,21 @@
   --accent: #2b44c7;
   --accent-press: #22369e;
   --accent-wash: #eaedfb; /* selected/active tint */
-  --hover: #ececE8;
+  --hover: #ecece8;
   --hover-strong: #e0dfda;
   --input-border: var(--border);
   --live: #1f9e6a;
+  --live-wash: #e4f4ec;
   --warn: #c1841e;
   --danger: #c4392b;
+  --danger-wash: #f8e7e4;
   --on-accent: #ffffff;
+
+  /* The one scrim behind modals and the one shadow for floating things.
+     Everything else separates with hairlines (DESIGN.md 3.3). */
+  --scrim: rgba(20, 22, 28, 0.45);
+  --shadow-floating: 0 2px 12px rgba(20, 22, 28, 0.10);
+  --radius-lg: 20px;
 
   --radius-sm: 8px;
   --radius-md: 12px;
@@ -40,7 +48,7 @@
 :root[data-theme="dark"] {
   --paper: #17181c;
   --bg: #202228;
-  --fg: #ececeA;
+  --fg: #ececea;
   --muted: #a2a7b0;
   --faint: #6b7078;
   --border: #2e3037;
@@ -50,9 +58,12 @@
   --hover: #2a2c33;
   --hover-strong: #34373f;
   --live: #3fbf8a;
+  --live-wash: #1b2a24;
   --warn: #d79a3a;
   --danger: #e06456;
+  --danger-wash: #2e2020;
   --on-accent: #12131a;
+  --shadow-floating: 0 2px 12px rgba(0, 0, 0, 0.40);
   color-scheme: dark;
 }
 

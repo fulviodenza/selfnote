@@ -49,6 +49,8 @@ export function editorHtml(theme: "light" | "dark"): string {
         --hairline: #E2E1DC;
         --accent: #2B44C7;
         --accent-wash: #EAEDFB;
+        --warn: #C1841E;
+        --danger: #C4392B;
         --quote-wash: rgba(27, 29, 34, 0.04);
         --bn-colors-editor-text: var(--ink);
         --bn-colors-menu-background: var(--surface);
@@ -66,6 +68,8 @@ export function editorHtml(theme: "light" | "dark"): string {
         --hairline: #2E3037;
         --accent: #7C8CF8;
         --accent-wash: #23263A;
+        --warn: #D79A3A;
+        --danger: #E06456;
         --quote-wash: rgba(236, 236, 234, 0.05);
         color-scheme: dark;
       }
