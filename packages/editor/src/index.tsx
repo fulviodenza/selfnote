@@ -34,6 +34,7 @@ import {
 import { schema } from "./schema";
 import { CALLOUT_KINDS, ensureCalloutStyles, type CalloutKind } from "./callout";
 import { registerCalloutInputRule } from "./calloutInputRule";
+import { registerDividerInputRule } from "./dividerInputRule";
 import { ensureMathStyles, markMathInserted } from "./math";
 import { registerMathInputRules } from "./mathInputRule";
 import { registerMarkdownPaste } from "./markdownPaste";
@@ -319,8 +320,8 @@ export function CollaborativeEditor({
     }),
   );
 
-  // Inject the callout and math CSS once, attach the `[!kind] ` and `$$`/`$…$`
-  // input rules, the Ctrl/Cmd+A progressive select-all, and the global
+  // Inject the callout and math CSS once, attach the `[!kind] `, `$$`/`$…$` and
+  // `---` input rules, the Ctrl/Cmd+A progressive select-all, and the global
   // Ctrl/Cmd+Z undo (works even when focus is outside the editor: toolbar
   // clicks, panels, and so on).
   useEffect(() => {
@@ -328,6 +329,9 @@ export function CollaborativeEditor({
     ensureMathStyles();
     registerCalloutInputRule(editor as unknown as Parameters<typeof registerCalloutInputRule>[0]);
     registerMathInputRules(editor as unknown as Parameters<typeof registerMathInputRules>[0]);
+    const offDivider = registerDividerInputRule(
+      editor as unknown as Parameters<typeof registerDividerInputRule>[0],
+    );
     // Gated on `editable`: the handler writes through replaceBlocks/insertBlocks
     // rather than ProseMirror, so BlockNote's own editable guard does not cover
     // it, and a read-only share would otherwise accept pastes.
@@ -345,6 +349,7 @@ export function CollaborativeEditor({
       (message) => onError?.(`Undo failed: ${message}`),
     );
     return () => {
+      offDivider();
       offPaste();
       offUndo?.();
     };

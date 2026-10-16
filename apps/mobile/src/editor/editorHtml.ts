@@ -545,6 +545,40 @@ export function editorHtml(theme: "light" | "dark"): string {
         }, true);
       }
 
+      // Typing "---" on an empty line: divider, with the caret on a new line
+      // below it. BlockNote's own rule leaves a node selection on the divider and
+      // no block after it, so the caret disappears and the view jumps to the top.
+      // This takes the third dash first (beforeinput, which software keyboards
+      // fire where keydown says Unidentified) and builds the final state in one
+      // transaction. Anything but a paragraph holding exactly "--" with the caret
+      // at its end falls through to BlockNote. Mirrors
+      // packages/editor/src/dividerInputRule.ts.
+      function setupDividerInputRule(editor) {
+        const dom = editorDom(editor);
+        if (!dom) return;
+        const tiptap = editor._tiptapEditor;
+        dom.addEventListener("beforeinput", (e) => {
+          if (e.inputType !== "insertText" || e.data !== "-" || e.isComposing) return;
+          try {
+            if (!editor.schema.blockSchema.divider) return;
+            const sel = tiptap.state.selection;
+            if (!sel.empty || sel.$from.parentOffset !== sel.$from.parent.content.size) return;
+            const block = editor.getTextCursorPosition().block;
+            if (block.type !== "paragraph" || !Array.isArray(block.content)) return;
+            if (!block.content.every((n) => n && n.type === "text")) return;
+            if (block.content.map((n) => n.text || "").join("") !== "--") return;
+            // Dispatches once, when the callback returns: a throw leaves the
+            // document untouched and the dash falls through to BlockNote.
+            editor.transact(() => {
+              const inserted = editor.insertBlocks([{ type: "paragraph" }], block, "after");
+              editor.updateBlock(block, { type: "divider", content: [] });
+              if (inserted[0]) editor.setTextCursorPosition(inserted[0], "start");
+            });
+            e.preventDefault();
+          } catch {}
+        }, true);
+      }
+
       // iPad Return while autocorrect or predictive text is pending arrives as
       // keydown keyCode 229. ProseMirror ignores that keydown, so WebKit runs its
       // native contenteditable split: an empty line above, caret left at the
@@ -1519,6 +1553,7 @@ export function editorHtml(theme: "light" | "dark"): string {
           setupSlashMenu(editor);
           setupCalloutInputRule(editor);
           setupMathInputRule(editor);
+          setupDividerInputRule(editor);
           setupParagraphInputShim(editor);
           setupMarkdownPaste(editor);
           setupSelectAll(editor);
