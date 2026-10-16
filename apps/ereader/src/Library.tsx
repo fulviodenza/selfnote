@@ -5,7 +5,7 @@
  * URL, because a security-scoped URL does not survive a restart and the book
  * would silently stop opening.
  */
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 import { Alert, FlatList, StyleSheet, Text, TouchableOpacity, View } from "react-native";
 import * as DocumentPicker from "expo-document-picker";
 import * as FileSystem from "expo-file-system/legacy";
@@ -23,6 +23,8 @@ import {
   type Book,
 } from "./db";
 import type { Connection } from "./selfnote";
+import { fonts, radius, scrim, shadow, spacing, type Palette, type TypeRoles } from "./theme";
+import { useTheme } from "./theme-context";
 
 const DAILY_KEY = "goal.daily_minutes";
 const YEARLY_KEY = "goal.yearly_books";
@@ -56,6 +58,8 @@ export function Library({
   const [dailyGoal, setDailyGoal] = useState(30);
   const [yearlyGoal, setYearlyGoal] = useState(12);
   const [editingGoals, setEditingGoals] = useState(false);
+  const { colors, type } = useTheme();
+  const styles = useMemo(() => makeStyles(colors, type), [colors, type]);
 
   const refreshGoals = useCallback(() => {
     void readingSecondsSince(localMidnight()).then((s) => setTodayMin(Math.round(s / 60)));
@@ -220,7 +224,7 @@ export function Library({
                 <Text style={styles.rowSync}>Highlights to "{item.sync_page_title}"</Text>
               ) : null}
             </View>
-            {item.finished_at ? <Text style={styles.finished}>finished</Text> : null}
+            {item.finished_at ? <Text style={styles.finished}>Finished</Text> : null}
           </TouchableOpacity>
         )}
       />
@@ -257,6 +261,8 @@ function GoalsEditor({
 }) {
   const [d, setD] = useState(daily);
   const [y, setY] = useState(yearly);
+  const { colors, type } = useTheme();
+  const styles = useMemo(() => makeStyles(colors, type), [colors, type]);
   const Stepper = ({
     label,
     value,
@@ -297,106 +303,129 @@ function GoalsEditor({
   );
 }
 
-const styles = StyleSheet.create({
-  fill: { flex: 1, backgroundColor: "#faf5ef" },
-  header: { paddingHorizontal: 28, paddingTop: 72, paddingBottom: 20 },
-  headerRow: { flexDirection: "row", alignItems: "flex-start" },
-  wordmark: { fontSize: 34, fontWeight: "700", color: "#1b1b1b", letterSpacing: -0.5 },
-  sub: { fontSize: 17, color: "#6b6b6b", marginTop: 2 },
-  link: { fontSize: 16, color: "#3730c4", fontWeight: "600", paddingTop: 8 },
-  list: { paddingHorizontal: 20, paddingBottom: 120 },
-  goals: {
-    padding: 18,
-    marginBottom: 14,
-    borderRadius: 14,
-    backgroundColor: "#fffdfa",
-    borderWidth: 1,
-    borderColor: "#eae2d6",
-  },
-  goalsRow: { flexDirection: "row", alignItems: "center" },
-  goalsTitle: { fontSize: 13, fontWeight: "700", color: "#6b6b6b", textTransform: "uppercase" },
-  goalsBig: { fontSize: 30, fontWeight: "700", color: "#1b1b1b", marginTop: 4 },
-  goalsUnit: { fontSize: 16, fontWeight: "500", color: "#6b6b6b" },
-  goalsDone: { fontSize: 15, fontWeight: "700", color: "#447a4e" },
-  goalsBarTrack: {
-    height: 6,
-    borderRadius: 3,
-    backgroundColor: "#f0e8db",
-    marginTop: 10,
-    overflow: "hidden",
-  },
-  goalsBarFill: { height: 6, borderRadius: 3, backgroundColor: "#f2c94c" },
-  goalsYear: { fontSize: 14, color: "#6b6b6b", marginTop: 10 },
-  continueBtn: {
-    marginTop: 14,
-    paddingVertical: 11,
-    paddingHorizontal: 14,
-    borderRadius: 10,
-    backgroundColor: "#f2ece3",
-  },
-  continueText: { fontSize: 14, fontWeight: "600", color: "#3730c4" },
-  empty: { paddingHorizontal: 8, paddingTop: 16, fontSize: 16, lineHeight: 24, color: "#6b6b6b" },
-  row: {
-    flexDirection: "row",
-    alignItems: "center",
-    gap: 10,
-    paddingVertical: 18,
-    paddingHorizontal: 20,
-    marginBottom: 10,
-    borderRadius: 14,
-    backgroundColor: "#fffdfa",
-    borderWidth: 1,
-    borderColor: "#eae2d6",
-  },
-  rowTitle: { fontSize: 17, fontWeight: "600", color: "#1b1b1b" },
-  rowMeta: { fontSize: 14, color: "#6b6b6b", marginTop: 4 },
-  rowSync: { fontSize: 13, color: "#3730c4", marginTop: 6 },
-  finished: { fontSize: 12, fontWeight: "700", color: "#447a4e" },
-  add: {
-    position: "absolute",
-    left: 20,
-    right: 20,
-    bottom: 40,
-    paddingVertical: 17,
-    borderRadius: 14,
-    backgroundColor: "#3730c4",
-    alignItems: "center",
-  },
-  addText: { color: "#fff", fontSize: 16, fontWeight: "600" },
-  sheetBackdrop: {
-    position: "absolute",
-    top: 0,
-    left: 0,
-    right: 0,
-    bottom: 0,
-    backgroundColor: "rgba(27,27,27,0.35)",
-    alignItems: "center",
-    justifyContent: "center",
-  },
-  sheet: {
-    width: 420,
-    maxWidth: "88%",
-    borderRadius: 18,
-    backgroundColor: "#faf5ef",
-    padding: 24,
-  },
-  sheetTitle: { fontSize: 20, fontWeight: "700", color: "#1b1b1b", marginBottom: 14 },
-  stepperRow: {
-    flexDirection: "row",
-    alignItems: "center",
-    justifyContent: "space-between",
-    paddingVertical: 12,
-  },
-  stepperLabel: { fontSize: 16, color: "#1b1b1b" },
-  stepper: { flexDirection: "row", alignItems: "center", gap: 18 },
-  stepBtn: { fontSize: 26, fontWeight: "600", color: "#3730c4", width: 30, textAlign: "center" },
-  stepValue: { fontSize: 18, fontWeight: "700", color: "#1b1b1b", minWidth: 44, textAlign: "center" },
-  sheetDone: {
-    marginTop: 18,
-    paddingVertical: 14,
-    borderRadius: 12,
-    backgroundColor: "#3730c4",
-    alignItems: "center",
-  },
-  sheetDoneText: { color: "#fff", fontSize: 16, fontWeight: "600" },
-});
+const makeStyles = (colors: Palette, type: TypeRoles) =>
+  StyleSheet.create({
+    fill: { flex: 1, backgroundColor: colors.paper },
+    header: { paddingHorizontal: 28, paddingTop: 72, paddingBottom: spacing.xl },
+    headerRow: { flexDirection: "row", alignItems: "flex-start" },
+    wordmark: { ...type.title },
+    sub: { fontSize: 17, color: colors.inkSoft, marginTop: 2 },
+    link: { ...type.button, color: colors.accent, paddingTop: spacing.sm },
+    list: { paddingHorizontal: spacing.gutter, paddingBottom: 120 },
+    goals: {
+      padding: 18,
+      marginBottom: 14,
+      borderRadius: radius.md,
+      backgroundColor: colors.surface,
+      borderWidth: 1,
+      borderColor: colors.hairline,
+    },
+    goalsRow: { flexDirection: "row", alignItems: "center" },
+    goalsTitle: { ...type.label },
+    goalsBig: { fontSize: 30, fontWeight: "600", color: colors.ink, marginTop: spacing.xs },
+    goalsUnit: { fontSize: 16, fontWeight: "500", color: colors.inkSoft },
+    goalsDone: { fontSize: 15, fontWeight: "600", color: colors.inkSoft },
+    goalsBarTrack: {
+      height: 4,
+      borderRadius: 2,
+      backgroundColor: colors.hairline,
+      marginTop: 10,
+      overflow: "hidden",
+    },
+    goalsBarFill: { height: 4, borderRadius: 2, backgroundColor: colors.accent },
+    goalsYear: { fontSize: 14, color: colors.inkSoft, marginTop: 10 },
+    continueBtn: {
+      marginTop: 14,
+      paddingVertical: 11,
+      paddingHorizontal: 14,
+      borderRadius: radius.sm,
+      backgroundColor: colors.surfaceSunken,
+    },
+    continueText: { fontSize: 14, fontWeight: "600", color: colors.accent },
+    empty: {
+      ...type.body,
+      paddingHorizontal: spacing.sm,
+      paddingTop: spacing.lg,
+      color: colors.inkSoft,
+    },
+    row: {
+      flexDirection: "row",
+      alignItems: "center",
+      gap: 10,
+      paddingVertical: 18,
+      paddingHorizontal: spacing.xl,
+      marginBottom: 10,
+      borderRadius: radius.md,
+      backgroundColor: colors.surface,
+      borderWidth: 1,
+      borderColor: colors.hairline,
+    },
+    rowTitle: {
+      fontFamily: fonts.serif,
+      fontSize: 18,
+      lineHeight: 24,
+      fontWeight: "600",
+      color: colors.ink,
+    },
+    rowMeta: { fontSize: 14, color: colors.inkSoft, marginTop: spacing.xs },
+    rowSync: { fontSize: 13, color: colors.accent, marginTop: 6 },
+    finished: { ...type.meta, fontWeight: "500" },
+    add: {
+      position: "absolute",
+      left: spacing.gutter,
+      right: spacing.gutter,
+      bottom: 40,
+      height: 52,
+      borderRadius: radius.md,
+      backgroundColor: colors.accent,
+      alignItems: "center",
+      justifyContent: "center",
+      ...shadow.floating,
+    },
+    addText: { ...type.button, color: colors.onAccent },
+    sheetBackdrop: {
+      position: "absolute",
+      top: 0,
+      left: 0,
+      right: 0,
+      bottom: 0,
+      backgroundColor: scrim,
+      alignItems: "center",
+      justifyContent: "center",
+    },
+    sheet: {
+      width: 420,
+      maxWidth: "88%",
+      borderRadius: radius.lg,
+      backgroundColor: colors.surface,
+      padding: spacing.xxl,
+      ...shadow.floating,
+    },
+    sheetTitle: {
+      fontFamily: fonts.serif,
+      fontSize: 22,
+      lineHeight: 28,
+      fontWeight: "600",
+      color: colors.ink,
+      marginBottom: 14,
+    },
+    stepperRow: {
+      flexDirection: "row",
+      alignItems: "center",
+      justifyContent: "space-between",
+      paddingVertical: spacing.md,
+    },
+    stepperLabel: { ...type.body },
+    stepper: { flexDirection: "row", alignItems: "center", gap: 18 },
+    stepBtn: { fontSize: 26, fontWeight: "600", color: colors.accent, width: 30, textAlign: "center" },
+    stepValue: { fontSize: 18, fontWeight: "600", color: colors.ink, minWidth: 44, textAlign: "center" },
+    sheetDone: {
+      marginTop: 18,
+      height: 52,
+      borderRadius: radius.md,
+      backgroundColor: colors.accent,
+      alignItems: "center",
+      justifyContent: "center",
+    },
+    sheetDoneText: { ...type.button, color: colors.onAccent },
+  });

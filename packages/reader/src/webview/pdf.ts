@@ -46,6 +46,8 @@ interface WireHighlight {
   id: string;
   locator?: PdfLocator | null;
   color?: string | null;
+  /** Not yet in Selfnote: drawn with a dashed outline over the same fill. */
+  pending?: boolean;
 }
 
 /** A blank page inserted after a book page, drawn on with the Pencil. */
@@ -413,12 +415,12 @@ function drawHighlights(): void {
     if (!hl.locator || hl.locator.page !== pageNum) continue;
     for (const r of hl.locator.rects ?? []) {
       const div = document.createElement("div");
-      div.className = "mark";
+      div.className = hl.pending ? "mark pending" : "mark";
       div.style.left = `${r.x * w}px`;
       div.style.top = `${r.y * h}px`;
       div.style.width = `${r.w * w}px`;
       div.style.height = `${r.h * h}px`;
-      div.style.background = hl.color || "#f2c94c";
+      div.style.background = hl.color || "var(--highlight)";
       div.addEventListener("click", () => send({ type: "highlightTapped", id: hl.id }));
       overlay.appendChild(div);
     }
@@ -622,7 +624,7 @@ function bindNoteDrawing(): void {
       eraseAt(pointFrom(e, box));
       return;
     }
-    drawing = { c: "#1b2a3a", w: 3.2, p: [pointFrom(e, box)] };
+    drawing = { c: "#1B1D22", w: 3.2, p: [pointFrom(e, box)] };
     scheduleLive();
   });
 

@@ -36,6 +36,17 @@ import { readTour } from "./tour";
 import { PencilPageView, type PencilChange } from "../modules/pencil-page";
 import { sendHighlights, type Connection } from "./selfnote";
 import {
+  capture,
+  fonts,
+  highlightFill,
+  radius,
+  shadow,
+  spacing,
+  type Palette,
+  type TypeRoles,
+} from "./theme";
+import { useTheme } from "./theme-context";
+import {
   addHighlight,
   bookUri,
   deleteHighlight,
@@ -113,7 +124,15 @@ export function Reader({
   const bookRef = useRef(book);
   bookRef.current = book;
   const [picking, setPicking] = useState(false);
-  const [syncNote, setSyncNote] = useState<{ kind: "ok" | "bad"; text: string } | null>(null);
+  // "ok" is a sync that landed, "hint" a word on how to use the page.
+  const [syncNote, setSyncNote] = useState<{ kind: "ok" | "hint" | "bad"; text: string } | null>(
+    null,
+  );
+  const { colors, type, isDark } = useTheme();
+  const styles = useMemo(() => makeStyles(colors, type), [colors, type]);
+  // Read through a ref so the callbacks below need not change with the theme.
+  const fill = useRef<string>(highlightFill.light);
+  fill.current = isDark ? highlightFill.dark : highlightFill.light;
   const web = useRef<WebViewHandle>(null);
   const positionTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
   const sessionStart = useRef(Date.now());
@@ -171,7 +190,7 @@ export function Reader({
       if (cancelled) return;
       setHighlights(rows);
       setMarksLoaded(true);
-      post({ type: "highlights", items: rows.map((h) => toWire(h, syncing, isPdf)) });
+      post({ type: "highlights", items: rows.map((h) => toWire(h, syncing, isPdf, fill.current)) });
     })().catch((err) => Alert.alert("Could not open this book", String(err)));
     return () => {
       cancelled = true;
@@ -180,16 +199,22 @@ export function Reader({
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [ready, book.id, post]);
 
-  // Turning sync off (or on) changes what the colours mean, so repaint. Without
-  // this, clearing a book's target leaves green marks claiming to be saved to a
-  // page the book is no longer pointed at.
+  // The page follows the app's scheme. Sent as soon as it listens, so the book
+  // opens in the right colours.
+  useEffect(() => {
+    if (ready) post({ type: "theme", mode: isDark ? "dark" : "light" });
+  }, [ready, isDark, post]);
+
+  // Turning sync off (or on) changes what the outlines mean, and the scheme
+  // changes the fill, so repaint. Without this, clearing a book's target leaves
+  // dashed marks claiming to wait for a page the book is no longer pointed at.
   useEffect(() => {
     if (!ready || !highlights.length) return;
-    post({ type: "highlights", items: highlights.map((h) => toWire(h, syncing, isPdf)) });
-    // Only on a change of sync state: re-posting on every highlights change would
-    // undo the incremental drawing the page does.
+    post({ type: "highlights", items: highlights.map((h) => toWire(h, syncing, isPdf, fill.current)) });
+    // Only on a change of sync state or scheme: re-posting on every highlights
+    // change would undo the incremental drawing the page does.
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [syncing, ready]);
+  }, [syncing, ready, isDark]);
 
   // How to highlight, said once when an EPUB with none opens. On the status
   // strip because it overlays the book: a hint line of its own in the layout
@@ -200,7 +225,7 @@ export function Reader({
     if (isPdf || loading || !marksLoaded || hinted.current) return;
     hinted.current = true;
     if (highlights.length) return;
-    setSyncNote((n) => n ?? { kind: "ok", text: "Select text, then tap Save highlight" });
+    setSyncNote((n) => n ?? { kind: "hint", text: "Select text, then tap Save highlight" });
   }, [isPdf, loading, marksLoaded, highlights.length]);
 
   // The screenshot tour, once per mount. Waits for "opened" as well as the
@@ -221,7 +246,7 @@ export function Reader({
   }, [loading, marksLoaded, isPdf, post]);
 
   useEffect(() => {
-    if (syncNote?.kind !== "ok") return;
+    if (!syncNote || syncNote.kind === "bad") return;
     const t = setTimeout(() => setSyncNote(null), 2500);
     return () => clearTimeout(t);
   }, [syncNote]);
@@ -275,8 +300,8 @@ export function Reader({
       await markSynced(pending.map((h) => h.id));
       const after = await listHighlights(book.id);
       setHighlights(after);
-      // Repaint: those highlights are green now, and the page cannot know that.
-      post({ type: "highlights", items: after.map((h) => toWire(h, true, isPdf)) });
+      // Repaint: those highlights are saved now, and the page cannot know that.
+      post({ type: "highlights", items: after.map((h) => toWire(h, true, isPdf, fill.current)) });
       if (res.applied > 0) {
         setSyncNote({ kind: "ok", text: `Sent ${res.applied} to ${book.sync_page_title}` });
       }
@@ -356,7 +381,8 @@ export function Reader({
             book_id: book.id,
             text: msg.text,
             note: null,
-            color: "#f6d365",
+            // Stored for the record only; the page is painted from toWire.
+            color: highlightFill.light,
             locator: JSON.stringify(msg.locator ?? { cfi: msg.cfi }),
             created_at: Date.now(),
             synced_at: null,
@@ -364,7 +390,7 @@ export function Reader({
           await addHighlight(row);
           const rows = await listHighlights(book.id);
           setHighlights(rows);
-          post({ type: "highlights", items: rows.map((h) => toWire(h, syncing, isPdf)) });
+          post({ type: "highlights", items: rows.map((h) => toWire(h, syncing, isPdf, fill.current)) });
           void pushPending();
           return;
         }
@@ -380,7 +406,7 @@ export function Reader({
                 await deleteHighlight(hit.id);
                 const rows = await listHighlights(book.id);
                 setHighlights(rows);
-                post({ type: "highlights", items: rows.map((h) => toWire(h, syncing, isPdf)) });
+                post({ type: "highlights", items: rows.map((h) => toWire(h, syncing, isPdf, fill.current)) });
               },
             },
           ]);
@@ -744,6 +770,22 @@ export function Reader({
           <View
             style={[styles.strip, styles.stripOverlay, syncNote?.kind === "bad" && styles.stripBad]}
           >
+            {syncNote?.kind === "hint" ? null : (
+              // Sync state, so the status colours: sent, waiting, failed.
+              <View
+                style={[
+                  styles.stripDot,
+                  {
+                    backgroundColor:
+                      syncNote?.kind === "bad"
+                        ? colors.danger
+                        : syncNote?.kind === "ok"
+                          ? colors.live
+                          : colors.warn,
+                  },
+                ]}
+              />
+            )}
             <Text style={[styles.stripText, syncNote?.kind === "bad" && styles.stripTextBad]}>
               {syncNote
                 ? syncNote.text
@@ -793,7 +835,7 @@ export function Reader({
       </View>
       {loading && (
         <View style={styles.loading}>
-          <ActivityIndicator />
+          <ActivityIndicator color={colors.inkSoft} />
         </View>
       )}
       <View style={styles.pager}>
@@ -871,15 +913,6 @@ export function Reader({
   );
 }
 
-/**
- * On the page, a highlight's colour says whether it has reached Selfnote: amber
- * while it is still only on this device, green once the page has it.
- *
- * When a book has no sync target there is nothing to be waiting for, so amber is
- * just the highlight colour and means nothing more than "highlighted". Showing
- * every highlight as permanently unsent would be a warning about a thing the user
- * never asked for.
- */
 /** Below this, in points, a drag reads as a tap and copies nothing useful. */
 const MIN_RECT = 12;
 
@@ -944,104 +977,114 @@ function placeImage(
   return { x: (1 - w) / 2, y, w, h };
 }
 
-const PENDING = "#f2c94c";
-const SAVED = "#6fcf97";
-
-function toWire(h: Highlight, syncing: boolean, isPdf = false) {
-  const color = syncing && h.synced_at ? SAVED : PENDING;
+/**
+ * On the page, a highlight is one accent wash, outlined in dashes while it is
+ * still only on this device and plain once Selfnote has it.
+ *
+ * When a book has no sync target there is nothing to be waiting for, so no
+ * highlight is outlined. Showing every highlight as permanently unsent would be
+ * a warning about a thing the user never asked for.
+ */
+function toWire(h: Highlight, syncing: boolean, isPdf: boolean, color: string) {
+  const pending = syncing && !h.synced_at;
   try {
     const locator = JSON.parse(h.locator);
-    return isPdf ? { id: h.id, locator, color } : { id: h.id, cfi: locator.cfi ?? "", color };
+    return isPdf
+      ? { id: h.id, locator, color, pending }
+      : { id: h.id, cfi: locator.cfi ?? "", color, pending };
   } catch {
     /* a locator we cannot read just does not draw */
-    return isPdf ? { id: h.id, locator: null, color } : { id: h.id, cfi: "", color };
+    return isPdf
+      ? { id: h.id, locator: null, color, pending }
+      : { id: h.id, cfi: "", color, pending };
   }
 }
 
-const styles = StyleSheet.create({
-  fill: { flex: 1, backgroundColor: "#faf5ef" },
-  bar: {
-    flexDirection: "row",
-    alignItems: "center",
-    gap: 16,
-    paddingHorizontal: 18,
-    paddingTop: 58,
-    paddingBottom: 12,
-    backgroundColor: "#faf5ef",
-  },
-  action: { fontSize: 16, color: "#3730c4", fontWeight: "600" },
-  title: { flex: 1, fontSize: 15, color: "#1b1b1b", fontWeight: "600" },
-  meta: { fontSize: 13, color: "#6b6b6b", fontVariant: ["tabular-nums"] },
-  pager: {
-    flexDirection: "row", alignItems: "center", justifyContent: "space-between",
-    paddingHorizontal: 22, paddingTop: 8, paddingBottom: 26,
-    backgroundColor: "#faf5ef",
-  },
-  toolDanger: { color: "#8c2f27" },
-  // The native writing surface, styled as the same paper the web insert draws
-  // so the page does not change character when the surface goes native.
-  notePaper: {
-    position: "absolute",
-    top: PAPER_INSET.y, bottom: PAPER_INSET.y, left: PAPER_INSET.x, right: PAPER_INSET.x,
-    backgroundColor: "#fffdf8", borderRadius: 2, overflow: "hidden",
-    shadowColor: "#000", shadowOpacity: 0.1, shadowRadius: 7,
-    shadowOffset: { width: 0, height: 2 },
-  },
-  noteRule: {
-    position: "absolute", left: 0, right: 0, height: 1,
-    backgroundColor: "rgba(43, 65, 98, 0.08)",
-  },
-  addPageBtn: {
-    paddingHorizontal: 16, paddingVertical: 9, borderRadius: 10,
-    backgroundColor: "#f2ece3", borderWidth: 1, borderColor: "#e4dbcd",
-  },
-  addPageText: { fontSize: 14, fontWeight: "600", color: "#2b4162" },
-  pageBtn: {
-    width: 54, height: 44, borderRadius: 12, alignItems: "center", justifyContent: "center",
-    backgroundColor: "#f2ece3", borderWidth: 1, borderColor: "#e4dbcd",
-  },
-  chevron: { fontSize: 26, lineHeight: 30, color: "#2b4162", fontWeight: "600" },
-  pagerCentre: { flexDirection: "row", alignItems: "center", gap: 10 },
-  captureDim: { backgroundColor: "rgba(20, 17, 14, 0.28)" },
-  captureRect: {
-    position: "absolute", borderWidth: 2, borderColor: "#3730c4",
-    backgroundColor: "rgba(255, 255, 255, 0.18)",
-  },
-  captureBar: {
-    position: "absolute", top: 16, alignSelf: "center",
-    flexDirection: "row", alignItems: "center", gap: 10,
-    paddingVertical: 8, paddingHorizontal: 12, borderRadius: 14,
-    backgroundColor: "#faf5ef",
-    shadowColor: "#000", shadowOpacity: 0.12, shadowRadius: 8,
-    shadowOffset: { width: 0, height: 2 },
-  },
-  captureHint: { fontSize: 13, color: "#6b6b6b", paddingHorizontal: 4 },
-  captureGo: { backgroundColor: "#2b4162", borderColor: "#2b4162" },
-  captureGoText: { color: "#faf5ef" },
-  disabled: { opacity: 0.45 },
-  overlay: {
-    position: "absolute", top: 0, left: 0, right: 0, bottom: 0,
-    backgroundColor: "#faf5ef",
-  },
-  bookArea: { flex: 1 },
-  stripOverlay: { position: "absolute", top: 0, left: 0, right: 0 },
-  strip: {
-    flexDirection: "row", alignItems: "center", justifyContent: "space-between",
-    paddingHorizontal: 18, paddingVertical: 9, backgroundColor: "#eef3ea",
-    borderTopWidth: 1, borderBottomWidth: 1, borderColor: "#dde5d6",
-  },
-  stripBad: { backgroundColor: "#fdeceb", borderColor: "#f3cfcc" },
-  stripText: { fontSize: 13, color: "#44603a", flex: 1 },
-  stripTextBad: { color: "#8c2f27" },
-  retry: { fontSize: 13, fontWeight: "700", color: "#8c2f27", paddingLeft: 14 },
-  syncTarget: { fontSize: 13, color: "#3730c4", fontWeight: "600", maxWidth: 220 },
-  loading: {
-    position: "absolute",
-    top: 0,
-    left: 0,
-    right: 0,
-    bottom: 0,
-    alignItems: "center",
-    justifyContent: "center",
-  },
-});
+const makeStyles = (colors: Palette, type: TypeRoles) =>
+  StyleSheet.create({
+    fill: { flex: 1, backgroundColor: colors.paper },
+    bar: {
+      flexDirection: "row",
+      alignItems: "center",
+      gap: spacing.lg,
+      paddingHorizontal: 18,
+      paddingTop: 58,
+      paddingBottom: spacing.md,
+      backgroundColor: colors.paper,
+    },
+    action: { ...type.button, color: colors.accent },
+    title: { flex: 1, fontFamily: fonts.serif, fontSize: 17, fontWeight: "600", color: colors.ink },
+    meta: { ...type.meta, fontVariant: ["tabular-nums"] },
+    pager: {
+      flexDirection: "row", alignItems: "center", justifyContent: "space-between",
+      paddingHorizontal: 22, paddingTop: spacing.sm, paddingBottom: 26,
+      backgroundColor: colors.paper,
+    },
+    toolDanger: { color: colors.danger },
+    // The native writing surface, styled as the same paper the web insert draws
+    // so the page does not change character when the surface goes native.
+    // PencilKit adapts its ink to the scheme, so this sheet can follow it.
+    notePaper: {
+      position: "absolute",
+      top: PAPER_INSET.y, bottom: PAPER_INSET.y, left: PAPER_INSET.x, right: PAPER_INSET.x,
+      backgroundColor: colors.surface, borderRadius: 2, overflow: "hidden",
+      ...shadow.floating,
+    },
+    noteRule: {
+      position: "absolute", left: 0, right: 0, height: 1,
+      backgroundColor: colors.hairline,
+    },
+    addPageBtn: {
+      paddingHorizontal: spacing.lg, paddingVertical: 9, borderRadius: radius.md,
+      backgroundColor: colors.surfaceSunken, borderWidth: 1, borderColor: colors.hairline,
+    },
+    addPageText: { fontSize: 14, fontWeight: "600", color: colors.accent },
+    pageBtn: {
+      width: 54, height: 44, borderRadius: radius.md, alignItems: "center", justifyContent: "center",
+      backgroundColor: colors.surfaceSunken, borderWidth: 1, borderColor: colors.hairline,
+    },
+    chevron: { fontSize: 26, lineHeight: 30, color: colors.accent, fontWeight: "600" },
+    pagerCentre: { flexDirection: "row", alignItems: "center", gap: 10 },
+    captureDim: { backgroundColor: capture.dim },
+    captureRect: {
+      position: "absolute", borderWidth: 2, borderColor: colors.accent,
+      backgroundColor: capture.fill,
+    },
+    captureBar: {
+      position: "absolute", top: spacing.lg, alignSelf: "center",
+      flexDirection: "row", alignItems: "center", gap: 10,
+      paddingVertical: spacing.sm, paddingHorizontal: spacing.md, borderRadius: radius.md,
+      backgroundColor: colors.surface,
+      ...shadow.floating,
+    },
+    captureHint: { ...type.meta, paddingHorizontal: spacing.xs },
+    captureGo: { backgroundColor: colors.accent, borderColor: colors.accent },
+    captureGoText: { color: colors.onAccent },
+    disabled: { opacity: 0.45 },
+    overlay: {
+      position: "absolute", top: 0, left: 0, right: 0, bottom: 0,
+      backgroundColor: colors.paper,
+    },
+    bookArea: { flex: 1 },
+    stripOverlay: { position: "absolute", top: 0, left: 0, right: 0 },
+    strip: {
+      flexDirection: "row", alignItems: "center", gap: 10,
+      paddingHorizontal: 18, paddingVertical: 9, backgroundColor: colors.surface,
+      borderTopWidth: 1, borderBottomWidth: 1, borderColor: colors.hairline,
+    },
+    stripBad: { backgroundColor: colors.dangerWash, borderColor: colors.dangerWash },
+    stripDot: { width: 8, height: 8, borderRadius: radius.full },
+    stripText: { ...type.meta, color: colors.ink, flex: 1 },
+    stripTextBad: { color: colors.danger },
+    retry: { fontSize: 13, fontWeight: "600", color: colors.danger, paddingLeft: 14 },
+    syncTarget: { fontSize: 13, color: colors.accent, fontWeight: "600", maxWidth: 220 },
+    loading: {
+      position: "absolute",
+      top: 0,
+      left: 0,
+      right: 0,
+      bottom: 0,
+      alignItems: "center",
+      justifyContent: "center",
+    },
+  });

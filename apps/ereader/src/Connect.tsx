@@ -2,12 +2,14 @@
  * Connecting a Selfnote instance. Entirely optional: the reader works without
  * ever opening this screen, and disconnecting leaves every local feature intact.
  */
-import { useState } from "react";
+import { useMemo, useState } from "react";
 import {
   ActivityIndicator, KeyboardAvoidingView, Platform, ScrollView, StyleSheet,
   Text, TextInput, TouchableOpacity, View,
 } from "react-native";
 import { connect, disconnect, saveConnection, type Connection } from "./selfnote";
+import { radius, spacing, type Palette, type TypeRoles } from "./theme";
+import { useTheme } from "./theme-context";
 
 export function Connect({
   current,
@@ -23,6 +25,8 @@ export function Connect({
   const [password, setPassword] = useState("");
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const { colors, type } = useTheme();
+  const styles = useMemo(() => makeStyles(colors, type), [colors, type]);
 
   const submit = async () => {
     setBusy(true);
@@ -73,6 +77,7 @@ export function Connect({
           value={url}
           onChangeText={setUrl}
           placeholder="selfnote.example.com"
+          placeholderTextColor={colors.inkFaint}
           autoCapitalize="none"
           autoCorrect={false}
           keyboardType="url"
@@ -112,38 +117,42 @@ export function Connect({
           onPress={submit}
           disabled={busy}
         >
-          {busy ? <ActivityIndicator color="#fff" /> : <Text style={styles.primaryText}>Connect</Text>}
+          {busy ? <ActivityIndicator color={colors.onAccent} /> : <Text style={styles.primaryText}>Connect</Text>}
         </TouchableOpacity>
       </ScrollView>
     </KeyboardAvoidingView>
   );
 }
 
-const styles = StyleSheet.create({
-  fill: { flex: 1, backgroundColor: "#faf5ef" },
-  body: { padding: 28, paddingTop: 64, gap: 6 },
-  back: { fontSize: 16, color: "#3730c4", fontWeight: "600", marginBottom: 18 },
-  title: { fontSize: 26, fontWeight: "700", color: "#1b1b1b" },
-  blurb: { fontSize: 15, lineHeight: 22, color: "#6b6b6b", marginBottom: 14 },
-  connected: {
-    padding: 16, borderRadius: 12, backgroundColor: "#eef3ea",
-    borderWidth: 1, borderColor: "#d6e0cf", marginBottom: 18,
-  },
-  connectedTo: { fontSize: 15, fontWeight: "600", color: "#1b1b1b" },
-  connectedAs: { fontSize: 14, color: "#6b6b6b", marginTop: 2 },
-  label: { fontSize: 14, fontWeight: "600", color: "#1b1b1b", marginTop: 14 },
-  input: {
-    borderWidth: 1, borderColor: "#e0d8cb", borderRadius: 10, backgroundColor: "#fffdfa",
-    paddingHorizontal: 14, paddingVertical: 13, fontSize: 16, color: "#1b1b1b",
-  },
-  hint: { fontSize: 13, lineHeight: 19, color: "#8a8a8a", marginTop: 8 },
-  error: { fontSize: 14, color: "#b3261e", marginTop: 14 },
-  primary: {
-    marginTop: 26, paddingVertical: 16, borderRadius: 12,
-    backgroundColor: "#3730c4", alignItems: "center",
-  },
-  primaryBusy: { opacity: 0.7 },
-  primaryText: { color: "#fff", fontSize: 16, fontWeight: "600" },
-  secondary: { marginTop: 12, paddingVertical: 10, alignItems: "center" },
-  secondaryText: { color: "#b3261e", fontSize: 15, fontWeight: "600" },
-});
+const makeStyles = (colors: Palette, type: TypeRoles) =>
+  StyleSheet.create({
+    fill: { flex: 1, backgroundColor: colors.paper },
+    body: { padding: 28, paddingTop: 64, gap: 6 },
+    back: { ...type.button, color: colors.accent, marginBottom: 18 },
+    title: { ...type.title },
+    blurb: { fontSize: 15, lineHeight: 22, color: colors.inkSoft, marginBottom: 14 },
+    connected: {
+      padding: spacing.lg, borderRadius: radius.md, backgroundColor: colors.surface,
+      borderWidth: 1, borderColor: colors.hairline, marginBottom: 18,
+    },
+    connectedTo: { fontSize: 15, fontWeight: "600", color: colors.ink },
+    connectedAs: { fontSize: 14, color: colors.inkSoft, marginTop: 2 },
+    label: { ...type.label, marginTop: 14 },
+    input: {
+      ...type.body, height: 52, borderWidth: 1, borderColor: colors.hairline,
+      borderRadius: radius.sm, backgroundColor: colors.surface, paddingHorizontal: spacing.lg,
+    },
+    hint: { fontSize: 13, lineHeight: 19, color: colors.inkFaint, marginTop: 8 },
+    error: {
+      fontSize: 14, color: colors.danger, backgroundColor: colors.dangerWash,
+      borderRadius: radius.sm, padding: spacing.md, marginTop: 14, overflow: "hidden",
+    },
+    primary: {
+      marginTop: 26, height: 52, borderRadius: radius.md, backgroundColor: colors.accent,
+      alignItems: "center", justifyContent: "center",
+    },
+    primaryBusy: { opacity: 0.7 },
+    primaryText: { ...type.button, color: colors.onAccent },
+    secondary: { marginTop: 12, minHeight: 48, alignItems: "center", justifyContent: "center" },
+    secondaryText: { ...type.button, color: colors.danger },
+  });

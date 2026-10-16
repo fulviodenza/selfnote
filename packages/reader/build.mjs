@@ -34,24 +34,39 @@ async function bundle(entry) {
 }
 
 const SHARED_CSS = `
-  :root { --paper: #faf5ef; --ink: #1b1b1b; --margin-x: 7vw; --margin-y: 4.5vh; }
-  html[data-theme="dark"] { --paper: #14110e; --ink: #e8e4dc; }
+  /* Ink and Paper, copied from packages/core/tokens.json and checked against it
+     by scripts/check-tokens.mjs. */
+  :root { --paper: #F3F3F0; --surface: #FFFFFF; --ink: #1B1D22; --ink-soft: #606670;
+    --accent: #2B44C7; --accent-wash: #EAEDFB; --on-accent: #FFFFFF; --hairline: #E2E1DC;
+    --highlight: rgba(43, 68, 199, 0.22); --selection: rgba(43, 68, 199, 0.28);
+    --shadow-floating: 0 2px 12px rgba(20, 22, 28, 0.10);
+    --note-paper: var(--surface); --note-rule: var(--hairline);
+    --margin-x: 7vw; --margin-y: 4.5vh; }
+  html[data-theme="dark"] { --paper: #17181C; --surface: #202228; --ink: #ECECEA;
+    --ink-soft: #A2A7B0; --accent: #7C8CF8; --accent-wash: #23263A; --on-accent: #12131A;
+    --hairline: #2E3037; --highlight: rgba(124, 140, 248, 0.28);
+    --selection: rgba(124, 140, 248, 0.32);
+    /* Inserts keep the light sheet: web canvas ink is stored as a fixed dark
+       colour and would vanish on a dark one. */
+    --note-paper: #FFFFFF; --note-rule: #E2E1DC; }
   html, body { margin: 0; padding: 0; height: 100%; overflow: hidden;
     background: var(--paper); color: var(--ink); -webkit-text-size-adjust: 100%; }
   body { -webkit-user-select: none; user-select: none; }
   /* The commit affordance for a selection: floats above everything and stays
-     tappable no matter what the content does with events. Amber because that
-     is the colour the saved mark will be. */
+     tappable no matter what the content does with events. */
   #save-highlight {
     position: fixed; left: 50%; transform: translateX(-50%);
     bottom: calc(26px + env(safe-area-inset-bottom));
     display: none; align-items: center;
     padding: 14px 28px; border: 0; border-radius: 999px;
-    background: #f2c94c; color: #1b1b1b;
+    background: var(--accent); color: var(--on-accent);
     font: 600 16px -apple-system, system-ui, sans-serif;
-    box-shadow: 0 4px 18px rgba(0, 0, 0, 0.18);
+    box-shadow: var(--shadow-floating);
     z-index: 10; cursor: pointer;
-  }`;
+  }
+  /* A highlight not yet in Selfnote: the same fill, outlined in dashes. */
+  .selfnote-highlight-pending { stroke: var(--accent);
+    stroke-width: 1.5px; stroke-dasharray: 4 3; }`;
 
 function page(bodyHtml, extraCss, scripts) {
   return `<!doctype html>
@@ -99,10 +114,10 @@ const epubHtml = page(
       calc(var(--margin-x) + env(safe-area-inset-right))
       calc(var(--margin-y) + env(safe-area-inset-bottom))
       calc(var(--margin-x) + env(safe-area-inset-left)); }
-  #note .paper { width: 100%; height: 100%; background: #fffdf8;
-    box-shadow: 0 2px 14px rgba(0,0,0,0.10);
+  #note .paper { width: 100%; height: 100%; background: var(--note-paper);
+    box-shadow: var(--shadow-floating);
     background-image: linear-gradient(to bottom,
-      rgba(43,65,98,0.08) 1px, transparent 1px);
+      var(--note-rule) 1px, transparent 1px);
     background-size: 100% 2.2rem; }`,
   `<script>${epubJs}</script>`,
 );
@@ -134,7 +149,7 @@ const pdfHtml = page(
       calc(var(--margin-y) + env(safe-area-inset-bottom))
       calc(var(--margin-x) + env(safe-area-inset-left)); }
   #page { position: relative; margin: 0 auto;
-    box-shadow: 0 2px 14px rgba(0,0,0,0.10); background: #fff; }
+    box-shadow: var(--shadow-floating); background: #fff; }
   #canvas { display: block; }
   /* pdf.js text layer. These rules are not decoration: TextLayer sets only the
      custom properties --font-height, --scale-x and --rotate on each span and
@@ -154,17 +169,18 @@ const pdfHtml = page(
     transform: scaleX(var(--scale-x, 1)) rotate(var(--rotate, 0deg)); }
   /* Marked-content wrappers carry no glyphs and must not occupy a box. */
   .textLayer span.markedContent { top: 0; height: 0; }
-  .textLayer ::selection { background: rgba(55, 48, 196, 0.28); }
+  .textLayer ::selection { background: var(--selection); }
   #marks { position: absolute; inset: 0; pointer-events: none; }
-  #marks .mark { position: absolute; opacity: 0.38; border-radius: 3px;
+  #marks .mark { position: absolute; border-radius: 3px; box-sizing: border-box;
     pointer-events: auto; }
+  #marks .mark.pending { border: 1.5px dashed var(--accent); }
   /* An inserted blank page. Same box as the book page so it reads as a leaf of
      the same volume, with a faint rule so it is obviously writing paper and
      not a failed render. */
   #note { display: none; position: relative; margin: 0 auto;
-    background: #fffdf8; box-shadow: 0 2px 14px rgba(0,0,0,0.10);
+    background: var(--note-paper); box-shadow: var(--shadow-floating);
     background-image: linear-gradient(to bottom,
-      rgba(43,65,98,0.08) 1px, transparent 1px);
+      var(--note-rule) 1px, transparent 1px);
     background-size: 100% 2.2rem; }
   /* touch-action none, or the browser claims the gesture for scrolling and the
      stroke arrives in pieces. */
