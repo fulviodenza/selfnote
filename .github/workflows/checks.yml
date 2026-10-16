@@ -1,0 +1,24 @@
+name: Checks
+
+# Fast, dependency-free checks that are safe on pull requests: a GitHub-hosted
+# runner, read-only token, no install, no secrets. Anything that builds runs on
+# the self-hosted runner after merge instead (see mobile-apk.yml).
+
+on:
+  pull_request:
+  push:
+    branches: [main]
+
+permissions:
+  contents: read
+
+jobs:
+  checks:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      - name: Design tokens match packages/core/tokens.json
+        run: node scripts/check-tokens.mjs

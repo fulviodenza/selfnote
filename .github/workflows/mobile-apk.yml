@@ -56,6 +56,11 @@ jobs:
         # minute Gradle run rather than after it.
         run: node scripts/check-editor-html.mjs
 
+      - name: Check the design tokens
+        # Every client keeps its own copy of the palette; this fails if one has
+        # drifted from packages/core/tokens.json.
+        run: node scripts/check-tokens.mjs
+
       - name: Generate the native project
         working-directory: apps/mobile
         # apps/mobile/android is gitignored and regenerated every run.
