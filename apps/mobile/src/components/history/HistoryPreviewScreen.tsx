@@ -19,7 +19,7 @@ import { ActivityIndicator, Alert, Pressable, StyleSheet, Text, View } from "rea
 import { api, type Checkpoint, type CheckpointDetail } from "../../api";
 import type { EditorHandle } from "../../editor/WebViewEditor";
 import { useTheme } from "../../theme-context";
-import { radius, spacing } from "../../theme";
+import { fonts, radius, spacing } from "../../theme";
 import type { Palette, TypeRoles } from "../../theme";
 import { useToast } from "../../ui";
 import { fullTime, kindLabel } from "./format";
@@ -246,7 +246,7 @@ const makeStyles = (colors: Palette, type: TypeRoles) =>
     backBtn: { width: 32, height: 32, alignItems: "center", justifyContent: "center" },
     pressed: { opacity: 0.6 },
     bannerText: { flex: 1 },
-    bannerLabel: { ...type.label, color: colors.accent, fontWeight: "600" },
+    bannerLabel: { ...type.label, color: colors.accent, fontFamily: fonts.sansSemiBold },
     bannerWhen: { marginTop: 2 },
 
     errorBar: {

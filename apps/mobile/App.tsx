@@ -56,7 +56,7 @@ import {
   defaults,
   type ServerSettings,
 } from "./src/settings";
-import { colors as lightPalette, hitSlop, radius, shadow, sizing, spacing } from "./src/theme";
+import { colors as lightPalette, fonts, hitSlop, radius, shadow, sizing, spacing } from "./src/theme";
 import type { Palette, TypeRoles } from "./src/theme";
 import {
   Button,
@@ -77,6 +77,7 @@ import { MakeTaskButton, TaskControls } from "./src/screens/TaskControls";
 import { BulkLabelButton, LabelRow } from "./src/components/LabelRow";
 import { PresenceChips } from "./src/components/PresenceChips";
 import { ShowcaseScreen } from "./src/screens/ShowcaseScreen";
+import { APP_FONTS } from "./src/fonts";
 import { TabCountButton, TabSwitcherScreen } from "./src/components/TabSwitcherScreen";
 import { TasksScreen } from "./src/screens/TasksScreen";
 import { AssetsScreen } from "./src/screens/AssetsScreen";
@@ -125,7 +126,8 @@ function AppInner() {
   // lazy per-glyph load @expo/vector-icons does on its own can silently fail,
   // leaving every icon blank — the font is also embedded natively via the
   // expo-font config plugin (app.json), so this normally resolves instantly.
-  const [fontsLoaded, fontError] = useFonts(Feather.font);
+  // The app's two typefaces load in the same pass (src/fonts.ts).
+  const [fontsLoaded, fontError] = useFonts({ ...Feather.font, ...APP_FONTS });
   const [showSettings, setShowSettings] = useState(false);
   // Browser-style page tabs: the ordered ids of the open pages plus the one
   // filling the screen. The ids are persisted so the open set survives a
@@ -2157,7 +2159,7 @@ const makeStyles = (colors: Palette, type: TypeRoles) =>
     borderBottomWidth: 1,
     borderBottomColor: colors.hairline,
   },
-  proposalText: { ...type.meta, color: colors.ink, flexShrink: 1, fontWeight: "600" },
+  proposalText: { ...type.meta, color: colors.ink, flexShrink: 1, fontFamily: fonts.sansSemiBold },
   proposalAction: { ...type.button, color: colors.accent },
   fab: { position: "absolute", left: spacing.gutter, right: spacing.gutter, bottom: spacing.xxl, ...shadow.floating, borderRadius: radius.md },
   taskControls: {

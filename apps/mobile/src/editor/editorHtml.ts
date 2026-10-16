@@ -95,6 +95,13 @@ export function editorHtml(theme: "light" | "dark"): string {
         background: var(--surface); color: var(--ink);
       }
       .bn-editor { background: var(--surface); color: var(--ink); }
+      /* The page is the hero: what you write is set in the serif, as on web
+         (DESIGN.md 3.2). Menus stay in the body sans. The WebView cannot see
+         the fonts bundled into the app, so this is the system serif. */
+      #root .bn-default-styles {
+        font-family: Georgia, "Iowan Old Style", "Noto Serif", serif;
+        font-size: 17px;
+      }
       /* Math (mirrors MATH_CSS in packages/editor/src/math.tsx). */
       .math-block { margin: 10px 0; padding: 8px 12px; border-radius: 12px; overflow-x: auto; text-align: center; }
       .math-inline { display: inline; }

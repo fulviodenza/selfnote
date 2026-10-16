@@ -27,7 +27,7 @@ import {
   STATUS_ORDER,
   dueLabel,
 } from "../tasks";
-import { radius, spacing, sizing } from "../theme";
+import { fonts, radius, spacing, sizing } from "../theme";
 import type { Palette, TypeRoles } from "../theme";
 import { useTheme } from "../theme-context";
 import { Button, Sheet } from "../ui";
@@ -154,7 +154,8 @@ export function TaskControls({
               <Text
                 style={[
                   type.meta,
-                  { color: active ? colors.accent : colors.inkSoft, fontWeight: active ? "600" : "400" },
+                  { color: active ? colors.accent : colors.inkSoft },
+                  active && { fontFamily: fonts.sansSemiBold },
                 ]}
                 numberOfLines={1}
               >

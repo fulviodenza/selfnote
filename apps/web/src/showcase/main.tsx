@@ -6,6 +6,7 @@
  * Renders the real classes from styles.css, so a change there shows up here.
  * Keep it in step with apps/mobile/src/screens/ShowcaseScreen.tsx.
  */
+import "../fonts";
 import "../styles.css";
 import "./showcase.css";
 import { useEffect, useRef, useState, type ReactNode } from "react";

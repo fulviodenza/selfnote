@@ -1,6 +1,6 @@
 import type { ReactNode } from "react";
 import { Pressable, StyleSheet, Text, type ViewStyle } from "react-native";
-import { radius, spacing } from "../theme";
+import { fonts, radius, spacing } from "../theme";
 import { useTheme } from "../theme-context";
 
 export interface ChipProps {
@@ -43,7 +43,8 @@ export function Chip({ label, onPress, selected = false, accessibilityLabel, lea
       <Text
         style={[
           type.label,
-          { color: selected ? colors.accent : colors.inkSoft, fontWeight: selected ? "600" : "500" },
+          { color: selected ? colors.accent : colors.inkSoft },
+          selected && { fontFamily: fonts.sansSemiBold },
         ]}
         numberOfLines={1}
       >

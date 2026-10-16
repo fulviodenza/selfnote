@@ -14,7 +14,7 @@
 import { useEffect, useMemo, useState } from "react";
 import { StyleSheet, Text, View } from "react-native";
 import type { DocConnection } from "@selfnote/core";
-import { spacing } from "../theme";
+import { fonts, spacing } from "../theme";
 import type { Palette, TypeRoles } from "../theme";
 import { useTheme } from "../theme-context";
 
@@ -93,6 +93,6 @@ const makeStyles = (colors: Palette, type: TypeRoles) =>
     },
     chip: { flexDirection: "row", alignItems: "center", gap: spacing.xs, flexShrink: 1 },
     dot: { width: 8, height: 8, borderRadius: 999, flexShrink: 0 },
-    name: { ...type.meta, color: colors.ink, fontWeight: "600", flexShrink: 1 },
+    name: { ...type.meta, color: colors.ink, fontFamily: fonts.sansSemiBold, flexShrink: 1 },
     more: { ...type.meta, color: colors.inkSoft, flexShrink: 0 },
   });

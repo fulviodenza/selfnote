@@ -31,7 +31,12 @@
         "expo-font",
         {
           "fonts": [
-            "./assets/fonts/feather.ttf"
+            "./assets/fonts/feather.ttf",
+            "./node_modules/@expo-google-fonts/newsreader/500Medium/Newsreader_500Medium.ttf",
+            "./node_modules/@expo-google-fonts/newsreader/600SemiBold/Newsreader_600SemiBold.ttf",
+            "./node_modules/@expo-google-fonts/inter-tight/400Regular/InterTight_400Regular.ttf",
+            "./node_modules/@expo-google-fonts/inter-tight/500Medium/InterTight_500Medium.ttf",
+            "./node_modules/@expo-google-fonts/inter-tight/600SemiBold/InterTight_600SemiBold.ttf"
           ]
         }
       ],

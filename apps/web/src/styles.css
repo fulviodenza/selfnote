@@ -38,7 +38,7 @@
      header and the page body share one left edge. */
   --page-gutter: 54px;
 
-  --font-serif: Georgia, "Iowan Old Style", "Palatino Linotype", "Times New Roman", serif;
+  --font-serif: Newsreader, Georgia, "Iowan Old Style", "Palatino Linotype", "Times New Roman", serif;
   --font-sans: "Inter Tight", ui-sans-serif, system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
 
   font-family: var(--font-sans);
@@ -720,6 +720,13 @@ button.toggle.on {
   overflow: auto;
   padding: 28px 0 96px;
   background: var(--bg);
+}
+
+/* The page is the hero: what you write is set in the serif (DESIGN.md 3.2).
+ * Menus and toolbars stay in BlockNote's own sans. */
+.editor-scroll .bn-container .bn-default-styles {
+  font-family: var(--font-serif);
+  font-size: 17px;
 }
 
 /* Let BlockNote fill the pane and inherit the themed background. */

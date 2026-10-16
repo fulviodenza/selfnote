@@ -17,7 +17,7 @@ import { ActivityIndicator, Modal, Pressable, ScrollView, StyleSheet, Text, View
 import Markdown from "react-native-markdown-display";
 import { api, type AiProposal } from "../api";
 import { useTheme } from "../theme-context";
-import { radius, spacing } from "../theme";
+import { fonts, radius, spacing } from "../theme";
 import type { Palette, TypeRoles } from "../theme";
 import { useToast } from "../ui";
 
@@ -288,7 +288,7 @@ const makeStyles = (colors: Palette, type: TypeRoles) =>
     },
     lineAdd: { backgroundColor: colors.liveWash },
     lineRemove: { backgroundColor: colors.dangerWash },
-    sign: { ...type.body, width: 14, fontWeight: "700" },
+    sign: { ...type.body, width: 14, fontFamily: fonts.sansSemiBold },
     signAdd: { color: colors.live },
     signRemove: { color: colors.danger },
     lineBody: { flex: 1 },
