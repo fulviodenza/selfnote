@@ -36,3 +36,8 @@
   program, so tsc cannot see a syntax error inside it, and an unescaped backtick in a
   comment truncates the document silently. After touching it, run
   `node scripts/check-editor-html.mjs` in apps/mobile.
+- Design tokens live in packages/core/tokens.json. Web styles.css, mobile theme.ts, the
+  WebView editor (editorHtml.ts), the e-reader theme.ts and packages/reader/build.mjs each
+  keep a copy; change tokens.json first and run `node scripts/check-tokens.mjs` from the
+  repo root. Components are shown at apps/web/showcase.html and on mobile under
+  Settings > Component showcase; add new primitives there too.
