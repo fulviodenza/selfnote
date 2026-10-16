@@ -264,7 +264,7 @@ const makeStyles = (colors: Palette, type: TypeRoles) =>
       paddingHorizontal: spacing.sm,
       paddingVertical: 2,
       overflow: "hidden",
-      fontWeight: "600",
+      fontFamily: fonts.sansSemiBold,
     },
     opTag: {
       color: colors.inkSoft,

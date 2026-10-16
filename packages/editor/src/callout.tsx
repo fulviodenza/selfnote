@@ -188,7 +188,7 @@ export const CALLOUT_CSS = `
 }
 .callout-warning {
   --callout-accent: var(--warn, #c1841e);
-  --callout-wash: color-mix(in srgb, var(--warn, #c1841e) 14%, transparent);
+  --callout-wash: var(--hover, #ecece8);
 }
 .callout-important {
   --callout-accent: var(--fg, #1b1d22);
@@ -196,7 +196,7 @@ export const CALLOUT_CSS = `
 }
 .callout-caution {
   --callout-accent: var(--danger, #c4392b);
-  --callout-wash: color-mix(in srgb, var(--danger, #c4392b) 12%, transparent);
+  --callout-wash: var(--danger-wash, #f8e7e4);
 }
 `;
 

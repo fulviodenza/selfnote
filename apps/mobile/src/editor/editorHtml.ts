@@ -51,6 +51,8 @@ export function editorHtml(theme: "light" | "dark"): string {
         --accent-wash: #EAEDFB;
         --warn: #C1841E;
         --danger: #C4392B;
+        --danger-wash: #F8E7E4;
+        --surface-sunken: #ECECE8;
         --quote-wash: rgba(27, 29, 34, 0.04);
         --bn-colors-editor-text: var(--ink);
         --bn-colors-menu-background: var(--surface);
@@ -70,6 +72,8 @@ export function editorHtml(theme: "light" | "dark"): string {
         --accent-wash: #23263A;
         --warn: #D79A3A;
         --danger: #E06456;
+        --danger-wash: #2E2020;
+        --surface-sunken: #2A2C33;
         --quote-wash: rgba(236, 236, 234, 0.05);
         color-scheme: dark;
       }
@@ -213,9 +217,9 @@ export function editorHtml(theme: "light" | "dark"): string {
       .callout-note { --callout-accent: var(--accent); --callout-wash: var(--accent-wash); }
       /* One hue: tip and important are ink, told apart by their icon; warning
          and caution keep the semantic warn and danger. */
-      .callout-tip, .callout-important { --callout-accent: var(--ink); --callout-wash: var(--quote-wash); }
-      .callout-warning { --callout-accent: var(--warn); --callout-wash: color-mix(in srgb, var(--warn) 14%, transparent); }
-      .callout-caution { --callout-accent: var(--danger); --callout-wash: color-mix(in srgb, var(--danger) 12%, transparent); }
+      .callout-tip, .callout-important { --callout-accent: var(--ink); --callout-wash: var(--surface-sunken); }
+      .callout-warning { --callout-accent: var(--warn); --callout-wash: var(--surface-sunken); }
+      .callout-caution { --callout-accent: var(--danger); --callout-wash: var(--danger-wash); }
 
       /* Selection action bar (mobile stand-in for the web formatting toolbar). */
       #selbar {

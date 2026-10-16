@@ -156,7 +156,7 @@ export function HistoryPanel({
         {FILTERS.map((f) => (
           <button
             key={f.value}
-            className={filter === f.value ? "task-chip on" : "task-chip"}
+            className={filter === f.value ? "chip on" : "chip"}
             onClick={() => setFilter(f.value)}
           >
             {f.label}

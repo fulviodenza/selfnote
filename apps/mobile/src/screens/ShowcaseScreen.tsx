@@ -3,12 +3,12 @@
  * in the current theme, with a switch to flip light and dark. Opened from
  * Settings. Keep it in step with the web showcase (apps/web/showcase.html).
  */
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { Feather } from "@expo/vector-icons";
 import { Modal, ScrollView, StyleSheet, Text, View } from "react-native";
-import { radius, spacing, type Palette, type TypeRoles } from "../theme";
+import { fonts, radius, spacing, type Palette, type TypeRoles } from "../theme";
 import { useTheme } from "../theme-context";
-import { Button, Chip, IconButton, Input, Row, StatusDot, useToast } from "../ui";
+import { Button, Chip, IconButton, Input, Row, StatusDot, ToastProvider, useToast } from "../ui";
 import { CALLOUT_ICON, CALLOUT_KINDS, calloutColors } from "../editor/AssistDrawer";
 import { PriorityMark } from "./PriorityMark";
 
@@ -28,13 +28,29 @@ const SWATCHES: Array<keyof Palette> = [
 ];
 
 export function ShowcaseScreen({ onClose }: { onClose: () => void }) {
+  const { mode, setMode } = useTheme();
+  // The light/dark switch here is a preview: put the user's own setting back
+  // on the way out, however the screen closes.
+  const saved = useRef(mode);
+  useEffect(() => () => setMode(saved.current), [setMode]);
+
+  return (
+    <Modal visible animationType="slide" onRequestClose={onClose} presentationStyle="fullScreen">
+      {/* Its own toast host: the app's sits under this modal's window. */}
+      <ToastProvider>
+        <ShowcaseBody onClose={onClose} />
+      </ToastProvider>
+    </Modal>
+  );
+}
+
+function ShowcaseBody({ onClose }: { onClose: () => void }) {
   const { colors, type, isDark, setMode } = useTheme();
   const styles = useMemo(() => makeStyles(colors, type), [colors, type]);
   const toast = useToast();
   const [filter, setFilter] = useState("all");
 
   return (
-    <Modal visible animationType="slide" onRequestClose={onClose} presentationStyle="fullScreen">
       <View style={styles.screen}>
         <View style={styles.topbar}>
           <IconButton icon="x" label="Close showcase" onPress={onClose} />
@@ -127,7 +143,7 @@ export function ShowcaseScreen({ onClose }: { onClose: () => void }) {
                 <View key={k} style={[styles.callout, { borderColor: c.accent, backgroundColor: c.wash }]}>
                   <Feather name={CALLOUT_ICON[k]} size={18} color={c.accent} />
                   <Text style={[type.body, styles.grow]}>
-                    <Text style={{ fontWeight: "600" }}>{k[0].toUpperCase() + k.slice(1)}.</Text> Callout body text.
+                    <Text style={{ fontFamily: fonts.sansSemiBold }}>{k[0].toUpperCase() + k.slice(1)}.</Text> Callout body text.
                   </Text>
                 </View>
               );
@@ -157,7 +173,6 @@ export function ShowcaseScreen({ onClose }: { onClose: () => void }) {
           </Section>
         </ScrollView>
       </View>
-    </Modal>
   );
 }
 
