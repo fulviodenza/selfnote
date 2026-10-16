@@ -100,12 +100,22 @@ export const shadow = {
   },
 } as const;
 
-// Fonts: system fallbacks mapped to the two DESIGN.md roles until Newsreader +
-// Inter Tight are bundled via expo-font. `serif` renders a serif on both OSes.
+// Fonts: Newsreader and Inter Tight, bundled (src/fonts.ts) and loaded before
+// the first render. One family per weight, because Android does not pick a
+// weight out of a custom family by fontWeight. `serif`/`sans` stay as
+// system fallbacks for anything outside the type scale.
 const serif = Platform.select({ ios: "Georgia", android: "serif", default: "serif" });
 const sans = Platform.select({ ios: "System", android: "sans-serif", default: undefined });
 
-export const fonts = { serif, sans } as const;
+export const fonts = {
+  serif,
+  sans,
+  serifMedium: "Newsreader_500Medium",
+  serifSemiBold: "Newsreader_600SemiBold",
+  sansRegular: "InterTight_400Regular",
+  sansMedium: "InterTight_500Medium",
+  sansSemiBold: "InterTight_600SemiBold",
+} as const;
 
 type TypeRole = Pick<TextStyle, "fontFamily" | "fontSize" | "lineHeight" | "fontWeight" | "color">;
 
@@ -117,12 +127,12 @@ export type TypeRoles = Record<
 /** Build the type scale against a palette so dark mode uses the dark ink. */
 export function makeType(c: Palette): TypeRoles {
   return {
-    title: { fontFamily: serif, fontSize: 28, lineHeight: 34, fontWeight: "600", color: c.ink },
-    docTitle: { fontFamily: serif, fontSize: 18, lineHeight: 24, fontWeight: "500", color: c.ink },
-    body: { fontFamily: sans, fontSize: 16, lineHeight: 24, fontWeight: "400", color: c.ink },
-    button: { fontFamily: sans, fontSize: 16, lineHeight: 20, fontWeight: "600", color: c.ink },
-    label: { fontFamily: sans, fontSize: 14, lineHeight: 18, fontWeight: "500", color: c.inkSoft },
-    meta: { fontFamily: sans, fontSize: 13, lineHeight: 16, fontWeight: "400", color: c.inkSoft },
+    title: { fontFamily: fonts.serifSemiBold, fontSize: 28, lineHeight: 34, color: c.ink },
+    docTitle: { fontFamily: fonts.serifMedium, fontSize: 18, lineHeight: 24, color: c.ink },
+    body: { fontFamily: fonts.sansRegular, fontSize: 16, lineHeight: 24, color: c.ink },
+    button: { fontFamily: fonts.sansSemiBold, fontSize: 16, lineHeight: 20, color: c.ink },
+    label: { fontFamily: fonts.sansMedium, fontSize: 14, lineHeight: 18, color: c.inkSoft },
+    meta: { fontFamily: fonts.sansRegular, fontSize: 13, lineHeight: 16, color: c.inkSoft },
   };
 }
 

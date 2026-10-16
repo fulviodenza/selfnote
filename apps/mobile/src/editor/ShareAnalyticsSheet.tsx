@@ -23,7 +23,7 @@ import {
 import * as Clipboard from "expo-clipboard";
 import { api, type ShareAnalytics } from "../api";
 import { getSettings } from "../settings";
-import { radius, shadow, sizing, spacing } from "../theme";
+import { fonts, radius, shadow, sizing, spacing } from "../theme";
 import type { Palette, TypeRoles } from "../theme";
 import { useTheme } from "../theme-context";
 import { relativeTime } from "../components/history/format";
@@ -198,7 +198,7 @@ const makeStyles = (colors: Palette, type: TypeRoles) =>
       paddingHorizontal: spacing.sm,
       paddingVertical: 2,
       overflow: "hidden",
-      fontWeight: "600",
+      fontFamily: fonts.sansSemiBold,
     },
     badgeRw: { color: colors.accent, backgroundColor: colors.accentWash },
     url: { flex: 1, color: colors.ink },

@@ -16,7 +16,7 @@ import { FlatList, Pressable, StyleSheet, Text, View } from "react-native";
 import { Feather } from "@expo/vector-icons";
 import type { Document } from "../api";
 import { loadCachedStates } from "../persistence/sqlite";
-import { hitSlop, radius, sizing, spacing } from "../theme";
+import { fonts, hitSlop, radius, sizing, spacing } from "../theme";
 import type { Palette, TypeRoles } from "../theme";
 import { useTheme } from "../theme-context";
 import { IconButton } from "../ui";
@@ -235,7 +235,7 @@ const makeStyles = (colors: Palette, type: TypeRoles) =>
     countBtnText: {
       ...type.meta,
       color: colors.ink,
-      fontWeight: "600",
+      fontFamily: fonts.sansSemiBold,
       lineHeight: 16,
     },
   });

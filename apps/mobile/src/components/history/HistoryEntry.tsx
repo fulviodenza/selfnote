@@ -7,7 +7,7 @@ import { useMemo } from "react";
 import { Pressable, StyleSheet, Text, View } from "react-native";
 import type { Checkpoint } from "../../api";
 import { useTheme } from "../../theme-context";
-import { radius, sizing, spacing } from "../../theme";
+import { fonts, radius, sizing, spacing } from "../../theme";
 import type { Palette, TypeRoles } from "../../theme";
 import { formatSize, kindLabel, relativeTime } from "./format";
 
@@ -79,7 +79,7 @@ const makeStyles = (colors: Palette, type: TypeRoles) =>
       paddingHorizontal: spacing.sm,
       paddingVertical: 2,
       overflow: "hidden",
-      fontWeight: "600",
+      fontFamily: fonts.sansSemiBold,
     },
     // Kinds read from their words, not a hue (mirrors .history-badge on web).
     badgeManual: { color: colors.ink, backgroundColor: "transparent", borderWidth: 1, borderColor: colors.ink },

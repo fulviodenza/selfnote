@@ -11,6 +11,8 @@
     "check:editor-html": "node scripts/check-editor-html.mjs"
   },
   "dependencies": {
+    "@expo-google-fonts/inter-tight": "^0.4.2",
+    "@expo-google-fonts/newsreader": "^0.4.1",
     "@expo/vector-icons": "^14.0.4",
     "@react-native-async-storage/async-storage": "1.23.1",
     "@react-native-community/datetimepicker": "^8.2.0",

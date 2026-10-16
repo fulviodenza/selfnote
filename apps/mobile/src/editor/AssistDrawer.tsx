@@ -19,7 +19,7 @@ import {
   type ExtraDoc,
 } from "../api";
 import { useTheme } from "../theme-context";
-import { hitSlop, radius, scrim, shadow, sizing, spacing } from "../theme";
+import { fonts, hitSlop, radius, scrim, shadow, sizing, spacing } from "../theme";
 import type { Palette, TypeRoles } from "../theme";
 import { IconButton } from "../ui";
 import { ContextPickerSheet } from "./ContextPickerSheet";
@@ -566,7 +566,7 @@ const makeStyles = (colors: Palette, type: TypeRoles) =>
       borderColor: colors.hairline,
     },
     actionPrimary: { borderColor: colors.accent },
-    actionText: { ...type.meta, fontWeight: "600" },
+    actionText: { ...type.meta, fontFamily: fonts.sansSemiBold },
 
     context: {
       paddingHorizontal: spacing.xl,
@@ -610,7 +610,7 @@ const makeStyles = (colors: Palette, type: TypeRoles) =>
     },
     addDisabled: { opacity: 0.4 },
     addInner: { flexDirection: "row", alignItems: "center", gap: spacing.xs },
-    addText: { ...type.meta, color: colors.accent, fontWeight: "600" },
+    addText: { ...type.meta, color: colors.accent, fontFamily: fonts.sansSemiBold },
 
     composer: {
       flexDirection: "row",
