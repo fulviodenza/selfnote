@@ -261,10 +261,10 @@ export function AiDiffPreview({
         {toast ? <div className="proposal-toast">{toast}</div> : null}
 
         <div className="proposal-drawer-foot">
-          <button className="proposal-reject" onClick={reject} disabled={busy}>
+          <button className="btn btn-secondary proposal-reject" onClick={reject} disabled={busy}>
             Reject
           </button>
-          <button className="proposal-accept" onClick={accept} disabled={busy}>
+          <button className="btn btn-primary proposal-accept" onClick={accept} disabled={busy}>
             {busy ? "…" : "Accept"}
           </button>
         </div>

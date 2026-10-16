@@ -92,6 +92,183 @@ body {
   background: var(--paper);
 }
 
+/* ---------------- primitives ----------------
+ * The shared component layer. Mirrors apps/mobile/src/ui (Button, Chip, Sheet,
+ * Toast) and is rendered, light and dark, by showcase.html. Feature classes
+ * add layout only; colour, height, radius and type come from here. */
+.btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  min-height: 40px;
+  padding: 0 18px;
+  border: 1px solid transparent;
+  border-radius: var(--radius-md);
+  font: 600 14px/1.2 var(--font-sans);
+  white-space: nowrap;
+  cursor: pointer;
+  transition: background 0.12s ease, border-color 0.12s ease, color 0.12s ease;
+}
+.btn:disabled {
+  opacity: 0.5;
+  cursor: default;
+}
+.btn:focus-visible,
+.chip:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 2px;
+}
+.btn-lg {
+  min-height: 48px;
+  padding: 0 22px;
+  font-size: 16px;
+}
+.btn-sm {
+  min-height: 32px;
+  padding: 0 12px;
+  font-size: 13px;
+  border-radius: var(--radius-sm);
+}
+.btn-icon {
+  width: 40px;
+  padding: 0;
+}
+/* The one primary action on a screen. */
+.btn-primary {
+  background: var(--accent);
+  color: var(--on-accent);
+}
+.btn-primary:hover:not(:disabled) {
+  background: var(--accent-press);
+}
+.btn-secondary {
+  background: var(--bg);
+  border-color: var(--border);
+  color: var(--fg);
+}
+.btn-secondary:hover:not(:disabled) {
+  background: var(--hover);
+}
+.btn-ghost {
+  background: transparent;
+  color: var(--accent);
+}
+.btn-ghost:hover:not(:disabled) {
+  background: var(--accent-wash);
+}
+.btn-danger {
+  background: var(--bg);
+  border-color: var(--border);
+  color: var(--danger);
+}
+.btn-danger:hover:not(:disabled) {
+  border-color: var(--danger);
+  background: var(--danger-wash);
+}
+
+/* Filters, labels, quick choices. Selected takes the accent wash, never a
+ * solid fill: that is reserved for .btn-primary. */
+.chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  min-height: 30px;
+  padding: 0 12px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-full);
+  background: var(--bg);
+  color: var(--muted);
+  font: 500 13px/1.2 var(--font-sans);
+  cursor: pointer;
+}
+.chip:hover {
+  background: var(--hover);
+  color: var(--fg);
+}
+.chip.on {
+  background: var(--accent-wash);
+  border-color: transparent;
+  color: var(--accent);
+  font-weight: 600;
+}
+
+.input {
+  min-height: 40px;
+  padding: 0 12px;
+  border: 1px solid var(--input-border);
+  border-radius: var(--radius-sm);
+  background: var(--bg);
+  color: var(--fg);
+  font: 400 14px/1.4 var(--font-sans);
+}
+.input:focus {
+  outline: none;
+  border-color: var(--accent);
+  box-shadow: inset 0 0 0 1px var(--accent);
+}
+
+/* Modal backdrop and the card on it. */
+.scrim {
+  position: fixed;
+  inset: 0;
+  z-index: 60;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: var(--scrim);
+}
+.sheet {
+  background: var(--bg);
+  color: var(--fg);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-lg);
+  box-shadow: var(--shadow-floating);
+}
+
+/* Confirmations that need no modal: ink, like the mobile toast. */
+.toast {
+  display: inline-flex;
+  align-items: center;
+  gap: 14px;
+  padding: 10px 14px;
+  border-radius: var(--radius-md);
+  background: var(--fg);
+  color: var(--bg);
+  font: 400 14px/1.4 var(--font-sans);
+  box-shadow: var(--shadow-floating);
+}
+.toast-action {
+  border: none;
+  background: none;
+  padding: 0;
+  color: inherit;
+  font: inherit;
+  font-weight: 600;
+  text-decoration: underline;
+  text-underline-offset: 3px;
+  cursor: pointer;
+}
+
+/* Never a bare blank: a serif line and, at most, one primary action. */
+.empty-state {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 12px;
+  padding: 40px 24px;
+  text-align: center;
+  color: var(--muted);
+  font-size: 14px;
+}
+.empty-state-title {
+  margin: 0;
+  font-family: var(--font-serif);
+  font-size: 18px;
+  font-weight: 500;
+  color: var(--fg);
+}
+
 /* ---------------- sidebar ---------------- */
 .sidebar {
   width: 288px; /* default; overridden inline by the user-resizable width */
@@ -716,23 +893,6 @@ button.toggle.on {
 
 .auth-submit {
   margin-top: 4px;
-  min-height: 52px;
-  padding: 0 16px;
-  border: none;
-  border-radius: var(--radius-md);
-  background: var(--accent);
-  color: var(--on-accent);
-  font-weight: 600;
-  font-size: 16px;
-  cursor: pointer;
-}
-
-.auth-submit:hover {
-  background: var(--accent-press);
-}
-
-.auth-submit:disabled {
-  opacity: 0.6;
 }
 
 .auth-err {
@@ -812,8 +972,6 @@ button.toggle.on {
   flex: none;
   font-size: 12px;
   font-weight: 600;
-  text-transform: uppercase;
-  letter-spacing: 0.04em;
   padding: 2px 8px;
   border-radius: var(--radius-full);
   border: 1px solid var(--border);
@@ -851,10 +1009,8 @@ button.toggle.on {
 
 .system-title {
   padding: 2px 10px 4px;
-  font-size: 11px;
+  font-size: 12px;
   font-weight: 600;
-  letter-spacing: 0.05em;
-  text-transform: uppercase;
   color: var(--faint);
 }
 
@@ -911,7 +1067,7 @@ button.toggle.on {
   border: 1px solid var(--border);
   border-radius: var(--radius-md);
   background: var(--bg);
-  box-shadow: 0 8px 28px rgb(0 0 0 / 18%);
+  box-shadow: var(--shadow-floating);
 }
 
 .settings-pop .page-menu-item {
@@ -1029,7 +1185,7 @@ button.toggle.on {
 .asset-open-page.danger.armed {
   background: var(--danger);
   border-color: var(--danger);
-  color: #fff;
+  color: var(--on-accent);
 }
 
 /* ---------------- file preview modal ---------------- */
@@ -1037,7 +1193,7 @@ button.toggle.on {
   position: fixed;
   inset: 0;
   z-index: 70;
-  background: rgba(20, 22, 28, 0.55);
+  background: var(--scrim);
   display: flex;
   align-items: center;
   justify-content: center;
@@ -1053,7 +1209,7 @@ button.toggle.on {
   color: var(--fg);
   border: 1px solid var(--border);
   border-radius: var(--radius-md);
-  box-shadow: 0 12px 40px rgb(0 0 0 / 30%);
+  box-shadow: var(--shadow-floating);
   overflow: hidden;
 }
 
@@ -1164,8 +1320,6 @@ button.toggle.on {
   font-size: 13px;
   font-weight: 600;
   color: var(--muted);
-  text-transform: uppercase;
-  letter-spacing: 0.03em;
   margin-bottom: 6px;
 }
 
@@ -1177,7 +1331,7 @@ button.toggle.on {
 .import-overlay {
   position: fixed;
   inset: 0;
-  background: rgba(20, 22, 28, 0.45);
+  background: var(--scrim);
   display: flex;
   align-items: center;
   justify-content: center;
@@ -1192,7 +1346,7 @@ button.toggle.on {
   border-radius: var(--radius-md);
   padding: 28px;
   text-align: center;
-  box-shadow: 0 8px 30px rgba(20, 22, 28, 0.18);
+  box-shadow: var(--shadow-floating);
 }
 
 .import-title {
@@ -1503,10 +1657,8 @@ button.toggle.on {
   border-radius: var(--radius-full);
   background: var(--accent-wash);
   color: var(--accent);
-  font-size: 10px;
+  font-size: 12px;
   font-weight: 600;
-  text-transform: uppercase;
-  letter-spacing: 0.02em;
 }
 
 .ctx-chip-x {
@@ -1565,7 +1717,7 @@ button.toggle.on {
   border: 1px solid var(--border);
   border-radius: var(--radius-md);
   background: var(--bg);
-  box-shadow: 0 8px 28px rgb(0 0 0 / 18%);
+  box-shadow: var(--shadow-floating);
 }
 
 .ctx-search {
@@ -1598,10 +1750,8 @@ button.toggle.on {
 .ctx-sec-label {
   padding: 2px 6px;
   color: var(--faint);
-  font-size: 10px;
+  font-size: 12px;
   font-weight: 600;
-  text-transform: uppercase;
-  letter-spacing: 0.04em;
 }
 
 .ctx-sec-empty {
@@ -1672,18 +1822,7 @@ button.toggle.on {
   flex: none;
   width: 44px;
   height: 44px;
-  border: none;
-  border-radius: var(--radius-md);
-  background: var(--accent);
-  color: var(--on-accent);
   font-size: 18px;
-  font-weight: 600;
-  cursor: pointer;
-}
-
-.assist-send:disabled {
-  opacity: 0.4;
-  cursor: default;
 }
 
 .assist-send.stop {
@@ -1695,7 +1834,7 @@ button.toggle.on {
 .conn-overlay {
   position: fixed;
   inset: 0;
-  background: rgba(20, 22, 28, 0.45);
+  background: var(--scrim);
   display: flex;
   align-items: center;
   justify-content: center;
@@ -1713,7 +1852,7 @@ button.toggle.on {
   border: 1px solid var(--border);
   border-radius: var(--radius-md);
   padding: 24px;
-  box-shadow: 0 8px 30px rgba(20, 22, 28, 0.22);
+  box-shadow: var(--shadow-floating);
 }
 
 .conn-head {
@@ -1757,22 +1896,6 @@ button.toggle.on {
 .conn-create input:focus {
   outline: none;
   border: 1.5px solid var(--accent);
-}
-
-.conn-create button {
-  min-height: 42px;
-  padding: 0 18px;
-  border: none;
-  border-radius: var(--radius-md);
-  background: var(--accent);
-  color: var(--on-accent);
-  font-weight: 600;
-  cursor: pointer;
-}
-
-.conn-create button:disabled {
-  opacity: 0.5;
-  cursor: default;
 }
 
 .conn-error {
@@ -2056,7 +2179,7 @@ button.toggle.on {
   border: 1px solid var(--border);
   border-radius: 10px;
   background: var(--paper);
-  box-shadow: 0 8px 28px rgba(0, 0, 0, 0.18);
+  box-shadow: var(--shadow-floating);
 }
 .label-pop input {
   width: 100%;
@@ -2127,7 +2250,7 @@ button.toggle.on {
   font-size: 12px;
   cursor: pointer;
 }
-.label-edit-save { background: var(--accent) !important; color: #fff !important; border-color: var(--accent) !important; }
+.label-edit-save { background: var(--accent) !important; color: var(--on-accent) !important; border-color: var(--accent) !important; }
 .label-edit-delete { color: var(--danger) !important; margin-right: auto; }
 .label-pop-name { flex: 1; overflow: hidden; text-overflow: ellipsis; }
 .label-pop-empty { padding: 8px; color: var(--muted); font-size: 12px; }
@@ -2165,7 +2288,7 @@ button.toggle.on {
   position: fixed;
   inset: 0;
   z-index: 60;
-  background: rgba(0, 0, 0, 0.35);
+  background: var(--scrim);
   display: flex;
   justify-content: center;
   align-items: flex-start;
@@ -2179,7 +2302,7 @@ button.toggle.on {
   border: 1px solid var(--border);
   border-radius: 14px;
   background: var(--paper);
-  box-shadow: 0 20px 60px rgba(0, 0, 0, 0.3);
+  box-shadow: var(--shadow-floating);
   overflow: hidden;
 }
 .search-input-row {
@@ -2219,10 +2342,8 @@ button.toggle.on {
 .search-section { padding-bottom: 4px; }
 .search-section-title {
   padding: 8px 10px 4px;
-  font-size: 11px;
+  font-size: 12px;
   font-weight: 600;
-  letter-spacing: 0.04em;
-  text-transform: uppercase;
   color: var(--muted);
 }
 .search-item {
@@ -2384,7 +2505,7 @@ button.toggle.on {
 .proposal-overlay {
   position: fixed;
   inset: 0;
-  background: rgba(20, 22, 28, 0.45);
+  background: var(--scrim);
   display: flex;
   align-items: center;
   justify-content: center;
@@ -2402,7 +2523,7 @@ button.toggle.on {
   color: var(--fg);
   border: 1px solid var(--border);
   border-radius: var(--radius-md);
-  box-shadow: 0 8px 30px rgba(20, 22, 28, 0.22);
+  box-shadow: var(--shadow-floating);
   overflow: hidden;
 }
 
@@ -2547,43 +2668,6 @@ button.toggle.on {
   border-top: 1px solid var(--border);
 }
 
-.proposal-reject,
-.proposal-accept {
-  min-height: 38px;
-  padding: 0 20px;
-  border-radius: var(--radius-md);
-  font-size: 14px;
-  font-weight: 600;
-  cursor: pointer;
-}
-
-.proposal-reject {
-  border: 1px solid var(--border);
-  background: var(--bg);
-  color: var(--fg);
-}
-
-.proposal-reject:hover:not(:disabled) {
-  border-color: var(--danger);
-  color: var(--danger);
-}
-
-.proposal-accept {
-  border: none;
-  background: var(--accent);
-  color: var(--on-accent);
-}
-
-.proposal-accept:hover:not(:disabled) {
-  background: var(--accent-press);
-}
-
-.proposal-reject:disabled,
-.proposal-accept:disabled {
-  opacity: 0.5;
-  cursor: default;
-}
-
 /* ---------------- sidebar nav (Tasks entry) ---------------- */
 .sidebar-nav {
   padding: 8px 8px 0;
@@ -2724,8 +2808,6 @@ button.toggle.on {
 
 .task-field-label {
   font-size: 12px;
-  text-transform: uppercase;
-  letter-spacing: 0.03em;
 }
 
 .task-select-wrap {
@@ -2803,7 +2885,7 @@ button.toggle.on {
   border: 1px solid var(--border);
   border-radius: var(--radius-md);
   background: var(--bg);
-  box-shadow: 0 8px 28px rgb(0 0 0 / 18%);
+  box-shadow: var(--shadow-floating);
 }
 
 .page-menu-item {
@@ -3001,7 +3083,7 @@ button.toggle.danger:hover {
   display: flex;
   align-items: center;
   justify-content: center;
-  background: rgb(0 0 0 / 40%);
+  background: var(--scrim);
 }
 
 .history-confirm {
@@ -3010,7 +3092,7 @@ button.toggle.danger:hover {
   border: 1px solid var(--border);
   border-radius: var(--radius-md);
   background: var(--bg);
-  box-shadow: 0 12px 40px rgb(0 0 0 / 24%);
+  box-shadow: var(--shadow-floating);
 }
 
 .history-confirm-title {
@@ -3138,8 +3220,6 @@ button.toggle.danger:hover {
 .task-group-label {
   font-size: 12px;
   font-weight: 600;
-  text-transform: uppercase;
-  letter-spacing: 0.04em;
 }
 
 .task-group-count {
@@ -3199,22 +3279,6 @@ button.toggle.danger:hover {
 }
 
 /* ---------------- calendar feed card ---------------- */
-.cal-enable {
-  min-height: 42px;
-  padding: 0 18px;
-  border: none;
-  border-radius: var(--radius-md);
-  background: var(--accent);
-  color: var(--on-accent);
-  font-weight: 600;
-  font-size: 14px;
-  cursor: pointer;
-}
-
-.cal-enable:disabled {
-  opacity: 0.6;
-  cursor: default;
-}
 
 /* ---------------- note-level AI actions ---------------- */
 .nai {
@@ -3238,15 +3302,13 @@ button.toggle.danger:hover {
   border: 1px solid var(--border);
   border-radius: var(--radius-md);
   background: var(--bg);
-  box-shadow: 0 8px 28px rgb(0 0 0 / 18%);
+  box-shadow: var(--shadow-floating);
 }
 
 .nai-menu-head {
   padding: 6px 10px 8px;
   font-size: 12px;
   color: var(--muted);
-  text-transform: uppercase;
-  letter-spacing: 0.04em;
 }
 
 .nai-menu-item {
@@ -3281,7 +3343,7 @@ button.toggle.danger:hover {
 .nai-panel-scrim {
   position: fixed;
   inset: 0;
-  background: rgba(20, 22, 28, 0.45);
+  background: var(--scrim);
   z-index: 60;
 }
 
@@ -3300,7 +3362,7 @@ button.toggle.danger:hover {
   color: var(--fg);
   border: 1px solid var(--border);
   border-radius: var(--radius-md);
-  box-shadow: 0 8px 30px rgba(20, 22, 28, 0.22);
+  box-shadow: var(--shadow-floating);
 }
 
 .nai-panel-head {
@@ -3351,10 +3413,10 @@ button.toggle.danger:hover {
 }
 
 .nai-panel-foot button {
-  height: 34px;
-  padding: 0 14px;
+  height: 32px;
+  padding: 0 12px;
   border: 1px solid var(--border);
-  border-radius: var(--radius-full);
+  border-radius: var(--radius-sm);
   background: var(--bg);
   color: var(--fg);
   font-size: 13px;
@@ -3410,23 +3472,6 @@ button.toggle.danger:hover {
   margin-top: 10px;
 }
 
-.voice-save {
-  min-height: 38px;
-  padding: 0 16px;
-  border: none;
-  border-radius: var(--radius-md);
-  background: var(--accent);
-  color: var(--on-accent);
-  font-weight: 600;
-  font-size: 14px;
-  cursor: pointer;
-}
-
-.voice-save:disabled {
-  opacity: 0.5;
-  cursor: default;
-}
-
 /* ---- Slash commands: /link-note picker + inline error toast ---- */
 
 .link-note-popover {
@@ -3435,7 +3480,7 @@ button.toggle.danger:hover {
   background: var(--bg);
   border: 1px solid var(--border);
   border-radius: var(--radius-md);
-  box-shadow: 0 8px 30px rgba(20, 22, 28, 0.22);
+  box-shadow: var(--shadow-floating);
   overflow: hidden;
 }
 
@@ -3528,8 +3573,6 @@ button.toggle.danger:hover {
   font-family: var(--font-sans);
   font-size: 13px;
   font-weight: 600;
-  letter-spacing: 0.02em;
-  text-transform: uppercase;
   text-align: left;
   cursor: pointer;
 }
@@ -3626,8 +3669,6 @@ button.toggle.danger:hover {
   color: var(--muted);
   font-size: 13px;
   font-weight: 600;
-  letter-spacing: 0.02em;
-  text-transform: uppercase;
 }
 
 /* ---------------- graph view ---------------- */
@@ -3676,8 +3717,9 @@ button.toggle.danger:hover {
   cursor: pointer;
 }
 .graph-mode-btn.on {
-  background: var(--accent);
-  color: #fff;
+  background: var(--accent-wash);
+  color: var(--accent);
+  font-weight: 600;
 }
 
 .graph-canvas-wrap {

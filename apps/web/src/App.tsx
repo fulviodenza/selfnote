@@ -122,7 +122,7 @@ function WebOnboarding() {
           autoFocus
         />
         {error && <div className="auth-err">{error}</div>}
-        <button className="auth-submit" disabled={busy} onClick={connect}>
+        <button className="btn btn-primary btn-lg auth-submit" disabled={busy} onClick={connect}>
           {busy ? "Connecting…" : "Connect"}
         </button>
         <div className="auth-switch">We add /api and /ws automatically, and default to https.</div>
@@ -574,7 +574,7 @@ function LoginScreen({
           required
         />
         {err && <div className="auth-err">{err}</div>}
-        <button className="auth-submit" type="submit" disabled={busy}>
+        <button className="btn btn-primary btn-lg auth-submit" type="submit" disabled={busy}>
           {busy ? "…" : mode === "login" ? "Log in" : "Create account"}
         </button>
         <div className="auth-switch">
@@ -979,7 +979,7 @@ function ImportVaultModal({
           Pick your Obsidian vault folder and every Markdown note becomes a Selfnote
           page. Folder structure is kept as nested pages; images move into Assets.
         </p>
-        <button className="auth-submit" onClick={onPickVault}>
+        <button className="btn btn-primary btn-lg auth-submit" onClick={onPickVault}>
           Choose vault folder…
         </button>
         {labelsShown && (
