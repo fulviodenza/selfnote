@@ -81,8 +81,9 @@ const makeStyles = (colors: Palette, type: TypeRoles) =>
       overflow: "hidden",
       fontWeight: "600",
     },
-    badgeManual: { color: colors.accent, backgroundColor: colors.accentWash },
-    badgeRestore: { color: colors.warn, backgroundColor: colors.liveWash },
+    // Kinds read from their words, not a hue (mirrors .history-badge on web).
+    badgeManual: { color: colors.ink, backgroundColor: "transparent", borderWidth: 1, borderColor: colors.ink },
+    badgeRestore: { color: colors.ink, backgroundColor: colors.surfaceSunken },
     label: { marginTop: 2 },
     bottom: { flexDirection: "row", alignItems: "center", gap: spacing.xs },
     dot: { color: colors.inkFaint },

@@ -204,14 +204,11 @@ export function editorHtml(theme: "light" | "dark"): string {
       .callout .callout-body { flex: 1; min-width: 0; }
       .callout .callout-body > * { margin: 0; }
       .callout-note { --callout-accent: var(--accent); --callout-wash: var(--accent-wash); }
-      .callout-tip { --callout-accent: #1F9E6A; --callout-wash: #E4F4EE; }
-      .callout-warning { --callout-accent: #C1841E; --callout-wash: #F7EEDD; }
-      .callout-important { --callout-accent: #8B5CF6; --callout-wash: #EEE8FB; }
-      .callout-caution { --callout-accent: #C4392B; --callout-wash: #F8E7E4; }
-      :root[data-theme="dark"] .callout-tip { --callout-accent: #3FBF8A; --callout-wash: rgba(63, 191, 138, 0.14); }
-      :root[data-theme="dark"] .callout-warning { --callout-accent: #D79A3A; --callout-wash: rgba(215, 154, 58, 0.16); }
-      :root[data-theme="dark"] .callout-important { --callout-accent: #A78BFA; --callout-wash: rgba(167, 139, 250, 0.16); }
-      :root[data-theme="dark"] .callout-caution { --callout-accent: #E06456; --callout-wash: rgba(224, 100, 86, 0.14); }
+      /* One hue: tip and important are ink, told apart by their icon; warning
+         and caution keep the semantic warn and danger. */
+      .callout-tip, .callout-important { --callout-accent: var(--ink); --callout-wash: var(--quote-wash); }
+      .callout-warning { --callout-accent: var(--warn); --callout-wash: color-mix(in srgb, var(--warn) 14%, transparent); }
+      .callout-caution { --callout-accent: var(--danger); --callout-wash: color-mix(in srgb, var(--danger) 12%, transparent); }
 
       /* Selection action bar (mobile stand-in for the web formatting toolbar). */
       #selbar {
@@ -1552,7 +1549,7 @@ export function editorHtml(theme: "light" | "dark"): string {
               schema: bnSchema,
               collaboration: {
                 fragment: doc.getXmlFragment("document-store"),
-                user: user || { name: "Guest", color: "#2563eb" },
+                user: user || { name: "Guest", color: "#3B55D9" },
                 provider: { awareness },
               },
             }),

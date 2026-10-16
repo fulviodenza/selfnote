@@ -2317,17 +2317,20 @@ button.toggle.on {
   --callout-accent: var(--accent);
   --callout-wash: var(--accent-wash);
 }
+/* Ink and Paper has one hue. Note takes the accent; tip and important are ink
+ * and told apart by their icon; warning and caution keep the semantic warn and
+ * danger, since that is what they mean. */
 .callout-tip {
-  --callout-accent: var(--live);
-  --callout-wash: color-mix(in srgb, var(--live) 12%, transparent);
+  --callout-accent: var(--fg);
+  --callout-wash: var(--hover);
 }
 .callout-warning {
   --callout-accent: var(--warn);
   --callout-wash: color-mix(in srgb, var(--warn) 14%, transparent);
 }
 .callout-important {
-  --callout-accent: #8b5cf6;
-  --callout-wash: color-mix(in srgb, #8b5cf6 12%, transparent);
+  --callout-accent: var(--fg);
+  --callout-wash: var(--hover);
 }
 .callout-caution {
   --callout-accent: var(--danger);
@@ -2452,8 +2455,8 @@ button.toggle.on {
 }
 
 .proposal-origin.mcp {
-  color: var(--warn);
-  background: color-mix(in srgb, var(--warn) 14%, transparent);
+  color: var(--fg);
+  background: var(--hover);
 }
 
 .proposal-origin.app {
@@ -2531,8 +2534,8 @@ button.toggle.on {
   margin: 0 20px 8px;
   padding: 8px 12px;
   border-radius: var(--radius-sm);
-  background: color-mix(in srgb, var(--warn) 14%, transparent);
-  color: var(--warn);
+  background: var(--hover);
+  color: var(--fg);
   font-size: 13px;
 }
 
@@ -2701,16 +2704,15 @@ button.toggle.on {
   color: var(--muted);
 }
 
+/* Status reads from the mark and the weight, not a hue: open is muted, in
+ * progress is ink, done is faint. */
 .task-pill.status-in_progress {
-  color: var(--accent);
-  border-color: var(--accent);
-  background: var(--accent-wash);
+  color: var(--fg);
+  border-color: var(--fg);
 }
 
 .task-pill.status-done {
-  color: var(--live);
-  border-color: color-mix(in srgb, var(--live) 50%, var(--border));
-  background: color-mix(in srgb, var(--live) 12%, transparent);
+  color: var(--faint);
 }
 
 .task-field {
@@ -2752,12 +2754,20 @@ button.toggle.on {
   border-color: var(--accent);
 }
 
-.task-dot {
-  width: 8px;
-  height: 8px;
-  border-radius: var(--radius-full);
+.task-prio {
   flex: none;
-  border: 1px solid var(--border);
+  min-width: 14px;
+  font-size: 13px;
+  font-weight: 700;
+  letter-spacing: -0.04em;
+  text-align: center;
+  color: var(--faint);
+}
+.task-prio.prio-medium {
+  color: var(--muted);
+}
+.task-prio.prio-high {
+  color: var(--fg);
 }
 
 .task-allday {
@@ -2901,16 +2911,16 @@ button.toggle.on {
   background: var(--paper);
 }
 
+/* Kinds read from their words. Manual saves are the ones you chose, so they get
+ * ink weight; nothing here needs a hue. */
 .history-badge.manual {
-  color: var(--accent);
-  border-color: var(--accent);
-  background: var(--accent-wash);
+  color: var(--fg);
+  border-color: var(--fg);
 }
 
 .history-badge.restore {
-  color: var(--warn);
-  border-color: var(--warn);
-  background: color-mix(in srgb, var(--warn) 14%, transparent);
+  color: var(--fg);
+  background: var(--hover);
 }
 
 .history-entry-label {
@@ -2948,8 +2958,8 @@ button.toggle.on {
   gap: 8px;
   padding: 8px 16px;
   font-size: 12px;
-  color: var(--warn);
-  background: color-mix(in srgb, var(--warn) 10%, transparent);
+  color: var(--muted);
+  background: var(--hover);
   border-bottom: 1px solid var(--border);
 }
 
@@ -3069,10 +3079,12 @@ button.toggle.danger:hover {
   color: var(--accent);
 }
 
+/* Selected filter: the accent wash, the same as the label filter and active
+ * nav. A solid fill is for the one primary action on a screen. */
 .task-chip.on {
-  background: var(--accent);
+  background: var(--accent-wash);
   border-color: var(--accent);
-  color: var(--on-accent);
+  color: var(--accent);
 }
 
 .taskview-body {
@@ -3492,8 +3504,8 @@ button.toggle.danger:hover {
   margin: 8px 20px 0;
   padding: 8px 12px;
   border-radius: var(--radius-sm);
-  background: color-mix(in srgb, var(--warn) 14%, transparent);
-  color: var(--warn);
+  background: var(--hover);
+  color: var(--fg);
   font-size: 13px;
 }
 

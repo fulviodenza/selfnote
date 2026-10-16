@@ -47,6 +47,7 @@ import { PresenceChips } from "./Presence";
 import { Icon } from "./Icon";
 import type { Task } from "./api";
 import { computeMove, descendantIds, type DropPlacement } from "@selfnote/core";
+import tokens from "@selfnote/core/tokens.json";
 
 /**
  * Private drag payload for a sidebar page. Deliberately not text/plain: the
@@ -61,7 +62,9 @@ import { closeDesktopWindow, isDesktop } from "./desktop";
 const SYNC_URL = syncUrl();
 
 const NAMES = ["Ada", "Linus", "Grace", "Alan", "Margaret", "Dennis", "Barbara", "Ken"];
-const COLORS = ["#e11d48", "#7c3aed", "#0891b2", "#16a34a", "#ea580c", "#2563eb", "#db2777"];
+// Collaborator colours: the accent and ink tones from the shared tokens, not a
+// rainbow. Mid tones, so a cursor reads on both the light and dark page.
+const COLORS = tokens.presence;
 const pick = <T,>(a: T[]) => a[Math.floor(Math.random() * a.length)];
 const randomUser = (): EditorUser => ({
   name: `${pick(NAMES)} ${Math.floor(Math.random() * 90 + 10)}`,

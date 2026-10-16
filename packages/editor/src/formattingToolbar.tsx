@@ -141,7 +141,10 @@ export function SelfnoteFormattingToolbar({
       {...getFormattingToolbarItems(
         // eslint-disable-next-line @typescript-eslint/no-explicit-any
         selectItemsWithCallouts((editor as any).dictionary),
-      )}
+        // No text colour picker: Ink and Paper is one accent on ink, and the
+        // nine BlockNote hues are exactly the decoration it rules out. Text
+        // already coloured in a document still renders.
+      ).filter((item) => item.key !== "colorStyleButton")}
       {onAskAi ? (
         <Components.FormattingToolbar.Button
           key="askAiButton"

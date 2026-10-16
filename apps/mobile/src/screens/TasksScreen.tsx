@@ -22,8 +22,8 @@ import { PRIORITY_LABEL, STATUS_LABEL, dueLabel, groupFor, groupTasks } from "..
 import { radius, sizing, spacing } from "../theme";
 import type { Palette, TypeRoles } from "../theme";
 import { useTheme } from "../theme-context";
-import { IconButton, useToast } from "../ui";
-import { PriorityDot } from "./PriorityDot";
+import { Chip, IconButton, useToast } from "../ui";
+import { PriorityMark } from "./PriorityMark";
 
 const FILTERS: { key: TaskStatus | "all"; label: string }[] = [
   { key: "all", label: "All" },
@@ -107,24 +107,13 @@ export function TasksScreen({
         {FILTERS.map((f) => {
           const active = filter === f.key;
           return (
-            <Pressable
+            <Chip
               key={f.key}
-              accessibilityRole="button"
-              accessibilityState={{ selected: active }}
+              label={f.label}
+              selected={active}
               accessibilityLabel={`Filter: ${f.label}`}
               onPress={() => setFilter(f.key)}
-              style={[
-                styles.filterChip,
-                {
-                  backgroundColor: active ? colors.accent : colors.surface,
-                  borderColor: active ? colors.accent : colors.hairline,
-                },
-              ]}
-            >
-              <Text style={[type.meta, { color: active ? colors.onAccent : colors.inkSoft }]}>
-                {f.label}
-              </Text>
-            </Pressable>
+            />
           );
         })}
       </View>
@@ -200,7 +189,7 @@ function TaskRow({
         accessibilityLabel={done ? "Mark not done" : "Mark done"}
         hitSlop={12}
         onPress={() => onToggle(task)}
-        style={[styles.checkbox, done && { backgroundColor: colors.live, borderColor: colors.live }]}
+        style={[styles.checkbox, done && { backgroundColor: colors.accent, borderColor: colors.accent }]}
       >
         {done ? <Feather name="check" size={15} color={colors.onAccent} /> : null}
       </Pressable>
@@ -220,7 +209,7 @@ function TaskRow({
           </Text>
           {task.priority !== "none" ? (
             <View accessibilityLabel={`Priority ${PRIORITY_LABEL[task.priority]}`}>
-              <PriorityDot priority={task.priority} />
+              <PriorityMark priority={task.priority} />
             </View>
           ) : null}
         </View>
@@ -255,14 +244,6 @@ const makeStyles = (colors: Palette, type: TypeRoles) =>
       gap: spacing.sm,
       paddingHorizontal: spacing.gutter,
       paddingVertical: spacing.md,
-    },
-    filterChip: {
-      paddingVertical: spacing.sm,
-      paddingHorizontal: spacing.md,
-      borderRadius: radius.full,
-      borderWidth: 1,
-      minHeight: 34,
-      justifyContent: "center",
     },
     listPad: { paddingBottom: spacing.xxxl },
     sectionHeader: {
