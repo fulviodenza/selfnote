@@ -323,14 +323,14 @@ export function GraphView({
             <Pressable
               key={m}
               onPress={() => setMode(m)}
-              style={[styles.modeBtn, mode === m && { backgroundColor: colors.accent }]}
+              style={[styles.modeBtn, mode === m && { backgroundColor: colors.accentWash }]}
               accessibilityRole="button"
               accessibilityState={{ selected: mode === m }}
             >
               <Text
                 style={[
                   styles.modeText,
-                  { color: mode === m ? colors.onAccent : colors.inkSoft },
+                  { color: mode === m ? colors.accent : colors.inkSoft },
                 ]}
               >
                 {m.toUpperCase()}
@@ -464,5 +464,5 @@ const styles = StyleSheet.create({
     overflow: "hidden",
   },
   modeBtn: { paddingHorizontal: 10, paddingVertical: 4 },
-  modeText: { fontSize: 12, fontWeight: "600" },
+  modeText: { fontSize: 13, fontWeight: "600" },
 });

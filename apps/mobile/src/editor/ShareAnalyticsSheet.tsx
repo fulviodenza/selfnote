@@ -27,7 +27,7 @@ import { radius, shadow, sizing, spacing } from "../theme";
 import type { Palette, TypeRoles } from "../theme";
 import { useTheme } from "../theme-context";
 import { relativeTime } from "../components/history/format";
-import { Button, IconButton, useToast } from "../ui";
+import { Button, IconButton, Sheet, useToast } from "../ui";
 
 /** The web origin that serves `/shared/:id` (strip the trailing `/api`). */
 function shareOrigin(): string {
@@ -113,15 +113,9 @@ export function ShareAnalyticsSheet({
   };
 
   return (
-    <Modal visible transparent animationType="slide" onRequestClose={onClose}>
-      <View style={styles.overlay}>
-        <Pressable style={styles.scrim} onPress={onClose} accessibilityLabel="Close" />
-        <View style={[styles.panel, { backgroundColor: colors.surface }]}>
-          <View style={[styles.grabber, { backgroundColor: colors.hairline }]} />
-          <View style={styles.header}>
-            <Text style={type.title}>Share links</Text>
-            <IconButton icon="x" label="Close" onPress={onClose} />
-          </View>
+    // The Modal lifts the sheet above the editor WebView; the sheet is ui/Sheet.
+    <Modal visible transparent animationType="none" onRequestClose={onClose}>
+      <Sheet title="Share links" onClose={onClose} scroll={false}>
 
           {loading ? (
             <ActivityIndicator color={colors.accent} style={styles.loading} />
@@ -148,8 +142,7 @@ export function ShareAnalyticsSheet({
           )}
 
           <Button label="Create share link" onPress={create} loading={creating} />
-        </View>
-      </View>
+      </Sheet>
     </Modal>
   );
 }
@@ -186,25 +179,6 @@ function ShareRow({ share, onCopy }: { share: ShareAnalytics; onCopy: () => void
 
 const makeStyles = (colors: Palette, type: TypeRoles) =>
   StyleSheet.create({
-    overlay: { ...StyleSheet.absoluteFillObject, justifyContent: "flex-end" },
-    scrim: { ...StyleSheet.absoluteFillObject, backgroundColor: "rgba(20,22,28,0.45)" },
-    panel: {
-      borderTopLeftRadius: radius.lg,
-      borderTopRightRadius: radius.lg,
-      padding: spacing.xxl,
-      paddingBottom: spacing.xxxl,
-      gap: spacing.lg,
-      maxHeight: "80%",
-      ...shadow.floating,
-    },
-    grabber: {
-      alignSelf: "center",
-      width: 40,
-      height: 4,
-      borderRadius: radius.full,
-      marginBottom: spacing.sm,
-    },
-    header: { flexDirection: "row", alignItems: "center", justifyContent: "space-between" },
     loading: { alignSelf: "center", paddingVertical: spacing.xl },
     list: { maxHeight: 360 },
     emptyContainer: { paddingVertical: spacing.xl },
@@ -225,7 +199,6 @@ const makeStyles = (colors: Palette, type: TypeRoles) =>
       paddingVertical: 2,
       overflow: "hidden",
       fontWeight: "600",
-      textTransform: "uppercase",
     },
     badgeRw: { color: colors.accent, backgroundColor: colors.accentWash },
     url: { flex: 1, color: colors.ink },

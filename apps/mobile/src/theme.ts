@@ -86,6 +86,9 @@ export const sizing = {
   iconVisual: 44,
 } as const;
 
+/** The one scrim behind sheets and dialogs (tokens.json "scrim"). */
+export const scrim = "rgba(20, 22, 28, 0.45)";
+
 /** The one allowed floating shadow (FAB, active sheet). Elsewhere use hairlines. */
 export const shadow = {
   floating: {
