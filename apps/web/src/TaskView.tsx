@@ -9,7 +9,8 @@ import { api, type Task, type TaskStatus } from "./api";
 import {
   GROUP_LABEL,
   OPEN_GROUPS,
-  PRIORITY_COLOR,
+  PRIORITY_LABEL,
+  PRIORITY_MARK,
   STATUS_LABEL,
   groupTasks,
   relativeDue,
@@ -153,11 +154,9 @@ function TaskRow({
         {task.title || "Untitled"}
       </span>
       {task.priority !== "none" && (
-        <span
-          className="task-dot"
-          style={{ background: PRIORITY_COLOR[task.priority] }}
-          title={task.priority}
-        />
+        <span className={`task-prio prio-${task.priority}`} title={PRIORITY_LABEL[task.priority]}>
+          {PRIORITY_MARK[task.priority]}
+        </span>
       )}
       {task.due_at && <span className="task-row-due">{relativeDue(task)}</span>}
     </div>

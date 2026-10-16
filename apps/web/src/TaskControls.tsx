@@ -15,7 +15,7 @@ import { api, type Task } from "./api";
 import {
   NEXT_STATUS,
   PRIORITIES,
-  PRIORITY_COLOR,
+  PRIORITY_MARK,
   PRIORITY_LABEL,
   STATUS_LABEL,
   fromDateTimeInput,
@@ -128,7 +128,10 @@ function TaskEditor({
         title="Cycle status"
       >
         <span className="task-pill-mark">
-          <Icon name={task.status === "done" ? "check" : "circle"} size={14} />
+          <Icon
+            name={task.status === "done" ? "check" : task.status === "in_progress" ? "clock" : "circle"}
+            size={14}
+          />
         </span>
         {STATUS_LABEL[task.status]}
       </button>
@@ -136,7 +139,9 @@ function TaskEditor({
       <label className="task-field">
         <span className="task-field-label">Priority</span>
         <span className="task-select-wrap">
-          <span className="task-dot" style={{ background: PRIORITY_COLOR[task.priority] }} />
+          <span className={`task-prio prio-${task.priority}`} aria-hidden>
+            {PRIORITY_MARK[task.priority] || "\u2013"}
+          </span>
           <select
             className="task-select"
             value={task.priority}

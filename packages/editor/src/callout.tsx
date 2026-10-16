@@ -181,17 +181,18 @@ export const CALLOUT_CSS = `
   --callout-accent: var(--accent, #2b44c7);
   --callout-wash: var(--accent-wash, #eaedfb);
 }
+/* One hue: tip and important are ink, told apart by their icon. */
 .callout-tip {
-  --callout-accent: var(--live, #1f9e6a);
-  --callout-wash: color-mix(in srgb, var(--live, #1f9e6a) 12%, transparent);
+  --callout-accent: var(--fg, #1b1d22);
+  --callout-wash: var(--hover, #ecece8);
 }
 .callout-warning {
   --callout-accent: var(--warn, #c1841e);
   --callout-wash: color-mix(in srgb, var(--warn, #c1841e) 14%, transparent);
 }
 .callout-important {
-  --callout-accent: #8b5cf6;
-  --callout-wash: color-mix(in srgb, #8b5cf6 12%, transparent);
+  --callout-accent: var(--fg, #1b1d22);
+  --callout-wash: var(--hover, #ecece8);
 }
 .callout-caution {
   --callout-accent: var(--danger, #c4392b);

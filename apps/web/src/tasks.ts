@@ -130,10 +130,14 @@ export const PRIORITY_LABEL: Record<TaskPriority, string> = {
   high: "High",
 };
 
-/** Themed dot colour per priority (`none` = no dot). */
-export const PRIORITY_COLOR: Record<TaskPriority, string> = {
-  none: "transparent",
-  low: "var(--muted)",
-  medium: "var(--warn)",
-  high: "var(--danger)",
+/**
+ * Priority mark: weight, not hue. The count of marks says how urgent, and the
+ * ink darkens with it (`.task-prio` in styles.css). Same mapping on mobile
+ * (apps/mobile/src/screens/PriorityDot.tsx).
+ */
+export const PRIORITY_MARK: Record<TaskPriority, string> = {
+  none: "",
+  low: "!",
+  medium: "!!",
+  high: "!!!",
 };

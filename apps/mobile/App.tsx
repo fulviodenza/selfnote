@@ -61,6 +61,7 @@ import type { Palette, TypeRoles } from "./src/theme";
 import {
   Button,
   IconButton,
+  Chip,
   Input,
   Row,
   Screen,
@@ -1036,22 +1037,13 @@ function DocListScreen({
           {usedLabels.map((l) => {
             const on = filterLabel === l.id;
             return (
-              <Pressable
+              <Chip
                 key={l.id}
+                label={l.name}
+                selected={on}
                 onPress={() => setFilterLabel((cur) => (cur === l.id ? null : l.id))}
-                style={[
-                  styles.labelFilterChip,
-                  { borderColor: colors.hairline },
-                  on && { backgroundColor: colors.accentWash, borderColor: colors.accentWash },
-                ]}
-                accessibilityRole="button"
-                accessibilityState={{ selected: on }}
                 accessibilityLabel={`Filter by label ${l.name}`}
-              >
-                <Text style={[styles.labelFilterText, on && { color: colors.accent, fontWeight: "600" }]}>
-                  {l.name}
-                </Text>
-              </Pressable>
+              />
             );
           })}
         </ScrollView>
@@ -2117,16 +2109,6 @@ const makeStyles = (colors: Palette, type: TypeRoles) =>
     paddingBottom: spacing.xs,
     alignItems: "center",
   },
-  labelFilterChip: {
-    flexDirection: "row",
-    alignItems: "center",
-    gap: 5,
-    paddingHorizontal: 8,
-    paddingVertical: 3,
-    borderRadius: 999,
-    borderWidth: 1,
-  },
-  labelFilterText: { fontSize: 12, color: colors.inkSoft },
   searchSection: {
     fontSize: 11,
     fontWeight: "600",

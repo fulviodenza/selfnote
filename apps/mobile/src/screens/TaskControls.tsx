@@ -31,7 +31,7 @@ import { radius, spacing, sizing } from "../theme";
 import type { Palette, TypeRoles } from "../theme";
 import { useTheme } from "../theme-context";
 import { Button, Sheet } from "../ui";
-import { PriorityDot } from "./PriorityDot";
+import { PriorityMark } from "./PriorityMark";
 import { DuePickerSheet } from "./DuePickerSheet";
 
 /**
@@ -148,13 +148,13 @@ export function TaskControls({
               onPress={() => cycleStatus(s)}
               style={[
                 styles.segmentItem,
-                active && { backgroundColor: colors.accent },
+                active && { backgroundColor: colors.accentWash },
               ]}
             >
               <Text
                 style={[
                   type.meta,
-                  { color: active ? colors.onAccent : colors.inkSoft, fontWeight: active ? "600" : "400" },
+                  { color: active ? colors.accent : colors.inkSoft, fontWeight: active ? "600" : "400" },
                 ]}
                 numberOfLines={1}
               >
@@ -176,7 +176,7 @@ export function TaskControls({
             { backgroundColor: pressed ? colors.surfaceSunken : colors.surface },
           ]}
         >
-          <PriorityDot priority={task.priority} />
+          <PriorityMark priority={task.priority} />
           <Text style={[type.meta, { color: colors.ink }]}>{PRIORITY_LABEL[task.priority]}</Text>
         </Pressable>
 
@@ -227,7 +227,7 @@ export function TaskControls({
                 { backgroundColor: pressed ? colors.surfaceSunken : "transparent" },
               ]}
             >
-              <PriorityDot priority={p} />
+              <PriorityMark priority={p} />
               <Text style={[type.body, { color: colors.ink, flex: 1 }]}>{PRIORITY_LABEL[p]}</Text>
               {task.priority === p ? (
                 <Feather name="check" size={16} color={colors.accent} />

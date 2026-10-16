@@ -703,15 +703,18 @@ const makeMarkdownStyles = (colors: Palette) => ({
   td: { padding: 6, borderColor: colors.hairline },
 });
 
-/** Accent + wash colors per callout kind, from the app palette. */
+/**
+ * Accent + wash per callout kind, from the live palette so dark mode follows.
+ * One hue: note is the accent, tip and important are ink (their icon tells
+ * them apart), warning and caution keep the semantic warn and danger.
+ */
 function calloutColors(colors: Palette, kind: CalloutKind): { accent: string; wash: string } {
   switch (kind) {
     case "tip":
-      return { accent: "#1F9E6A", wash: "#E4F4EE" };
-    case "warning":
-      return { accent: colors.warn, wash: "#F7EEDD" };
     case "important":
-      return { accent: "#8B5CF6", wash: "#EEE8FB" };
+      return { accent: colors.ink, wash: colors.surfaceSunken };
+    case "warning":
+      return { accent: colors.warn, wash: colors.surfaceSunken };
     case "caution":
       return { accent: colors.danger, wash: colors.dangerWash };
     default:

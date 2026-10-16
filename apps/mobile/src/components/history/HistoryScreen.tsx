@@ -23,7 +23,7 @@ import { api, type Checkpoint, type CheckpointKind } from "../../api";
 import { useTheme } from "../../theme-context";
 import { radius, sizing, spacing } from "../../theme";
 import type { Palette, TypeRoles } from "../../theme";
-import { IconButton, useToast } from "../../ui";
+import { Chip, IconButton, useToast } from "../../ui";
 import { HistoryEntry } from "./HistoryEntry";
 
 const PAGE = 50;
@@ -176,15 +176,7 @@ export function HistoryScreen({
             {FILTERS.map((f) => {
               const active = filter === f.key;
               return (
-                <Pressable
-                  key={f.key}
-                  onPress={() => setFilter(f.key)}
-                  accessibilityRole="button"
-                  accessibilityState={{ selected: active }}
-                  style={[styles.chip, active && styles.chipActive]}
-                >
-                  <Text style={[styles.chipText, active && styles.chipTextActive]}>{f.label}</Text>
-                </Pressable>
+                <Chip key={f.key} label={f.label} selected={active} onPress={() => setFilter(f.key)} />
               );
             })}
           </View>
@@ -272,16 +264,6 @@ const makeStyles = (colors: Palette, type: TypeRoles) =>
       borderBottomWidth: 1,
       borderBottomColor: colors.hairline,
     },
-    chip: {
-      minHeight: 32,
-      justifyContent: "center",
-      paddingHorizontal: spacing.md,
-      borderRadius: radius.full,
-      backgroundColor: colors.surfaceSunken,
-    },
-    chipActive: { backgroundColor: colors.accent },
-    chipText: { ...type.label, color: colors.inkSoft },
-    chipTextActive: { color: colors.onAccent },
     center: {
       flexGrow: 1,
       alignItems: "center",
