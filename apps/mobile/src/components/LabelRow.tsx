@@ -23,7 +23,8 @@ import {
   View,
 } from "react-native";
 import { api, type BulkLabelStatus, type Label, type LabelSuggestion } from "../api";
-import { hitSlop, spacing } from "../theme";
+import { hitSlop, radius, spacing } from "../theme";
+import { Sheet } from "../ui";
 import { useTheme } from "../theme-context";
 
 /**
@@ -300,10 +301,10 @@ export function LabelRow({
         {trailing}
       </ScrollView>
 
-      <Modal visible={sheetOpen} transparent animationType="slide" onRequestClose={closeSheet}>
-        <Pressable style={styles.scrim} onPress={closeSheet} />
-        <View style={styles.sheet}>
-          <Text style={styles.sheetTitle}>Labels</Text>
+      {/* The Modal only lifts the sheet out of the row so it can cover the
+          screen; the sheet itself is the shared ui/Sheet. */}
+      <Modal visible={sheetOpen} transparent animationType="none" onRequestClose={closeSheet}>
+        <Sheet title="Labels" onClose={closeSheet} scroll={false}>
           <TextInput
             style={styles.input}
             value={query}
@@ -384,7 +385,7 @@ export function LabelRow({
               <Text style={styles.empty}>No labels yet. Type to create one.</Text>
             ) : null}
           </ScrollView>
-        </View>
+        </Sheet>
       </Modal>
     </View>
   );
@@ -412,7 +413,7 @@ const makeStyles = (colors: ReturnType<typeof useTheme>["colors"]) =>
       borderColor: colors.hairline,
     },
     suggestion: { borderStyle: "dashed" },
-    chipText: { fontSize: 12, color: colors.ink },
+    chipText: { fontSize: 13, color: colors.ink },
     addBtn: {
       flexDirection: "row",
       alignItems: "center",
@@ -424,24 +425,15 @@ const makeStyles = (colors: ReturnType<typeof useTheme>["colors"]) =>
       borderStyle: "dashed",
       borderColor: colors.hairline,
     },
-    addText: { fontSize: 12, color: colors.inkSoft },
-    scrim: { flex: 1, backgroundColor: "rgba(0,0,0,0.4)" },
-    sheet: {
-      backgroundColor: colors.surface,
-      borderTopLeftRadius: 16,
-      borderTopRightRadius: 16,
-      padding: spacing.md,
-      maxHeight: "70%",
-    },
-    sheetTitle: { fontSize: 16, fontWeight: "600", color: colors.ink, marginBottom: spacing.sm },
+    addText: { fontSize: 13, color: colors.inkSoft },
     input: {
       borderWidth: 1,
       borderColor: colors.hairline,
-      borderRadius: 10,
-      paddingHorizontal: 10,
-      paddingVertical: 8,
+      borderRadius: radius.sm,
+      paddingHorizontal: spacing.lg,
+      minHeight: 48,
       color: colors.ink,
-      fontSize: 14,
+      fontSize: 16,
     },
     list: { marginTop: spacing.sm },
     item: {
@@ -473,5 +465,5 @@ const makeStyles = (colors: ReturnType<typeof useTheme>["colors"]) =>
       marginHorizontal: spacing.md,
       marginBottom: spacing.xs,
     },
-    bulkText: { fontSize: 12, color: colors.accent },
+    bulkText: { fontSize: 13, color: colors.accent },
   });

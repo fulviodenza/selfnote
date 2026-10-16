@@ -19,7 +19,7 @@ import {
   type ExtraDoc,
 } from "../api";
 import { useTheme } from "../theme-context";
-import { hitSlop, radius, shadow, sizing, spacing } from "../theme";
+import { hitSlop, radius, scrim, shadow, sizing, spacing } from "../theme";
 import type { Palette, TypeRoles } from "../theme";
 import { IconButton } from "../ui";
 import { ContextPickerSheet } from "./ContextPickerSheet";
@@ -50,11 +50,11 @@ function extractInsertable(md: string): string {
 }
 
 /** The five callout kinds (GitHub-alert parity), matching the editor. */
-const CALLOUT_KINDS = ["note", "tip", "warning", "important", "caution"] as const;
-type CalloutKind = (typeof CALLOUT_KINDS)[number];
+export const CALLOUT_KINDS = ["note", "tip", "warning", "important", "caution"] as const;
+export type CalloutKind = (typeof CALLOUT_KINDS)[number];
 
 /** Feather icon name per callout kind (mirrors the editor's icon choices). */
-const CALLOUT_ICON: Record<CalloutKind, React.ComponentProps<typeof Feather>["name"]> = {
+export const CALLOUT_ICON: Record<CalloutKind, React.ComponentProps<typeof Feather>["name"]> = {
   note: "info",
   tip: "check-circle",
   warning: "alert-triangle",
@@ -494,7 +494,7 @@ export function AssistDrawer({
 const makeStyles = (colors: Palette, type: TypeRoles) =>
   StyleSheet.create({
     overlay: { ...StyleSheet.absoluteFillObject, flexDirection: "row" },
-    scrim: { flex: 1, backgroundColor: "rgba(20,22,28,0.35)" },
+    scrim: { flex: 1, backgroundColor: scrim },
     panel: {
       width: "88%",
       maxWidth: 460,
@@ -591,7 +591,6 @@ const makeStyles = (colors: Palette, type: TypeRoles) =>
     chipTitle: { ...type.meta, color: colors.ink, flexShrink: 1 },
     chipTag: {
       ...type.meta,
-      fontSize: 11,
       color: colors.accent,
       backgroundColor: colors.accentWash,
       borderRadius: radius.full,
@@ -708,7 +707,7 @@ const makeMarkdownStyles = (colors: Palette) => ({
  * One hue: note is the accent, tip and important are ink (their icon tells
  * them apart), warning and caution keep the semantic warn and danger.
  */
-function calloutColors(colors: Palette, kind: CalloutKind): { accent: string; wash: string } {
+export function calloutColors(colors: Palette, kind: CalloutKind): { accent: string; wash: string } {
   switch (kind) {
     case "tip":
     case "important":

@@ -9,7 +9,7 @@ import {
   Text,
   View,
 } from "react-native";
-import { radius, shadow, spacing } from "../theme";
+import { radius, scrim, shadow, spacing } from "../theme";
 import { useTheme } from "../theme-context";
 import { IconButton } from "./IconButton";
 
@@ -115,7 +115,7 @@ export function Sheet({
 
 const styles = StyleSheet.create({
   overlay: { ...StyleSheet.absoluteFillObject, justifyContent: "flex-end" },
-  scrim: { ...StyleSheet.absoluteFillObject, backgroundColor: "rgba(20,22,28,0.45)" },
+  scrim: { ...StyleSheet.absoluteFillObject, backgroundColor: scrim },
   panel: {
     borderTopLeftRadius: radius.lg,
     borderTopRightRadius: radius.lg,

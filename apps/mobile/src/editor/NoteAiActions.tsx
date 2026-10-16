@@ -24,7 +24,7 @@ import {
   type ChatStreamHandle,
 } from "../api";
 import { useTheme } from "../theme-context";
-import { hitSlop, radius, shadow, sizing, spacing } from "../theme";
+import { hitSlop, radius, scrim, shadow, sizing, spacing } from "../theme";
 import type { Palette, TypeRoles } from "../theme";
 import { IconButton } from "../ui";
 import type { EditorSelection } from "./WebViewEditor";
@@ -311,7 +311,7 @@ const makeStyles = (colors: Palette, type: TypeRoles) =>
   StyleSheet.create({
     flex: { flex: 1 },
     overlay: { ...StyleSheet.absoluteFillObject, justifyContent: "flex-end" },
-    scrim: { ...StyleSheet.absoluteFillObject, backgroundColor: "rgba(20,22,28,0.45)" },
+    scrim: { ...StyleSheet.absoluteFillObject, backgroundColor: scrim },
     panel: {
       backgroundColor: colors.surface,
       borderTopLeftRadius: radius.lg,

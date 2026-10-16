@@ -76,6 +76,7 @@ import { useAndroidBack } from "./src/hooks/useAndroidBack";
 import { MakeTaskButton, TaskControls } from "./src/screens/TaskControls";
 import { BulkLabelButton, LabelRow } from "./src/components/LabelRow";
 import { PresenceChips } from "./src/components/PresenceChips";
+import { ShowcaseScreen } from "./src/screens/ShowcaseScreen";
 import { TabCountButton, TabSwitcherScreen } from "./src/components/TabSwitcherScreen";
 import { TasksScreen } from "./src/screens/TasksScreen";
 import { AssetsScreen } from "./src/screens/AssetsScreen";
@@ -1974,6 +1975,7 @@ function SettingsScreen({
   const [syncUrl, setSyncUrl] = useState(current.syncUrl);
   const [apiUrl, setApiUrl] = useState(current.apiUrl);
   const [saved, setSaved] = useState(false);
+  const [showcase, setShowcase] = useState(false);
   // Voice settings only make sense when the server has an AI provider.
   const [aiAvailable, setAiAvailable] = useState(false);
 
@@ -2058,6 +2060,10 @@ function SettingsScreen({
 
       {workspaceId ? <CalendarFeedSection workspaceId={workspaceId} /> : null}
 
+      <Text style={type.label}>Design</Text>
+      <Button variant="secondary" label="Component showcase" onPress={() => setShowcase(true)} />
+      {showcase ? <ShowcaseScreen onClose={() => setShowcase(false)} /> : null}
+
       <Text style={type.label}>This device</Text>
       <Button variant="destructive" label="Delete all data on this phone" onPress={deleteAllData} />
     </Sheet>
@@ -2110,17 +2116,15 @@ const makeStyles = (colors: Palette, type: TypeRoles) =>
     alignItems: "center",
   },
   searchSection: {
-    fontSize: 11,
+    fontSize: 13,
     fontWeight: "600",
-    letterSpacing: 0.5,
-    textTransform: "uppercase",
     color: colors.inkSoft,
     paddingHorizontal: spacing.md,
     paddingTop: spacing.md,
     paddingBottom: spacing.xs,
   },
-  searchHint: { fontSize: 11, color: colors.inkSoft },
-  searchSnippet: { fontSize: 12, color: colors.inkSoft, marginTop: 2 },
+  searchHint: { fontSize: 13, color: colors.inkSoft },
+  searchSnippet: { fontSize: 13, color: colors.inkSoft, marginTop: 2 },
   searchMark: { color: colors.ink, fontWeight: "600" },
   chevron: { width: 28, height: 28, alignItems: "center", justifyContent: "center" },
   // Bounded so a large workspace's picker cannot push the sheet off-screen.
