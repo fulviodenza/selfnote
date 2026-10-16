@@ -20,11 +20,13 @@
 interface DividerBlock {
   id: string;
   type?: string;
+  children?: unknown[];
   content?: Array<{ type?: string; text?: string }>;
 }
 
 /** The slice of the BlockNote editor this rule needs. */
 export interface DividerEditorApi {
+  isEditable?: boolean;
   _tiptapEditor?: {
     view?: { dom?: HTMLElement };
     state?: {
@@ -45,6 +47,8 @@ export interface DividerEditorApi {
 /** True when the block is a paragraph whose whole text is `--`. */
 function isDashPair(block: DividerBlock): boolean {
   if (block.type !== "paragraph" || !Array.isArray(block.content)) return false;
+  // A parent's new line would land after its whole subtree, not below the divider.
+  if (block.children?.length) return false;
   if (!block.content.every((c) => c.type === "text")) return false;
   return block.content.map((c) => c.text ?? "").join("") === "--";
 }
@@ -57,6 +61,10 @@ export function registerDividerInputRule(editor: DividerEditorApi): () => void {
 
   const onBeforeInput = (e: InputEvent) => {
     if (e.inputType !== "insertText" || e.data !== "-" || e.isComposing) return;
+    // The writes below go through the BlockNote API, which has no editable
+    // guard of its own. A non-cancelable event would also insert the dash after
+    // the caret has already moved on.
+    if (!e.cancelable || editor.isEditable === false) return;
     if (!editor.schema?.blockSchema?.divider) return;
     const sel = tiptap.state?.selection;
     if (!sel || !sel.empty || sel.$from.parentOffset !== sel.$from.parent.content.size) return;

@@ -559,12 +559,17 @@ export function editorHtml(theme: "light" | "dark"): string {
         const tiptap = editor._tiptapEditor;
         dom.addEventListener("beforeinput", (e) => {
           if (e.inputType !== "insertText" || e.data !== "-" || e.isComposing) return;
+          // Writes below bypass ProseMirror's editable guard, and a
+          // non-cancelable event would insert the dash after the caret moved.
+          if (!e.cancelable || editor.isEditable === false) return;
           try {
             if (!editor.schema.blockSchema.divider) return;
             const sel = tiptap.state.selection;
             if (!sel.empty || sel.$from.parentOffset !== sel.$from.parent.content.size) return;
             const block = editor.getTextCursorPosition().block;
             if (block.type !== "paragraph" || !Array.isArray(block.content)) return;
+            // A parent's new line would land after its subtree, not below the divider.
+            if (block.children && block.children.length) return;
             if (!block.content.every((n) => n && n.type === "text")) return;
             if (block.content.map((n) => n.text || "").join("") !== "--") return;
             // Dispatches once, when the callback returns: a throw leaves the
