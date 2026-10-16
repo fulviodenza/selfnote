@@ -85,7 +85,7 @@ export function VoiceSettingsCard() {
               {updatedAt ? ` · saved ${new Date(updatedAt).toLocaleDateString()}` : ""}
               {ok ? " · updated" : ""}
             </span>
-            <button className="voice-save" onClick={save} disabled={busy || !dirty}>
+            <button className="btn btn-primary voice-save" onClick={save} disabled={busy || !dirty}>
               {busy ? "Saving…" : "Save voice"}
             </button>
           </div>

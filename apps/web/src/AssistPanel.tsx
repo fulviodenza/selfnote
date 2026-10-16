@@ -416,12 +416,12 @@ export function AssistPanel({
           }}
         />
         {busy ? (
-          <button className="assist-send stop" onClick={stop} aria-label="Stop">
+          <button className="btn btn-primary btn-icon assist-send stop" onClick={stop} aria-label="Stop">
             <Icon name="square" size={16} />
           </button>
         ) : (
           <button
-            className="assist-send"
+            className="btn btn-primary btn-icon assist-send"
             onClick={() => void send(input)}
             disabled={!input.trim()}
             aria-label="Send"

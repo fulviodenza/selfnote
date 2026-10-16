@@ -93,7 +93,7 @@ export function ConnectionsModal({
             placeholder="Token name (e.g. Claude on my laptop)"
             onKeyDown={(e) => e.key === "Enter" && create()}
           />
-          <button onClick={create} disabled={!name.trim() || creating}>
+          <button className="btn btn-primary" onClick={create} disabled={!name.trim() || creating}>
             {creating ? "Creating…" : "Generate"}
           </button>
         </div>

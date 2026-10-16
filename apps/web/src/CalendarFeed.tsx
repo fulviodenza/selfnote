@@ -104,7 +104,7 @@ export function CalendarFeedCard({ workspaceId }: { workspaceId: string }) {
       {feed == null ? (
         <div className="conn-muted">Loading…</div>
       ) : !enabled ? (
-        <button className="cal-enable" onClick={issue} disabled={busy}>
+        <button className="btn btn-primary cal-enable" onClick={issue} disabled={busy}>
           {busy ? "Enabling…" : "Enable calendar feed"}
         </button>
       ) : (

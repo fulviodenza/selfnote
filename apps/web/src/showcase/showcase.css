@@ -1,0 +1,141 @@
+/* Layout for the showcase page only. The components it shows use styles.css. */
+html,
+body,
+#root {
+  height: auto;
+}
+.sc-host {
+  overflow: auto;
+}
+.sc-frames {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(420px, 1fr));
+}
+.sc-frame {
+  width: 100%;
+  border: none;
+  display: block;
+}
+.sc-page {
+  max-width: 760px;
+  margin: 0 auto;
+  padding: 32px 28px 64px;
+  background: var(--paper);
+  color: var(--fg);
+}
+.sc-head {
+  margin-bottom: 8px;
+}
+.sc-h1 {
+  margin: 0 0 6px;
+  font-family: var(--font-serif);
+  font-size: 28px;
+  font-weight: 600;
+}
+.sc-section {
+  padding: 24px 0;
+  border-top: 1px solid var(--border);
+}
+.sc-title {
+  margin: 0 0 4px;
+  font-size: 16px;
+  font-weight: 600;
+}
+.sc-note {
+  margin: 0 0 14px;
+  color: var(--muted);
+  font-size: 13px;
+  line-height: 1.5;
+}
+.sc-row {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 10px;
+  margin-bottom: 10px;
+}
+.sc-end {
+  justify-content: flex-end;
+  margin: 0;
+}
+.sc-stack {
+  display: grid;
+  gap: 4px;
+}
+.sc-swatches {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(150px, 1fr));
+  gap: 10px;
+}
+.sc-swatch {
+  display: grid;
+  grid-template-columns: 28px 1fr;
+  column-gap: 8px;
+  align-items: center;
+  font-size: 13px;
+}
+.sc-chipcolor {
+  grid-row: span 2;
+  width: 28px;
+  height: 28px;
+  border-radius: var(--radius-sm);
+  border: 1px solid var(--border);
+}
+.sc-code {
+  color: var(--muted);
+  font-size: 12px;
+}
+.sc-type {
+  display: grid;
+  gap: 6px;
+}
+.sc-box {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 96px;
+  min-height: 56px;
+  padding: 8px 12px;
+  border: 1px solid var(--border);
+  background: var(--bg);
+  font-size: 13px;
+  color: var(--muted);
+}
+.sc-wide {
+  width: 100%;
+  border-radius: var(--radius-md);
+}
+.sc-prio,
+.sc-status {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 13px;
+}
+.sc-dot {
+  width: 10px;
+  height: 10px;
+  border-radius: var(--radius-full);
+}
+.sc-banner {
+  margin: 0;
+}
+.sc-scrim {
+  display: flex;
+  justify-content: center;
+  padding: 32px 16px;
+  border-radius: var(--radius-md);
+  background: var(--scrim);
+}
+.sc-sheet {
+  display: grid;
+  gap: 14px;
+  width: min(360px, 100%);
+  padding: 20px;
+}
+.sc-sheet-title {
+  margin: 0;
+  font-family: var(--font-serif);
+  font-size: 18px;
+  font-weight: 500;
+}

@@ -1,8 +1,18 @@
+import { resolve } from "node:path";
 import { defineConfig } from "vite";
 import react from "@vitejs/plugin-react";
 
 export default defineConfig({
   plugins: [react()],
+  build: {
+    // The app, plus the component showcase at /showcase.html.
+    rollupOptions: {
+      input: {
+        main: resolve(__dirname, "index.html"),
+        showcase: resolve(__dirname, "showcase.html"),
+      },
+    },
+  },
   server: {
     port: 5173,
     // Mirror the production nginx layout (apps/web/nginx.conf): /api/* → the
