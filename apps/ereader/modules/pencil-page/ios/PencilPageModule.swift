@@ -188,7 +188,7 @@ class PencilPageView: ExpoView, PKCanvasViewDelegate {
     for raw in parsed {
       guard let pts = raw["p"] as? [[Double]], !pts.isEmpty else { continue }
       let base = CGFloat((raw["w"] as? Double) ?? 3.2)
-      let color = colorFromHex((raw["c"] as? String) ?? "#1b2a3a")
+      let color = colorFromHex((raw["c"] as? String) ?? "#1B1D22")
       var controlPoints: [PKStrokePoint] = []
       var time: TimeInterval = 0
       for p in pts {
@@ -234,7 +234,7 @@ class PencilPageView: ExpoView, PKCanvasViewDelegate {
     var value: UInt64 = 0
     let cleaned = hex.hasPrefix("#") ? String(hex.dropFirst()) : hex
     guard Scanner(string: cleaned).scanHexInt64(&value), cleaned.count == 6 else {
-      return UIColor(red: 0.11, green: 0.16, blue: 0.23, alpha: 1)
+      return UIColor(red: 27 / 255, green: 29 / 255, blue: 34 / 255, alpha: 1)
     }
     return UIColor(
       red: CGFloat((value >> 16) & 0xff) / 255,

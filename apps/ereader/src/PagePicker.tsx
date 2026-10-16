@@ -5,11 +5,13 @@
  * Per book rather than global, because that is how reading works. "X notes" and
  * "Y notes" are different pages and nobody wants both books in one.
  */
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 import {
   ActivityIndicator, FlatList, StyleSheet, Text, TextInput, TouchableOpacity, View,
 } from "react-native";
 import { createPage, searchPages, type Connection, type Page } from "./selfnote";
+import { fonts, radius, spacing, type Palette, type TypeRoles } from "./theme";
+import { useTheme } from "./theme-context";
 
 export function PagePicker({
   connection,
@@ -30,6 +32,8 @@ export function PagePicker({
   const [loading, setLoading] = useState(true);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const { colors, type } = useTheme();
+  const styles = useMemo(() => makeStyles(colors, type), [colors, type]);
 
   const refresh = useCallback(
     async (q: string) => {
@@ -84,6 +88,7 @@ export function PagePicker({
         value={query}
         onChangeText={setQuery}
         placeholder="Page name"
+        placeholderTextColor={colors.inkFaint}
         autoCapitalize="sentences"
         autoCorrect={false}
       />
@@ -99,7 +104,7 @@ export function PagePicker({
       {!exactExists && query.trim() ? (
         <TouchableOpacity style={[styles.create, busy && styles.busy]} onPress={create} disabled={busy}>
           {busy ? (
-            <ActivityIndicator color="#fff" />
+            <ActivityIndicator color={colors.onAccent} />
           ) : (
             <Text style={styles.createText}>Create "{query.trim()}"</Text>
           )}
@@ -107,7 +112,7 @@ export function PagePicker({
       ) : null}
 
       {loading ? (
-        <ActivityIndicator style={styles.spinner} />
+        <ActivityIndicator style={styles.spinner} color={colors.inkSoft} />
       ) : (
         <FlatList
           data={pages}
@@ -119,7 +124,7 @@ export function PagePicker({
               <Text style={styles.rowTitle} numberOfLines={1}>
                 {item.title || "Untitled"}
               </Text>
-              {current?.id === item.id ? <Text style={styles.current}>current</Text> : null}
+              {current?.id === item.id ? <Text style={styles.current}>Current</Text> : null}
             </TouchableOpacity>
           )}
         />
@@ -128,34 +133,45 @@ export function PagePicker({
   );
 }
 
-const styles = StyleSheet.create({
-  fill: { flex: 1, backgroundColor: "#faf5ef" },
-  header: { paddingHorizontal: 24, paddingTop: 60, paddingBottom: 10 },
-  back: { fontSize: 16, color: "#3730c4", fontWeight: "600", marginBottom: 16 },
-  title: { fontSize: 24, fontWeight: "700", color: "#1b1b1b" },
-  sub: { fontSize: 15, color: "#6b6b6b", marginTop: 4 },
-  input: {
-    marginHorizontal: 24, marginTop: 12, borderWidth: 1, borderColor: "#e0d8cb",
-    borderRadius: 10, backgroundColor: "#fffdfa", paddingHorizontal: 14,
-    paddingVertical: 13, fontSize: 16, color: "#1b1b1b",
-  },
-  create: {
-    marginHorizontal: 24, marginTop: 12, paddingVertical: 14, borderRadius: 10,
-    backgroundColor: "#3730c4", alignItems: "center",
-  },
-  busy: { opacity: 0.7 },
-  createText: { color: "#fff", fontSize: 15, fontWeight: "600" },
-  clear: { marginHorizontal: 24, marginTop: 12, paddingVertical: 10 },
-  clearText: { color: "#b3261e", fontSize: 14, fontWeight: "600" },
-  error: { marginHorizontal: 24, marginTop: 12, fontSize: 14, color: "#b3261e" },
-  spinner: { marginTop: 28 },
-  list: { paddingHorizontal: 24, paddingTop: 16, paddingBottom: 60 },
-  empty: { fontSize: 15, color: "#8a8a8a", paddingTop: 10 },
-  row: {
-    flexDirection: "row", alignItems: "center", gap: 10, paddingVertical: 15,
-    paddingHorizontal: 16, marginBottom: 8, borderRadius: 11,
-    backgroundColor: "#fffdfa", borderWidth: 1, borderColor: "#eae2d6",
-  },
-  rowTitle: { flex: 1, fontSize: 16, color: "#1b1b1b" },
-  current: { fontSize: 12, color: "#3730c4", fontWeight: "700" },
-});
+const makeStyles = (colors: Palette, type: TypeRoles) =>
+  StyleSheet.create({
+    fill: { flex: 1, backgroundColor: colors.paper },
+    header: { paddingHorizontal: spacing.xxl, paddingTop: 60, paddingBottom: 10 },
+    back: { ...type.button, color: colors.accent, marginBottom: spacing.lg },
+    title: {
+      fontFamily: fonts.serif,
+      fontSize: 24,
+      lineHeight: 30,
+      fontWeight: "600",
+      color: colors.ink,
+    },
+    sub: { fontSize: 15, color: colors.inkSoft, marginTop: spacing.xs },
+    input: {
+      ...type.body, height: 52, marginHorizontal: spacing.xxl, marginTop: spacing.md,
+      borderWidth: 1, borderColor: colors.hairline, borderRadius: radius.sm,
+      backgroundColor: colors.surface, paddingHorizontal: spacing.lg,
+    },
+    create: {
+      marginHorizontal: spacing.xxl, marginTop: spacing.md, height: 48, borderRadius: radius.md,
+      backgroundColor: colors.accent, alignItems: "center", justifyContent: "center",
+    },
+    busy: { opacity: 0.7 },
+    createText: { ...type.button, color: colors.onAccent },
+    clear: { marginHorizontal: spacing.xxl, marginTop: spacing.md, paddingVertical: 10 },
+    clearText: { color: colors.danger, fontSize: 14, fontWeight: "600" },
+    error: {
+      marginHorizontal: spacing.xxl, marginTop: spacing.md, padding: spacing.md,
+      borderRadius: radius.sm, overflow: "hidden",
+      fontSize: 14, color: colors.danger, backgroundColor: colors.dangerWash,
+    },
+    spinner: { marginTop: 28 },
+    list: { paddingHorizontal: spacing.xxl, paddingTop: spacing.lg, paddingBottom: 60 },
+    empty: { fontSize: 15, color: colors.inkFaint, paddingTop: 10 },
+    row: {
+      flexDirection: "row", alignItems: "center", gap: 10, minHeight: 56,
+      paddingHorizontal: spacing.lg, marginBottom: spacing.sm, borderRadius: radius.md,
+      backgroundColor: colors.surface, borderWidth: 1, borderColor: colors.hairline,
+    },
+    rowTitle: { ...type.docTitle, flex: 1 },
+    current: { ...type.meta, fontWeight: "500" },
+  });

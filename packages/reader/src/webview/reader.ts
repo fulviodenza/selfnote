@@ -29,6 +29,8 @@ interface Highlight {
   id: string;
   cfi: string;
   color?: string | null;
+  /** Not yet in Selfnote: drawn with a dashed outline over the same fill. */
+  pending?: boolean;
 }
 
 /** A blank page inserted after a spine section. after_page is the section's
@@ -293,6 +295,8 @@ async function open(
   });
 
   applyTypography(rendition);
+  // A theme sent before the book opened only reached the outer page.
+  applyTheme(rendition);
   // A stored size needs nothing here: the content hook sizes each section as
   // it loads, from that section's own measured size, before the first layout
   // settles, so the book never paints at the default and then reflows.
@@ -364,6 +368,14 @@ function applyTypography(r: Rendition): void {
     img: { "max-width": "100%", height: "auto" },
     "pre, code": { "white-space": "pre-wrap", hyphens: "manual" },
   });
+}
+
+/** The book's own text and ground follow the page theme: ink and paper from
+ * packages/core/tokens.json, the same values build.mjs puts in its CSS. */
+function applyTheme(r: Rendition): void {
+  const dark = document.documentElement.dataset.theme === "dark";
+  r.themes.override("color", dark ? "#ECECEA" : "#1B1D22");
+  r.themes.override("background", dark ? "#17181C" : "#F3F3F0");
 }
 
 /* ------------------------------------------------------------- selection */
@@ -445,9 +457,10 @@ function applyHighlights(items: Highlight[]): void {
     if (existing) {
       // Already drawn in the colour it should be: leave it alone. Redrawing every
       // highlight on every update would flicker the page on each page turn.
-      if (existing.color === h.color) continue;
-      // The colour carries meaning (whether it reached Selfnote yet), so a change
-      // has to be repainted. epub.js has no recolour, so remove and re-add.
+      if (existing.color === h.color && Boolean(existing.pending) === Boolean(h.pending)) continue;
+      // The outline carries meaning (whether it reached Selfnote yet), and the
+      // fill follows the theme, so a change has to be repainted. epub.js has no
+      // recolour, so remove and re-add.
       try {
         rendition.annotations.remove(existing.cfi, "highlight");
       } catch (err) {
@@ -460,8 +473,12 @@ function applyHighlights(items: Highlight[]): void {
         h.cfi,
         { id: h.id },
         () => send({ type: "highlightTapped", id: h.id }),
-        "selfnote-highlight",
-        { fill: h.color || "#f6d365", "fill-opacity": "0.35" },
+        // The class lands on the mark's <g> in this document, where build.mjs
+        // gives a pending one its dashed accent outline.
+        h.pending ? "selfnote-highlight-pending" : "selfnote-highlight",
+        // The fill carries its own alpha. Normal blending, as multiply all but
+        // vanishes on a dark page.
+        { fill: h.color || "rgba(43, 68, 199, 0.22)", "fill-opacity": "1", "mix-blend-mode": "normal" },
       );
       drawn.set(h.id, h);
     } catch (err) {
@@ -747,9 +764,8 @@ async function handle(msg: Inbound): Promise<void> {
       return enqueue(() => applyFontSize(pct));
     }
     case "theme":
-      rendition?.themes.override("color", msg.mode === "dark" ? "#e8e4dc" : "#1b1b1b");
-      rendition?.themes.override("background", msg.mode === "dark" ? "#14110e" : "#faf5ef");
       document.documentElement.dataset.theme = msg.mode;
+      if (rendition) applyTheme(rendition);
       return;
   }
 }

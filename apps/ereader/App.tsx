@@ -5,11 +5,21 @@ import { Library } from "./src/Library";
 import { Reader } from "./src/Reader";
 import { listBooks, type Book } from "./src/db";
 import { loadConnection, type Connection } from "./src/selfnote";
+import { ThemeProvider, useTheme } from "./src/theme-context";
 import { readTour } from "./src/tour";
 
 type Screen = { name: "library" } | { name: "connect" } | { name: "reader"; book: Book };
 
 export default function App() {
+  return (
+    <ThemeProvider>
+      <Shell />
+    </ThemeProvider>
+  );
+}
+
+function Shell() {
+  const { isDark } = useTheme();
   const [books, setBooks] = useState<Book[]>([]);
   const [screen, setScreen] = useState<Screen>({ name: "library" });
   const [connection, setConnection] = useState<Connection | null>(null);
@@ -38,7 +48,7 @@ export default function App() {
 
   return (
     <>
-      <StatusBar style="dark" />
+      <StatusBar style={isDark ? "light" : "dark"} />
       {screen.name === "reader" ? (
         <Reader
           book={screen.book}
