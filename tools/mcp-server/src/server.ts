@@ -29,7 +29,7 @@ function isoDate(): string {
 }
 
 // Blank lines, then `# text` with an optional closing `#` run (ATX style).
-const LEADING_H1 = /^(?:[ \t]*\r?\n)*[ ]{0,3}# +(.*?)(?:[ \t]+#+)?[ \t]*(?:\r?\n|$)/;
+const LEADING_H1 = /^(?:[ \t]*\r?\n)*[ ]{0,3}#[ \t]+(.*?)(?:[ \t]+#+)?[ \t]*(?:\r?\n|$)/;
 
 /** The text of `markdown`'s leading H1, ignoring blank lines before it, if any. */
 function leadingH1(markdown: string): string | null {
@@ -40,12 +40,19 @@ function leadingH1(markdown: string): string | null {
 /**
  * A note body that opens with `# title`. A page has no title row of its own:
  * its first heading is what reads as the title, so an agent's body that also
- * starts with an H1 would put two titles on the page. That leading H1 is
- * dropped; any other first line (a `##`, a paragraph) is real content and stays.
+ * starts with the same H1 would put two titles on the page. That H1 is
+ * dropped; a different one is a section heading the agent wrote, so it is kept
+ * as `##`. A blank title writes no heading at all.
  */
 function titledBody(title: string, markdown = ""): string {
-  const rest = leadingH1(markdown) !== null ? markdown.replace(LEADING_H1, "") : markdown;
-  return `# ${title}\n\n${rest.trim()}\n`;
+  const heading = title.replace(/\s+/g, " ").trim();
+  const h1 = leadingH1(markdown);
+  let rest = markdown;
+  if (h1 !== null) {
+    const same = h1.replace(/\s+/g, " ").toLowerCase() === heading.toLowerCase();
+    rest = markdown.replace(LEADING_H1, same ? "" : `## ${h1}\n`);
+  }
+  return heading ? `# ${heading}\n\n${rest.trim()}\n` : `${rest.trim()}\n`;
 }
 
 /**
