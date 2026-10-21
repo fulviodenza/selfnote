@@ -28,6 +28,26 @@ function isoDate(): string {
   return new Date().toISOString().slice(0, 10);
 }
 
+// Blank lines, then `# text` with an optional closing `#` run (ATX style).
+const LEADING_H1 = /^(?:[ \t]*\r?\n)*[ ]{0,3}# +(.*?)(?:[ \t]+#+)?[ \t]*(?:\r?\n|$)/;
+
+/** The text of `markdown`'s leading H1, ignoring blank lines before it, if any. */
+function leadingH1(markdown: string): string | null {
+  const m = markdown.match(LEADING_H1);
+  return m && m[1].trim() ? m[1].trim() : null;
+}
+
+/**
+ * A note body that opens with `# title`. A page has no title row of its own:
+ * its first heading is what reads as the title, so an agent's body that also
+ * starts with an H1 would put two titles on the page. That leading H1 is
+ * dropped; any other first line (a `##`, a paragraph) is real content and stays.
+ */
+function titledBody(title: string, markdown = ""): string {
+  const rest = leadingH1(markdown) !== null ? markdown.replace(LEADING_H1, "") : markdown;
+  return `# ${title}\n\n${rest.trim()}\n`;
+}
+
 /**
  * Resolve the workspace a tool call should act on. Every workspace-scoped tool
  * takes an optional id so a user with one workspace (the common case) never has
@@ -141,9 +161,7 @@ export function buildServer(client: SelfnoteClient): McpServer {
         }
       }
       const doc = await client.createDocument(workspaceId, parent_note_id ?? null, title);
-      if (markdown && markdown.trim()) {
-        await client.setContent(doc.id, await markdownToUpdateBase64(markdown));
-      }
+      await client.setContent(doc.id, await markdownToUpdateBase64(titledBody(doc.title, markdown)));
       return {
         content: [
           {
@@ -172,7 +190,7 @@ export function buildServer(client: SelfnoteClient): McpServer {
     },
     async ({ summary, title, note_id, workspace_id }) => {
       const workspaceId = await resolveWorkspace(client, workspace_id);
-      const heading = title?.trim() || `Conversation summary ${isoDate()}`;
+      const heading = title?.trim() || leadingH1(summary) || `Conversation summary ${isoDate()}`;
 
       let parentId = note_id ?? null;
       let parentLabel = "the top level";
@@ -183,8 +201,7 @@ export function buildServer(client: SelfnoteClient): McpServer {
       }
 
       const doc = await client.createDocument(workspaceId, parentId, heading);
-      const body = `# ${heading}\n\n${summary.trim()}\n`;
-      await client.setContent(doc.id, await markdownToUpdateBase64(body));
+      await client.setContent(doc.id, await markdownToUpdateBase64(titledBody(heading, summary)));
 
       return {
         content: [
