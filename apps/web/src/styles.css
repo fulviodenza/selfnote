@@ -715,7 +715,12 @@ button.toggle.on {
   border-color: var(--accent);
 }
 
+/* Positioned so BlockNote's floating UI (table handles, the full-height add
+ * column button, the side menu), which it portals in here with
+ * position: absolute, is clipped to the pane instead of drawing over the top
+ * bar when its table is scrolled partly out of view. */
 .editor-scroll {
+  position: relative;
   flex: 1;
   overflow: auto;
   padding: 28px 0 96px;
